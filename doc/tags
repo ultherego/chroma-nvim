@@ -18,6 +18,9 @@ devops-nvim-lsp-dual	devops-nvim.txt	/*devops-nvim-lsp-dual*
 devops-nvim-lsp-helm	devops-nvim.txt	/*devops-nvim-lsp-helm*
 devops-nvim-requirements	devops-nvim.txt	/*devops-nvim-requirements*
 devops-nvim-rules	devops-nvim.txt	/*devops-nvim-rules*
+devops-nvim-terraform	devops-nvim.txt	/*devops-nvim-terraform*
+devops-nvim-terraform-plans	devops-nvim.txt	/*devops-nvim-terraform-plans*
+devops-nvim-terraform-safety	devops-nvim.txt	/*devops-nvim-terraform-safety*
 devops-nvim-treesitter	devops-nvim.txt	/*devops-nvim-treesitter*
 devops-nvim-troubleshooting	devops-nvim.txt	/*devops-nvim-troubleshooting*
 devops-nvim-ui	devops-nvim.txt	/*devops-nvim-ui*

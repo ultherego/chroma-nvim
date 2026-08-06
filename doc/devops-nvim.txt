@@ -22,9 +22,10 @@ CONTENTS                                                 *devops-nvim-contents*
  12. Linting ............................ |devops-nvim-linting|
  13. User interface ..................... |devops-nvim-ui|
  14. Ansible Vault ...................... |devops-nvim-vault|
- 15. Adding a plugin .................... |devops-nvim-adding|
- 16. Troubleshooting .................... |devops-nvim-troubleshooting|
- 17. Rules .............................. |devops-nvim-rules|
+ 15. Terraform .......................... |devops-nvim-terraform|
+ 16. Adding a plugin .................... |devops-nvim-adding|
+ 17. Troubleshooting .................... |devops-nvim-troubleshooting|
+ 18. Rules .............................. |devops-nvim-rules|
 
 ==============================================================================
 1. INTRODUCTION                                      *devops-nvim-introduction*
@@ -165,6 +166,14 @@ Project ~
 >
     <leader>pp   Projects
 <
+Terraform ~
+>
+    <leader>ti   Init          <leader>tp   Plan
+    <leader>tv   Validate      <leader>ta   Apply the reviewed plan
+    <leader>td   Discard the reviewed plan
+<
+`:TerraformPlanDestroy` has no mapping on purpose — see |devops-nvim-terraform|.
+
 Kubernetes ~
 >
     <leader>kk   Open the cluster view
@@ -315,7 +324,7 @@ Note that oil's upstream defaults for splitting and previewing are <C-s>,
 
 Groups not yet populated ~
 
-Terraform, AWS and Sessions are declared but still empty. The prefixes are
+AWS and Sessions are declared but still empty. The prefixes are
 reserved so that later layers cannot collide with what already exists.
 
 First run of the cluster view                       *devops-nvim-kubectl-first*
@@ -723,7 +732,61 @@ exclusions or avoid yanking out of a vault buffer.
 `:checkhealth ansible-vault` reports which of this applies to your setup.
 
 ==============================================================================
-15. ADDING A PLUGIN                                        *devops-nvim-adding*
+15. TERRAFORM                                           *devops-nvim-terraform*
+
+`lua/terraform/` is our own runner, deliberately thin. The survey found most of
+the originally planned scope already covered: formatting is conform's
+`terraform_fmt`, validation is tflint running as a language server. What was
+missing was running a plan and applying it without leaving the editor.
+
+The safety model                              *devops-nvim-terraform-safety*
+
+Naive runners call `terraform apply -auto-approve`, which applies a plan nobody
+read, computed at a moment nobody chose. This one cannot do that.
+>
+    1. :TerraformPlan   writes the plan to a file and shows it
+    2. you read it
+    3. :TerraformApply  applies THAT FILE
+<
+Terraform documents the consequence: passing a saved plan file to `apply` means
+"Terraform performs the operations in the saved plan without prompting you for
+confirmation" — the file is the approval. So apply never needs -auto-approve,
+and it cannot apply anything other than what was on screen. Drift between
+reading and applying is impossible.
+
+Destroy is not a separate, scarier command. `:TerraformPlanDestroy` produces a
+plan to read like any other, applied through the same step. Nothing in this
+plugin destroys anything without a plan having been reviewed first, and the
+confirmation for a destroy plan requires typing `destroy` — `yes` is rejected.
+Verified.
+
+Commands and keys ~
+>
+    :TerraformInit          <leader>ti
+    :TerraformValidate      <leader>tv
+    :TerraformPlan          <leader>tp
+    :TerraformApply         <leader>ta
+    :TerraformDiscard       <leader>td   throw away a reviewed plan
+    :TerraformPlanDestroy   no mapping, on purpose
+<
+Terragrunt is used automatically in any directory containing terragrunt.hcl,
+because running plain terraform there would ignore the generated configuration.
+
+Exit codes and plan files                        *devops-nvim-terraform-plans*
+
+`plan` runs with -detailed-exitcode, which distinguishes "no changes" (0) from
+"changes present" (2). With no changes the plan file is deleted immediately and
+you are told so, rather than being offered an empty apply.
+
+Plan files can quote sensitive variable values, so they are written to
+$XDG_RUNTIME_DIR — tmpfs, user-only — and chmod'ed to 0600 as soon as terraform
+has created them. Terraform writes them under the ambient umask; they came out
+0644 in testing, which is why this is done explicitly. They are removed after
+apply and on exiting Neovim. If XDG_RUNTIME_DIR is unset the plugin refuses to
+plan rather than writing one to persistent storage.
+
+==============================================================================
+16. ADDING A PLUGIN                                        *devops-nvim-adding*
 
 Before writing any configuration, do the reading. This is rule #1 and it is
 not decorative; see |devops-nvim-rules|.
@@ -741,7 +804,7 @@ not decorative; see |devops-nvim-rules|.
   7. Commit `lazy-lock.json` along with the change.
 
 ==============================================================================
-16. TROUBLESHOOTING                                *devops-nvim-troubleshooting*
+17. TROUBLESHOOTING                                *devops-nvim-troubleshooting*
 
 A language server is not attaching ~
 >
@@ -787,7 +850,7 @@ Plugins are in a strange state ~
     :Lazy sync        install, clean and update to match the specs
 <
 ==============================================================================
-17. RULES                                                   *devops-nvim-rules*
+18. RULES                                                   *devops-nvim-rules*
 
 Two rules govern this repository. `CONTRACT.md` is the full version.
 

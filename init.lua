@@ -16,3 +16,4 @@ require("config.lazy")
 -- only registers four user commands and three mappings, so there is nothing to
 -- gain from deferring it.
 require("ansible-vault").setup({ keymaps = true })
+require("terraform").setup({ keymaps = true })
