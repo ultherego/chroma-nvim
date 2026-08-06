@@ -1,0 +1,438 @@
+*devops-nvim.txt*   A Neovim environment built for DevOps work
+*devops-nvim*
+
+                        DevOps nVim ~
+
+                  The best Neovim environment for DevOps ~
+
+==============================================================================
+CONTENTS                                                 *devops-nvim-contents*
+
+  1. Introduction ......................... |devops-nvim-introduction|
+  2. Requirements ......................... |devops-nvim-requirements|
+  3. Installation ......................... |devops-nvim-installation|
+  4. Layout ............................... |devops-nvim-layout|
+  5. Keymaps .............................. |devops-nvim-keymaps|
+  6. Built-in Neovim keys ................. |devops-nvim-builtin-keys|
+  7. Zellij interoperability .............. |devops-nvim-zellij|
+  8. LSP .................................. |devops-nvim-lsp|
+  9. Treesitter ........................... |devops-nvim-treesitter|
+ 10. Completion ........................... |devops-nvim-completion|
+ 11. Adding a plugin ...................... |devops-nvim-adding|
+ 12. Troubleshooting ...................... |devops-nvim-troubleshooting|
+ 13. Rules ................................ |devops-nvim-rules|
+
+==============================================================================
+1. INTRODUCTION                                      *devops-nvim-introduction*
+
+DevOps nVim is a Neovim configuration for people who work with Terraform,
+Terragrunt, Kubernetes, Helm, Ansible, Docker and YAML, and who live inside a
+terminal rather than an IDE.
+
+It is not a general-purpose configuration with DevOps features bolted on.
+DevOps is the starting point, and choices are made accordingly: two-space
+indentation everywhere because a tab is a YAML parse error, schema validation
+for Kubernetes manifests, a Helm language server that actually attaches.
+
+The intended workflow is:
+>
+    Kitty -> Zellij -> Yazi -> Neovim
+<
+That last hop matters more than it looks. Zellij intercepts several control
+keys before Neovim sees them, and this configuration is built around that
+fact — see |devops-nvim-zellij|.
+
+==============================================================================
+2. REQUIREMENTS                                      *devops-nvim-requirements*
+
+Hard requirements ~
+
+  Neovim >= 0.12      This configuration uses the native LSP API
+                      (|vim.lsp.config|, |vim.lsp.enable|) and the rewritten
+                      nvim-treesitter, neither of which exists earlier.
+  git >= 2.19         Partial clones, required by lazy.nvim.
+  curl, tar           Parser and binary downloads.
+  A C compiler        Treesitter parser compilation.
+  tree-sitter-cli     >= 0.26.1, installed from your system package manager.
+                      The npm build is explicitly not supported upstream.
+
+Strongly recommended ~
+
+  ripgrep (rg)        Backend for grep pickers.
+  fd                  Required by project.nvim for session handling.
+  fzf > 0.36          Backend for every picker.
+  A Nerd Font         Icons in pickers, file trees and completion.
+  lazygit, yazi       Git UI and file manager integration.
+
+DevOps tooling, as needed ~
+
+  terraform or tofu, terragrunt, kubectl, helm, ansible, docker
+
+Language servers and linters are installed automatically by Mason and do not
+need to be present beforehand.
+
+==============================================================================
+3. INSTALLATION                                      *devops-nvim-installation*
+
+This repository is the Neovim configuration directory itself.
+>
+    git clone https://github.com/ultherego/dev-nvim.git ~/Projekty/DevOpsNvim
+    ln -s ~/Projekty/DevOpsNvim ~/.config/nvim
+    nvim
+<
+On first start lazy.nvim bootstraps itself, installs every plugin, and Mason
+installs the language servers and tools. Treesitter compiles its parsers in
+the background. Give the first run a minute.
+
+Verify afterwards: >
+
+    :Lazy                 plugin status
+    :Mason                language server and tool status
+    :checkhealth          everything at once
+<
+Trying it without committing ~
+
+To run this configuration side by side with an existing one, symlink it under
+a different name and use |$NVIM_APPNAME|: >
+
+    ln -s ~/Projekty/DevOpsNvim ~/.config/devops-nvim
+    NVIM_APPNAME=devops-nvim nvim
+<
+==============================================================================
+4. LAYOUT                                                  *devops-nvim-layout*
+>
+    init.lua                    entry point; leader keys, then the layers
+    lua/config/
+      options.lua               editor options
+      keymaps.lua               keymaps that need no plugin
+      lazy.lua                  plugin manager bootstrap
+    lua/plugins/
+      <domain>.lua              one file per domain, one domain per file
+    lua/devops/                 our own DevOps modules
+    after/lsp/
+      <server>.lua              per-server LSP overrides
+    doc/                        this file
+<
+The split is deliberate. Anything that belongs to a plugin — its keymaps, its
+options — is defined in that plugin's spec, not in a central keymap file. If
+you remove the plugin, its keys leave with it.
+
+`after/lsp/` is not decoration; it is how Neovim 0.12 layers LSP settings.
+See |devops-nvim-lsp|.
+
+==============================================================================
+5. KEYMAPS                                                *devops-nvim-keymaps*
+
+The leader key is <Space>. Every prefix is assigned exactly once, globally,
+and declared in one place (which-key's spec in `lua/plugins/ui.lua`) so that a
+collision shows up as a visible duplicate instead of a mapping that silently
+stops working.
+
+Press <Space> and wait: which-key lists what is available. `<leader>?` lists
+buffer-local mappings only.
+
+Groups ~
+>
+    <leader>f    Find            <leader>b    Buffers
+    <leader>p    Project         <leader>w    Windows
+    <leader>g    Git             <leader>s    Sessions
+    <leader>l    LSP             <leader>x    Tools
+    <leader>t    Terraform       <leader>k    Kubernetes
+    <leader>a    Ansible         <leader>A    AWS
+<
+Find ~
+>
+    <leader>ff   Files                    <leader>fh   Help tags
+    <leader>fg   Grep                     <leader>fk   Keymaps
+    <leader>fw   Word under cursor        <leader>fd   Diagnostics
+    <leader>fb   Buffers                  <leader>fr   Resume last picker
+    <leader>fo   Recent files
+    <leader>fe   File explorer (oil)
+    <leader>fy   Yazi at current file
+    <leader>fY   Yazi at working directory
+    <leader>ft   Resume last yazi session
+<
+Project ~
+>
+    <leader>pp   Projects
+<
+LSP ~
+>
+    <leader>li   LSP status (:checkhealth vim.lsp)
+    <leader>ls   Document symbols
+    <leader>lS   Workspace symbols
+    <leader>ld   Document diagnostics
+    <leader>lm   Mason
+<
+Rename, code action, references, implementation and type definition are
+Neovim built-ins and are not duplicated — see |devops-nvim-builtin-keys|.
+
+Buffers and windows ~
+>
+    <leader>bd   Delete buffer            <leader>ws   Split horizontally
+    <leader>bD   Delete buffer (force)    <leader>wv   Split vertically
+    <leader>bb   Previous buffer          <leader>wc   Close window
+                                          <leader>wo   Close other windows
+                                          <leader>w=   Equalise sizes
+<
+Editing, visual mode ~
+>
+    <leader>p    Paste without overwriting the register
+    J / K        Move the selection down / up, reindenting
+    < / >        Shift, keeping the selection
+<
+Outside the leader ~
+>
+    -            Open the parent directory in oil
+<
+Inside an oil buffer ~
+>
+    <CR>         Open                     g.           Toggle hidden files
+    -            Parent directory         gs           Change sort order
+    _            Open working directory   gx           Open externally
+    <C-v>        Open in vertical split   g\           Toggle trash
+    <C-x>        Open in horizontal split g?           Help
+    gp           Preview                  <C-l>        Refresh
+<
+Note that oil's upstream defaults for splitting and previewing are <C-s>,
+<C-h> and <C-p>. Those are unusable here; see |devops-nvim-zellij|.
+
+Groups not yet populated ~
+
+Git, Terraform, Kubernetes, Ansible, AWS, Sessions and Tools are declared but
+still empty. The prefixes are reserved so that later layers cannot collide
+with what already exists.
+
+==============================================================================
+6. BUILT-IN NEOVIM KEYS                             *devops-nvim-builtin-keys*
+
+Neovim 0.12 ships a large set of default mappings. This configuration does not
+redefine them, so they are listed here rather than being reinvented. See
+|default-mappings| for the authoritative list.
+>
+    gc, gcc      Comment a motion / the current line
+    ]d, [d       Next / previous diagnostic
+    ]q, [q       Next / previous quickfix entry
+    ]b, [b       Next / previous buffer
+    <C-l>        Clear search highlighting and redraw
+    K            Hover documentation
+    grn          Rename symbol
+    gra          Code action
+    grr          References
+    gri          Implementation
+    grt          Type definition
+    an, in       Treesitter incremental selection (visual mode)
+<
+This is why `lua/config/keymaps.lua` is short. Most of what a configuration
+traditionally maps by hand now exists in the editor.
+
+==============================================================================
+7. ZELLIJ INTEROPERABILITY                                 *devops-nvim-zellij*
+
+This is the part of the configuration that will confuse anyone reading it
+without context.
+
+Zellij binds mode switches to plain control keys in `shared_except "locked"`,
+which means it intercepts them in every mode, including while you are typing
+into Neovim. On the reference setup those keys are:
+>
+    Ctrl-g   lock mode          Ctrl-s   scroll mode
+    Ctrl-q   quit               Ctrl-t   tab mode
+    Ctrl-h   move mode          Ctrl-p   pane mode
+    Ctrl-o   session mode       Ctrl-n   resize mode
+    Ctrl-b   tmux mode
+<
+Alt is also largely taken: Alt-h/j/k/l move focus, Alt-f toggles floating
+panes, Alt-i/o move tabs, Alt-n opens a pane.
+
+Consequences you should know about ~
+
+Several Neovim built-ins are simply unavailable while Zellij is unlocked:
+Ctrl-h as backspace in insert mode, Ctrl-o for the jumplist, Ctrl-b for page
+up, Ctrl-t for the tag stack. No editor configuration can recover them.
+Press Ctrl-g to lock Zellij if you need them, or rebind Zellij's mode
+switches onto keys Neovim does not use.
+
+What this configuration does about it ~
+
+Every keymap it defines avoids those keys, and plugin defaults that landed on
+them were remapped rather than left silently dead:
+>
+    oil        <C-s> <C-h> <C-t> <C-p>  ->  <C-v> <C-x> gp
+    fzf-lua    ctrl-s                   ->  ctrl-x
+               alt-h alt-i alt-f        ->  alt-. alt-, alt-/
+    blink.cmp  <C-n> <C-p> <C-b>        ->  <C-j> <C-k> <C-u>/<C-d>
+<
+If you do not use Zellij, these remappings are harmless; the upstream keys
+mostly still work alongside them.
+
+==============================================================================
+8. LSP                                                        *devops-nvim-lsp*
+
+Neovim 0.12 configures language servers natively. The pattern found in most
+older guides is deprecated and will eventually error: >
+
+    require('lspconfig').terraformls.setup{}    " do not do this
+<
+nvim-lspconfig no longer configures anything. It ships `lsp/<name>.lua` files
+that Neovim discovers by itself; configuration happens through
+|vim.lsp.config| and |vim.lsp.enable|.
+
+Settings resolve in this order, each merging over the previous
+(see |lsp-config-merge|):
+>
+    1. vim.lsp.config('*', ...)                lowest
+    2. lsp/<name>.lua       on 'runtimepath'   from nvim-lspconfig
+    3. after/lsp/<name>.lua on 'runtimepath'   yours
+    4. vim.lsp.config('<name>', ...)           highest
+<
+So to change one setting of one server, add just that setting to
+`after/lsp/<server>.lua`. Everything upstream provides stays in place. For
+example `after/lsp/yamlls.lua` adds schemas while the upstream file's
+formatting and telemetry settings survive untouched.
+
+Servers installed ~
+
+terraformls, helm_ls, dockerls, docker_compose_language_service, yamlls,
+ansiblels, bashls, jsonls, lua_ls.
+
+Helm                                                  *devops-nvim-lsp-helm*
+
+Neovim does not detect the `helm` filetype on its own; a template next to
+`Chart.yaml` is seen as plain YAML. `helm_ls` only attaches to `helm` and
+`yaml.helm-values`, so without filetype detection it would never start, and
+`yamlls` would try to parse Go templates as YAML and fill the file with
+errors. The `vim-helm` plugin provides the detection.
+
+Tools that are also servers                          *devops-nvim-lsp-dual*
+
+`stylua` and `tflint` both ship an LSP mode, and nvim-lspconfig exposes
+configs for them. Installing either as a tool therefore also starts it as a
+language server.
+
+  stylua   excluded from `automatic_enable`, because formatting belongs to
+           conform.nvim.
+  tflint   kept as a server, so Terraform diagnostics arrive over LSP. The
+           lint layer must not register it with nvim-lint as well, or every
+           finding would be reported twice.
+
+==============================================================================
+9. TREESITTER                                          *devops-nvim-treesitter*
+
+nvim-treesitter maintains two incompatible branches. `master` targets Neovim
+0.11; `main` is a full rewrite and is what Neovim 0.12 should use. This
+configuration is on `main`, which means the familiar call
+>
+    require('nvim-treesitter.configs').setup({ highlight = { enable = true } })
+<
+does not apply — that module does not exist. Parsers are installed with
+`require('nvim-treesitter').install()` and highlighting starts per buffer via
+|vim.treesitter.start()|.
+
+Highlighting and folding are enabled for every filetype that has a parser.
+Indentation is deliberately left to Neovim's own indent scripts, which are
+mature for yaml, terraform, hcl, json, lua, bash, python and go.
+
+Commands: `:TSInstall`, `:TSUpdate`, `:TSUninstall`, `:TSLog`.
+
+==============================================================================
+10. COMPLETION                                         *devops-nvim-completion*
+
+blink.cmp, pinned to the v1 release line, which ships prebuilt Rust binaries
+so no cargo toolchain is needed.
+
+Inside the completion menu ~
+>
+    <C-space>    Show menu / toggle documentation
+    <C-j>        Next item              <C-k>   Previous item
+    <Down>       Next item              <Up>    Previous item
+    <C-y>        Accept                 <C-e>   Cancel
+    <C-d>        Scroll documentation down
+    <C-u>        Scroll documentation up
+    <C-l>        Toggle signature help
+    <Tab>        Snippet forward        <S-Tab> Snippet backward
+<
+Sources: LSP, paths, snippets, buffer. Snippets come from friendly-snippets.
+
+blink is loaded eagerly rather than on |InsertEnter|. It registers its
+completion capabilities through |vim.lsp.config|, so it has to be in place
+before the first language server attaches — otherwise servers start with the
+plain built-in capabilities and completion quietly degrades.
+
+==============================================================================
+11. ADDING A PLUGIN                                        *devops-nvim-adding*
+
+Before writing any configuration, do the reading. This is rule #1 and it is
+not decorative; see |devops-nvim-rules|.
+
+  1. Check the plugin is alive: last commit, open issues, whether upstream
+     points somewhere else. A plugin abandoned two years ago does not go in,
+     however many stars it has.
+  2. Read its current README and `doc/*.txt`, and its recent releases for
+     breaking changes. Assume anything written before Neovim 0.11 is stale.
+  3. Check whether something already installed does the job.
+  4. Add it to the matching `lua/plugins/<domain>.lua`, with its keymaps in
+     its own spec.
+  5. Check its default keymaps against |devops-nvim-zellij|.
+  6. Start Neovim, run `:Lazy sync`, then `:checkhealth`.
+  7. Commit `lazy-lock.json` along with the change.
+
+==============================================================================
+12. TROUBLESHOOTING                                *devops-nvim-troubleshooting*
+
+A language server is not attaching ~
+>
+    :checkhealth vim.lsp
+<
+Check "Enabled Configurations" and "Active Clients". If the server is enabled
+but not attached, the filetype is usually the reason — confirm with
+`:set filetype?`. If it is not enabled, check `:Mason` for whether it is
+installed.
+
+Syntax highlighting is missing for a filetype ~
+
+The parser is probably absent: >
+
+    :TSInstall <language>
+<
+`terraform` and `hcl` are built from the same upstream archive and can collide
+when the whole parser set installs at once. If either is missing after a fresh
+install, `:TSInstall terraform hcl` fixes it.
+
+Completion is poor or missing ~
+
+Confirm the server attached at all (above). If it did, check that blink loaded
+before it: `:Lazy` should show blink.cmp as loaded at startup, not lazily.
+
+A key does nothing ~
+
+If it is a control key, suspect Zellij first — see |devops-nvim-zellij|. Lock
+Zellij with Ctrl-g and try again; if the key then works, Zellij was eating it.
+
+Plugins are in a strange state ~
+>
+    :Lazy restore     return every plugin to the committed lockfile
+    :Lazy sync        install, clean and update to match the specs
+<
+==============================================================================
+13. RULES                                                   *devops-nvim-rules*
+
+Two rules govern this repository. `CONTRACT.md` is the full version.
+
+Rule #1 — zero code from memory ~
+
+For every plugin, in order: read the current documentation, check for breaking
+changes, and only then write configuration. This project exists because
+configurations written from memory kept landing on APIs that no longer
+existed. Everything in this configuration that surprised us — the deprecated
+lspconfig pattern, the treesitter branch split, mason-lspconfig dropping
+`setup_handlers`, Neovim shipping its own `catppuccin` colorscheme — would have
+been written wrong from memory.
+
+Rule #2 — survey before building ~
+
+Before writing a custom plugin, look at what already exists and judge it on
+activity, licence, documentation and fit. A worse plugin somebody else
+maintains beats a better one only we maintain, unless the gap is real.
+
+ vim:tw=78:ts=8:ft=help:norl:
