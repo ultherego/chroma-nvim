@@ -177,6 +177,32 @@ Buffers and windows ~
                                           <leader>wo   Close other windows
                                           <leader>w=   Equalise sizes
 <
+Git ~
+
+lazygit runs inside Neovim, themed from the active colourscheme: >
+
+    <leader>gg   Lazygit
+    <leader>gl   Lazygit log
+    <leader>gf   Lazygit file history
+    <leader>gc   Search commits by message
+    <leader>gC   Search commits touching this buffer
+<
+Hunk operations, buffer-local wherever gitsigns is attached: >
+
+    ]h  [h       Next / previous hunk
+    <leader>gs   Stage hunk, or unstage it if already staged
+    <leader>gr   Reset hunk
+    <leader>gS   Stage buffer          <leader>gR   Reset buffer
+    <leader>gp   Preview hunk inline
+    <leader>gb   Blame line            <leader>gB   Toggle inline blame
+    <leader>gd   Diff against index
+    ih           Hunk text object — `dih`, `vih`
+<
+`<leader>gs` and `<leader>gr` also work on a visual selection, staging or
+resetting only the selected lines.
+
+In a diff split, `]h` and `[h` defer to Neovim's own `]c` and `[c`.
+
 Tools ~
 >
     <leader>xf   Format buffer or selection   (also works in visual mode)
@@ -208,9 +234,21 @@ Note that oil's upstream defaults for splitting and previewing are <C-s>,
 
 Groups not yet populated ~
 
-Git, Terraform, Kubernetes, Ansible, AWS and Sessions are declared but still
-empty. The prefixes are reserved so that later layers cannot collide with what
-already exists.
+Terraform, Kubernetes, Ansible, AWS and Sessions are declared but still empty.
+The prefixes are reserved so that later layers cannot collide with what already
+exists.
+
+A note on gitsigns                                  *devops-nvim-git-api*
+
+The gitsigns keymap block reproduced in most guides calls functions upstream
+has since deprecated:
+>
+    next_hunk() / prev_hunk()   ->  nav_hunk('next') / nav_hunk('prev')
+    undo_stage_hunk()           ->  stage_hunk() on a staged sign; it toggles
+    toggle_deleted()            ->  preview_hunk_inline()
+<
+This configuration uses the current API. If you copy a mapping in from
+elsewhere, check it against `:help gitsigns` first.
 
 ==============================================================================
 6. BUILT-IN NEOVIM KEYS                             *devops-nvim-builtin-keys*

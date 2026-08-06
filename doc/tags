@@ -5,6 +5,7 @@ devops-nvim-completion	devops-nvim.txt	/*devops-nvim-completion*
 devops-nvim-contents	devops-nvim.txt	/*devops-nvim-contents*
 devops-nvim-formatting	devops-nvim.txt	/*devops-nvim-formatting*
 devops-nvim-formatting-tf	devops-nvim.txt	/*devops-nvim-formatting-tf*
+devops-nvim-git-api	devops-nvim.txt	/*devops-nvim-git-api*
 devops-nvim-installation	devops-nvim.txt	/*devops-nvim-installation*
 devops-nvim-introduction	devops-nvim.txt	/*devops-nvim-introduction*
 devops-nvim-keymaps	devops-nvim.txt	/*devops-nvim-keymaps*

@@ -110,7 +110,11 @@ One `plugins/*.lua` file = one domain. No junk-drawer files.
 
 ### Git
 - `gitsigns`
-- `lazygit.nvim`
+- lazygit through the `snacks.nvim` lazygit module. `kdheepak/lazygit.nvim`
+  is rejected: last push 2025-12, 52 open issues, and no colourscheme
+  integration. The snacks module generates a lazygit theme from the active
+  Neovim colourscheme, which is what the Catppuccin rule actually requires,
+  and snacks is on the plugin list already.
 
 ### LSP
 - `mason.nvim`
@@ -237,3 +241,4 @@ not an inconvenience.
 | 2026-08-06 | v1.0 — contract established | project start |
 | 2026-08-06 | Renamed UltherNvim → DevOps nVim; all project files switched to English; `lua/ulther/` → `lua/devops/` | owner decision |
 | 2026-08-06 | Added rule #2 (survey before building); dropped `kube.nvim` for `kubectl.nvim`; narrowed `terraform.nvim` to a plan/apply/destroy runner | plugin survey showed the planned scope was partly already solved |
+| 2026-08-06 | `lazygit.nvim` replaced by the `snacks.nvim` lazygit module | upstream stale and has no colourscheme integration; snacks was already a dependency |

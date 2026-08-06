@@ -33,7 +33,8 @@ Kitty → Zellij → Yazi → Neovim
 | Treesitter | done |
 | Formatting — conform.nvim | done |
 | Lint — nvim-lint | done |
-| Git, UI extras | not yet |
+| Git — gitsigns, lazygit via snacks | done |
+| UI extras | not yet |
 | `ansible-vault.nvim`, `terraform.nvim` | not yet |
 
 Startup is currently ~23 ms.
