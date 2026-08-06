@@ -65,34 +65,73 @@ Language servers and linters install themselves through Mason.
 
 ## Installation
 
+This repository **is** a Neovim configuration directory. It does not install
+into one — it becomes one.
+
+### Try it without touching your setup
+
+`$NVIM_APPNAME` makes Neovim use a different configuration directory, so this
+runs beside whatever you already have. Nothing is overwritten, and nothing is
+shared — plugins, sessions and Mason packages all live under the new name.
+
 ```sh
-git clone https://github.com/ultherego/dev-nvim.git ~/Projekty/DevOpsNvim
+git clone https://github.com/ultherego/dev-nvim.git ~/.config/devops-nvim
+NVIM_APPNAME=devops-nvim nvim
+```
 
-mkdir -p ~/.config
-# move any existing config out of the way first — ln will not replace a directory
+Keep it around with an alias in your shell config:
+
+```sh
+alias dvim='NVIM_APPNAME=devops-nvim nvim'        # bash / zsh
+alias --save dvim 'NVIM_APPNAME=devops-nvim nvim' # fish
+```
+
+### Adopt it as your main config
+
+Once you've decided. Move any existing config aside first — `ln -s` won't
+replace a directory, and you'll want the old one back if you change your mind.
+
+```sh
 [ -e ~/.config/nvim ] && mv ~/.config/nvim ~/.config/nvim.backup
-ln -s ~/Projekty/DevOpsNvim ~/.config/nvim
 
+git clone https://github.com/ultherego/dev-nvim.git ~/.config/nvim
 nvim
 ```
 
-First start bootstraps lazy.nvim, installs the plugins, and lets Mason fetch the
-language servers while treesitter compiles parsers. Give it a minute, then run:
+Prefer to keep the clone with your other projects and symlink it? That works
+too — nothing here depends on where the clone lives:
+
+```sh
+git clone https://github.com/ultherego/dev-nvim.git ~/src/devops-nvim
+mkdir -p ~/.config
+ln -s ~/src/devops-nvim ~/.config/nvim
+```
+
+### First start
+
+lazy.nvim bootstraps itself, installs the plugins, and Mason fetches the
+language servers while treesitter compiles parsers. Give it a minute, then:
 
 ```vim
 :checkhealth devops
 ```
 
-That reports which external programs are present and what stops working
-without each one — it is the fastest way to find out why something does
-nothing. `:Lazy`, `:Mason` and the full `:checkhealth` cover the rest.
+Read that one first. Most of this config drives external programs, and when
+one is missing the symptom is usually silence rather than an error — it tells
+you what's absent and what stops working without it. `:Lazy`, `:Mason` and the
+full `:checkhealth` cover the rest.
 
-To try it alongside an existing config instead:
+### Uninstalling
 
-```sh
-ln -s ~/Projekty/DevOpsNvim ~/.config/devops-nvim
-NVIM_APPNAME=devops-nvim nvim
+Nothing is installed outside these directories:
+
 ```
+~/.config/nvim        (or ~/.config/<appname>)
+~/.local/share/nvim   plugins, Mason packages, treesitter parsers
+~/.local/state/nvim   undo history, sessions, logs
+```
+
+Remove those, restore any backup you moved aside, and no trace remains.
 
 ## Keymaps
 
@@ -119,17 +158,29 @@ Neovim 0.12 already provides `gc`/`gcc`, `]d`/`[d`, `]b`/`[b`, `K`, `grn`, `gra`
 
 Full list: `:help devops-nvim-keymaps`
 
-## A word about Zellij
+## If you use Zellij
 
-Zellij binds mode switches to plain control keys and intercepts them before
-Neovim sees them — `Ctrl-g q h o b s t p n`, plus most of `Alt`. Several plugin
-defaults land squarely on those keys and would silently never fire.
+Skip this if you don't — the remappings below are harmless either way.
 
-This config remaps them: oil's `<C-s>`/`<C-h>`/`<C-t>`/`<C-p>`, fzf-lua's
+Zellij's defaults put mode switches on plain control keys and intercept them
+in every mode, including while you're typing into Neovim: `Ctrl-g q h o b s t
+p n`, plus most of `Alt`. Several plugin defaults land squarely on those keys
+and would silently never fire.
+
+This config remaps them — oil's `<C-s>`/`<C-h>`/`<C-t>`/`<C-p>`, fzf-lua's
 `ctrl-s` and `alt-h`/`alt-i`/`alt-f`, and blink.cmp's `<C-n>`/`<C-p>`/`<C-b>`.
+Without that, eleven mappings would do nothing at all, with no error to explain
+why — including next and previous completion item.
 
-If you do not use Zellij, none of this hurts you. Details and the full list:
-`:help devops-nvim-zellij`
+Check what your Zellij actually takes:
+
+```sh
+rg 'bind "Ctrl' ~/.config/zellij/config.kdl
+```
+
+Neovim's own `Ctrl-h` and `Ctrl-o` can't be recovered by any editor config —
+lock Zellij with `Ctrl-g` when you need them. Details: `:help
+devops-nvim-zellij`
 
 ## The two rules
 

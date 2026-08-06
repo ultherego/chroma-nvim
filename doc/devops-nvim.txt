@@ -80,32 +80,73 @@ need to be present beforehand.
 ==============================================================================
 3. INSTALLATION                                      *devops-nvim-installation*
 
-This repository is the Neovim configuration directory itself.
+This repository IS a Neovim configuration directory. It does not install into
+one — it becomes one.
+
+Try it first, without touching your setup ~
+
+|$NVIM_APPNAME| lets Neovim use a different configuration directory, so this
+can run beside whatever you already have. Nothing is overwritten and nothing
+is shared: plugins, sessions and Mason packages all live under the new name.
 >
-    git clone https://github.com/ultherego/dev-nvim.git ~/Projekty/DevOpsNvim
-    ln -s ~/Projekty/DevOpsNvim ~/.config/nvim
+    git clone https://github.com/ultherego/dev-nvim.git \
+        ~/.config/devops-nvim
+
+    NVIM_APPNAME=devops-nvim nvim
+<
+Keep it by aliasing that, in your shell's own config file: >
+
+    # bash / zsh
+    alias dvim='NVIM_APPNAME=devops-nvim nvim'
+
+    # fish
+    alias --save dvim 'NVIM_APPNAME=devops-nvim nvim'
+<
+Adopt it as your main configuration ~
+
+Only once you have decided. Move any existing configuration aside first —
+`ln -s` will not replace a directory, and you will want the old one back if
+you change your mind: >
+
+    [ -e ~/.config/nvim ] && mv ~/.config/nvim ~/.config/nvim.backup
+
+    git clone https://github.com/ultherego/dev-nvim.git ~/.config/nvim
     nvim
 <
-On first start lazy.nvim bootstraps itself, installs every plugin, and Mason
-installs the language servers and tools. Treesitter compiles its parsers in
-the background. Give the first run a minute.
+If you would rather keep the clone with your other projects and link it — so
+that `git status` in it behaves like any other repository — that works too: >
 
-Verify afterwards: >
+    git clone https://github.com/ultherego/dev-nvim.git ~/src/devops-nvim
+    mkdir -p ~/.config
+    ln -s ~/src/devops-nvim ~/.config/nvim
+<
+Nothing in the configuration depends on where the clone lives.
 
-    :checkhealth devops   this config's own check: external tools, kubeconfig,
-                          terminal integration
+The first start ~
+
+lazy.nvim bootstraps itself, installs every plugin, and Mason fetches the
+language servers and tools while treesitter compiles its parsers. Give it a
+minute. Then: >
+
+    :checkhealth devops   external tools this config expects, and what stops
+                          working without each one
     :Lazy                 plugin status
     :Mason                language server and tool status
     :checkhealth          everything at once
 <
-Trying it without committing ~
+`:checkhealth devops` is the one to read first. Most of this configuration
+drives external programs, and when one is missing the symptom is usually
+silence rather than an error.
 
-To run this configuration side by side with an existing one, symlink it under
-a different name and use |$NVIM_APPNAME|: >
+Going back ~
 
-    ln -s ~/Projekty/DevOpsNvim ~/.config/devops-nvim
-    NVIM_APPNAME=devops-nvim nvim
+Nothing is installed outside these directories: >
+
+    ~/.config/nvim          or ~/.config/<appname>
+    ~/.local/share/nvim     plugins, Mason packages, treesitter parsers
+    ~/.local/state/nvim     undo history, sessions, logs
 <
+Removing those, and restoring any backup you moved aside, leaves no trace.
 ==============================================================================
 4. LAYOUT                                                  *devops-nvim-layout*
 >
@@ -116,6 +157,9 @@ a different name and use |$NVIM_APPNAME|: >
       lazy.lua                  plugin manager bootstrap
     lua/plugins/
       <domain>.lua              one file per domain, one domain per file
+    lua/ansible-vault/          our own plugin — :help devops-nvim-vault
+    lua/terraform/              our own runner — :help devops-nvim-terraform
+    lua/aws/                    our own module — :help devops-nvim-aws
     lua/devops/
       health.lua                :checkhealth devops
     stylua.toml, selene.toml    lint configuration for our own Lua
@@ -393,9 +437,15 @@ traditionally maps by hand now exists in the editor.
 This is the part of the configuration that will confuse anyone reading it
 without context.
 
-Zellij binds mode switches to plain control keys in `shared_except "locked"`,
-which means it intercepts them in every mode, including while you are typing
-into Neovim. On the reference setup those keys are:
+If you do not use Zellij, skip this section — the remappings it describes are
+harmless, and the upstream keys they replace mostly keep working alongside
+them. Nothing here needs undoing.
+
+The problem ~
+
+Zellij's default keybindings put mode switches on plain control keys inside a
+`shared_except "locked"` block, which means they are intercepted in every mode
+— including while you are typing into Neovim. A stock configuration takes:
 >
     Ctrl-g   lock mode          Ctrl-s   scroll mode
     Ctrl-q   quit               Ctrl-t   tab mode
@@ -403,29 +453,43 @@ into Neovim. On the reference setup those keys are:
     Ctrl-o   session mode       Ctrl-n   resize mode
     Ctrl-b   tmux mode
 <
-Alt is also largely taken: Alt-h/j/k/l move focus, Alt-f toggles floating
+Alt is largely taken too: Alt-h/j/k/l move focus, Alt-f toggles floating
 panes, Alt-i/o move tabs, Alt-n opens a pane.
 
-Consequences you should know about ~
+Check yours rather than trusting the list: >
 
-Several Neovim built-ins are simply unavailable while Zellij is unlocked:
-Ctrl-h as backspace in insert mode, Ctrl-o for the jumplist, Ctrl-b for page
-up, Ctrl-t for the tag stack. No editor configuration can recover them.
-Press Ctrl-g to lock Zellij if you need them, or rebind Zellij's mode
-switches onto keys Neovim does not use.
+    rg 'bind "Ctrl' ~/.config/zellij/config.kdl
+<
+With no config.kdl, Zellij is on its defaults and the list above applies.
 
-What this configuration does about it ~
+What it costs ~
 
-Every keymap it defines avoids those keys, and plugin defaults that landed on
-them were remapped rather than left silently dead:
+Several Neovim built-ins become unreachable while Zellij is unlocked: Ctrl-h
+as backspace in insert mode, Ctrl-o for the jumplist, Ctrl-b for page up,
+Ctrl-t for the tag stack. No editor configuration can recover them — the key
+never arrives.
+
+Three ways out, in increasing order of effort:
+
+  - Press Ctrl-g to lock Zellij while you need them, and again to unlock.
+  - Move Zellij's mode switches onto a prefix Neovim does not use.
+  - Accept it. The keys this configuration defines all avoid them anyway.
+
+What this configuration does ~
+
+No keymap defined here uses a captured key, and plugin defaults that landed on
+one were remapped rather than left silently dead:
 >
     oil        <C-s> <C-h> <C-t> <C-p>  ->  <C-v> <C-x> gp
     fzf-lua    ctrl-s                   ->  ctrl-x
                alt-h alt-i alt-f        ->  alt-. alt-, alt-/
     blink.cmp  <C-n> <C-p> <C-b>        ->  <C-j> <C-k> <C-u>/<C-d>
 <
-If you do not use Zellij, these remappings are harmless; the upstream keys
-mostly still work alongside them.
+Without this, four oil mappings, four in fzf-lua and three in blink — including
+next and previous completion item — would do nothing at all, with no error to
+explain why.
+
+`:checkhealth devops` reports whether you are inside Zellij.
 
 ==============================================================================
 8. LSP                                                        *devops-nvim-lsp*

@@ -30,9 +30,9 @@ return {
       keymap = {
         preset = "default",
 
-        -- Three keys in the default preset never reach Neovim, because the
-        -- local Zellij captures them: <C-n> (resize mode), <C-p> (pane mode)
-        -- and <C-b> (tmux mode). In the default preset those are precisely
+        -- Three keys in the default preset never reach Neovim under Zellij's
+        -- default keybindings, which capture <C-n> (resize mode), <C-p> (pane
+        -- mode) and <C-b> (tmux mode). In the default preset those are precisely
         -- next item, previous item and scroll-documentation-up — the keys used
         -- most while completing. They are left bound (they are inert, not
         -- harmful) and working alternatives are added on Zellij-free keys.

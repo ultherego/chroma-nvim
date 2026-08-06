@@ -3,10 +3,11 @@
 -- Every plugin here was checked for activity before being written in
 -- (contract rule #2). One rejection is recorded below.
 --
--- A recurring theme in this file: the local Zellij config captures
+-- A recurring theme in this file: Zellij's default keybindings capture
 -- Ctrl g/q/h/o/b/s/t/p/n and Alt f/h/i/j/k/l/n/o/p in `shared_except "locked"`,
 -- so those never reach Neovim. Several plugins here ship defaults that land
 -- exactly on those keys, and are remapped rather than left silently dead.
+-- Harmless if you do not use Zellij; see :help devops-nvim-zellij.
 
 return {
   -- Shared icon provider. Chosen once for the whole config: oil.nvim
@@ -29,7 +30,7 @@ return {
     end,
   },
 
-  -- fzf-lua: requires fzf > 0.36 (local: 0.74.2) and Neovim >= 0.9.
+  -- fzf-lua: requires fzf > 0.36 and Neovim >= 0.9.
   {
     "ibhagwan/fzf-lua",
     cmd = "FzfLua",
@@ -41,7 +42,8 @@ return {
       local actions = require("fzf-lua.actions")
       return {
         -- Profile from the README. "fzf-native" uses fzf's own previewer with
-        -- bat (present locally) rather than a Lua previewer buffer.
+        -- bat rather than a Lua previewer buffer, so bat is a requirement of
+        -- this profile. :checkhealth devops reports whether it is present.
         "fzf-native",
         actions = {
           files = {
@@ -115,8 +117,8 @@ return {
   },
 
   -- yazi.nvim: the full-screen file manager from the contract's workflow.
-  -- Local yazi is 26.5.6. open_for_directories stays false (its default) so
-  -- oil keeps directory buffers and yazi is only ever opened deliberately.
+  -- open_for_directories stays false (its default) so oil keeps directory
+  -- buffers and yazi is only ever opened deliberately.
   {
     "mikavilpas/yazi.nvim",
     version = "*",
@@ -144,8 +146,8 @@ return {
   --
   -- The original has had no commit since August 2024, carries 96 open issues
   -- and calls deprecated APIs; upstream itself points at this fork. Requires
-  -- Neovim >= 0.11 (local: 0.12.4) and fd (present). Licence differs from
-  -- upstream: GPL-2.0 rather than Apache-2.0.
+  -- Neovim >= 0.11 and fd. Licence differs from upstream: GPL-2.0 rather
+  -- than Apache-2.0.
   {
     "DrKJeff16/project.nvim",
     event = "VeryLazy",

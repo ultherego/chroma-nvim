@@ -15,9 +15,9 @@
 -- require('nvim-treesitter').install(), and highlighting is switched on per
 -- buffer with vim.treesitter.start().
 --
--- Local prerequisites, all verified present: tree-sitter-cli 0.26.9 (upstream
--- requires >= 0.26.1 and specifically not the npm build — this one comes from
--- pacman), a C compiler, tar and curl.
+-- Prerequisites: tree-sitter-cli >= 0.26.1, installed from a system package
+-- manager and specifically not from npm, plus a C compiler, tar and curl.
+-- :checkhealth devops reports which of these are missing.
 --
 -- Neovim 0.12 already bundles parsers for c, lua, markdown, markdown_inline,
 -- query, vim and vimdoc. They are still listed below so that :TSUpdate keeps

@@ -164,9 +164,11 @@ Terraform · Terragrunt · Helm · Docker · Kubernetes · YAML · Ansible
 ## Operational decisions
 
 - **Repo:** `https://github.com/ultherego/dev-nvim.git`
-- **Deployment:** `~/.config/nvim` → symlink to the repo working tree.
-  Editing the repo takes effect in Neovim immediately.
-- **Terraform:** the stack also covers `terragrunt` (`/usr/local/bin/terragrunt`).
+- **Deployment:** the repository is itself a Neovim configuration directory.
+  Clone it to `~/.config/nvim`, or clone it anywhere and symlink — nothing
+  depends on the location. `README.md` covers both, plus the `$NVIM_APPNAME`
+  route for running it beside an existing configuration.
+- **Terraform:** the stack also covers `terragrunt`.
 - **Language:** all project files — docs, comments, commit messages — are in English.
 
 ---
