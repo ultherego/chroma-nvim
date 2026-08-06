@@ -159,6 +159,34 @@ Project ~
 >
     <leader>pp   Projects
 <
+Kubernetes ~
+>
+    <leader>kk   Open the cluster view
+    <leader>kt   Open it in a new tab
+    <leader>kx   Switch context
+    <leader>kn   Switch namespace
+<
+Inside a cluster view, navigation is hierarchical — deployment, pod,
+container — with `<CR>` to descend and `<BS>` to go back. `gd` describes,
+`gl` shows logs, `gS` opens a shell, `gy` shows YAML, `ge` edits, `gD`
+deletes, `gP` lists port-forwards, and `1`-`6` jump straight to deployments,
+pods, configmaps, secrets, services and ingresses.
+
+Three of the plugin's defaults are remapped because Zellij eats them: >
+
+    picker            <C-p>  ->  <C-e>
+    namespace view    <C-n>  ->  gn
+    toggle headers    <M-h>  ->  gH
+<
+Ansible ~
+>
+    <leader>ar   Run the playbook or role (also on a visual selection)
+<
+Playbooks, roles, `group_vars`, `host_vars`, `defaults`, `tasks`, `handlers`
+and `molecule` files are detected as `yaml.ansible`. That filetype is what
+activates ansible-lint and the ansiblels language server, and it also points
+`K` at `ansible-doc`.
+
 LSP ~
 >
     <leader>li   LSP status (:checkhealth vim.lsp)
@@ -273,9 +301,20 @@ Note that oil's upstream defaults for splitting and previewing are <C-s>,
 
 Groups not yet populated ~
 
-Terraform, Kubernetes, Ansible, AWS and Sessions are declared but still empty.
-The prefixes are reserved so that later layers cannot collide with what already
-exists.
+Terraform, AWS and Sessions are declared but still empty. The prefixes are
+reserved so that later layers cannot collide with what already exists.
+
+First run of the cluster view                       *devops-nvim-kubectl-first*
+
+kubectl.nvim uses a prebuilt Rust binary, downloaded on first use rather than
+at install time. The first `<leader>kk` therefore reports
+>
+    [Kubectl.nvim] Downloading binary; restart Neovim to apply.
+<
+and does nothing else. Restart Neovim once and it works from then on. This is
+expected, not a fault.
+
+It also needs a working kubeconfig — without one there is no cluster to show.
 
 A note on gitsigns                                  *devops-nvim-git-api*
 
