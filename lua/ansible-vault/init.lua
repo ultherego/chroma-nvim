@@ -302,18 +302,30 @@ function M.reveal()
   show(plaintext, block.key or "vault")
 end
 
----Encrypts the visual selection in place, as an inline `!vault` value.
-function M.encrypt_selection()
+---Encrypts a range of lines in place, as an inline `!vault` value.
+---
+---@param opts table|nil the user-command options; requires a range
+function M.encrypt_selection(opts)
   local buf = vim.api.nvim_get_current_buf()
 
-  -- '< and '> are only set once the selection has been left, which is the case
-  -- by the time a command or <cmd> mapping runs.
-  local first = vim.fn.line("'<")
-  local last = vim.fn.line("'>")
-  if first == 0 then
-    vim.notify("No visual selection", vim.log.levels.WARN)
+  -- The range comes from the command, NOT from the '< and '> marks.
+  --
+  -- Those marks outlive the selection that set them. Reading them meant that
+  -- invoking this from normal mode encrypted whatever had last been selected,
+  -- wherever the cursor happened to be — silently encrypting the wrong lines,
+  -- which in a secrets tool leaves the value you meant to protect in the clear
+  -- and hides an unrelated one. Verified: cursor on line 4, an old selection on
+  -- line 2, and line 2 was the one encrypted.
+  --
+  -- Pressing `:` in visual mode inserts the range, so the visual-mode mapping
+  -- still works exactly as before.
+  if not opts or (opts.range or 0) == 0 then
+    vim.notify("VaultEncrypt needs a range — select the lines first, or use :N,MVaultEncrypt", vim.log.levels.WARN)
     return
   end
+
+  local first = opts.line1
+  local last = opts.line2
 
   local lines = vim.api.nvim_buf_get_lines(buf, first - 1, last, false)
   local plaintext = table.concat(lines, "\n")

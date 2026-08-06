@@ -718,7 +718,7 @@ this configuration and can be moved to its own repository unchanged.
 Commands ~
 >
     :VaultReveal       show the value under the cursor, file untouched
-    :VaultEncrypt      encrypt the visual selection in place
+    :VaultEncrypt      encrypt the selected lines in place (needs a range)
     :VaultEncryptFile  encrypt the whole buffer
     :VaultDecryptFile  decrypt the whole buffer in place
     :VaultView         read an encrypted file without decrypting the buffer

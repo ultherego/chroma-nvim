@@ -202,6 +202,40 @@ T["block_at"]["returns nothing for a !vault tag with no ciphertext"] = function(
 end
 
 -- ---------------------------------------------------------------------------
+-- Encrypting a range, not whatever was selected last
+-- ---------------------------------------------------------------------------
+
+T["encrypt_selection"] = new_set()
+
+local capture_notify = function(fn)
+  local notified
+  local original = vim.notify
+  vim.notify = function(msg)
+    notified = msg
+  end
+  pcall(fn)
+  vim.notify = original
+  return notified
+end
+
+T["encrypt_selection"]["refuses without a range"] = function()
+  -- It used to read the '< and '> marks, which outlive the selection that set
+  -- them. Invoking it from normal mode then encrypted whatever had last been
+  -- selected, wherever the cursor was — leaving the value you meant to protect
+  -- in the clear and encrypting an unrelated one instead.
+  local notified = capture_notify(require("ansible-vault").encrypt_selection)
+  eq(type(notified), "string")
+  eq(notified:find("needs a range") ~= nil, true)
+end
+
+T["encrypt_selection"]["refuses when the range is empty"] = function()
+  local notified = capture_notify(function()
+    require("ansible-vault").encrypt_selection({ range = 0, line1 = 1, line2 = 1 })
+  end)
+  eq(notified:find("needs a range") ~= nil, true)
+end
+
+-- ---------------------------------------------------------------------------
 -- setup() options actually take effect
 -- ---------------------------------------------------------------------------
 
