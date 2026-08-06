@@ -1,7 +1,11 @@
 # DevOps nVim — Contract v1.0
 
-The governing document. Changing it requires a deliberate decision and an entry
-in the *Contract changes* section.
+The governing document: what this configuration is. Changing it requires a
+deliberate decision and an entry in the *Contract changes* section.
+
+`DECISIONS.md` is the companion: **why** each choice was made, what was
+rejected, and what would change it — including the things deliberately left
+out.
 
 ---
 

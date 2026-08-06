@@ -20,6 +20,8 @@ Kitty → Zellij → Yazi → Neovim
 ```
 
 **Full documentation lives in the editor:** `:help devops-nvim`
+**Why it is like this:** [`DECISIONS.md`](./DECISIONS.md) — the reasoning behind
+every choice, and what is deliberately absent
 
 ## Status
 
@@ -195,7 +197,8 @@ Every one of those would have been written wrong from memory.
 plugin, and judge it on activity, licence and fit. A worse plugin somebody else
 maintains beats a better one only you maintain — unless the gap is real.
 
-Full terms: [`CONTRACT.md`](./CONTRACT.md)
+Full terms: [`CONTRACT.md`](./CONTRACT.md) · reasoning:
+[`DECISIONS.md`](./DECISIONS.md)
 
 ## Tests
 

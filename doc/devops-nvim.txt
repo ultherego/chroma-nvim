@@ -1001,6 +1001,11 @@ lspconfig pattern, the treesitter branch split, mason-lspconfig dropping
 `setup_handlers`, Neovim shipping its own `catppuccin` colorscheme — would have
 been written wrong from memory.
 
+Both rules, and the reasoning behind every other choice in this configuration,
+are written up in `DECISIONS.md` at the repository root — including what is
+deliberately absent and why. Read that before changing something that looks
+odd; most odd-looking things here are load-bearing.
+
 Rule #2 — survey before building ~
 
 Before writing a custom plugin, look at what already exists and judge it on
