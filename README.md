@@ -39,7 +39,9 @@ Kitty → Zellij → Yazi → Neovim
 | DevOps — kubectl.nvim, nvim-ansible | done |
 | `ansible-vault.nvim`, `terraform.nvim` | not yet |
 
-Startup is currently ~25 ms with 32 plugins.
+Startup is ~25 ms with 32 plugins, measured locally with
+`nvim --headless --startuptime` on CachyOS; treat it as an indication, not a
+promise for your machine.
 
 > **Note:** Terraform formatting needs the `terraform` CLI on your PATH.
 > terraform-ls is not a substitute — it shells out to `terraform fmt` itself.
@@ -50,7 +52,7 @@ Startup is currently ~25 ms with 32 plugins.
 - **Neovim ≥ 0.12** — uses the native LSP API and the rewritten nvim-treesitter
 - `git ≥ 2.19`, `curl`, `tar`, a C compiler
 - `tree-sitter-cli ≥ 0.26.1` **from your system package manager**, not npm
-- `ripgrep`, `fd`, `fzf > 0.36`
+- `ripgrep`, `fd`, `fzf > 0.36`, `bat` (used by fzf-lua's `fzf-native` preview profile)
 - A Nerd Font
 - Optional but assumed: `lazygit`, `yazi`
 - DevOps tooling as needed: `terraform`/`tofu`, `terragrunt`, `kubectl`, `helm`, `ansible`
@@ -61,7 +63,12 @@ Language servers and linters install themselves through Mason.
 
 ```sh
 git clone https://github.com/ultherego/dev-nvim.git ~/Projekty/DevOpsNvim
+
+mkdir -p ~/.config
+# move any existing config out of the way first — ln will not replace a directory
+[ -e ~/.config/nvim ] && mv ~/.config/nvim ~/.config/nvim.backup
 ln -s ~/Projekty/DevOpsNvim ~/.config/nvim
+
 nvim
 ```
 

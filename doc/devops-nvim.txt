@@ -111,7 +111,7 @@ a different name and use |$NVIM_APPNAME|: >
       lazy.lua                  plugin manager bootstrap
     lua/plugins/
       <domain>.lua              one file per domain, one domain per file
-    lua/devops/                 our own DevOps modules
+    lua/devops/                 planned — our own DevOps modules
     after/lsp/
       <server>.lua              per-server LSP overrides
     doc/                        this file
@@ -197,7 +197,9 @@ LSP ~
     <leader>lt   References and definitions in a panel (trouble)
     <leader>lm   Mason
 <
-Inside the outline window, `{` and `}` jump between symbols.
+Inside a buffer with the outline attached, `[s` and `]s` jump between
+symbols. Upstream's example uses `{` and `}`, which are Neovim's paragraph
+motions — taking those would remove a core movement from every source buffer.
 
 Rename, code action, references, implementation and type definition are
 Neovim built-ins and are not duplicated — see |devops-nvim-builtin-keys|.
@@ -496,12 +498,17 @@ Formatters by filetype ~
     hcl                 terragrunt_hclfmt
     sh, bash            shfmt
     json                jq
-    yaml, helm, docker  the language server
+    yaml, dockerfile    the language server
 <
 Anything without an entry falls through to the language server, because
-`lsp_format` is set to "fallback". YAML depends on that deliberately: yamlls
-formats manifests correctly, and adding an opinionated YAML formatter on top
-would only create noise in Kubernetes diffs.
+`lsp_format` is set to "fallback". Verified by reading
+`documentFormattingProvider` off the attached client: yamlls and dockerls both
+report `true`, so YAML and Dockerfiles really are covered. helm_ls reports
+`nil` — Helm templates are formatted by nothing, and a YAML formatter could
+not safely handle Go templates interleaved with YAML anyway.
+
+Adding an opinionated YAML formatter on top of yamlls would only create noise
+in Kubernetes diffs.
 
 Terraform needs the terraform CLI               *devops-nvim-formatting-tf*
 
@@ -517,10 +524,12 @@ That is a machine prerequisite; no editor configuration can work around it.
 
 Turning it off ~
 >
-    :FormatDisable      stop formatting on save
+    :FormatDisable      stop formatting on save, globally
+    :FormatEnable       resume, globally
     :FormatDisable!     stop, for the current buffer only
-    :FormatEnable       resume
-    <leader>xF          toggle
+    :FormatEnable!      resume, for the current buffer only
+    <leader>xF          toggle globally
+    <leader>xb          toggle for this buffer
 <
 Useful when editing a repository whose formatting you do not want to churn.
 
@@ -530,10 +539,10 @@ Useful when editing a repository whose formatting you do not want to churn.
 nvim-lint covers what the language servers do not. It runs on write, on read,
 and on leaving insert mode; `<leader>xl` runs it immediately.
 >
-    yaml            yamllint
-    dockerfile      hadolint
-    yaml.ansible    ansible_lint
-    GitHub Actions  actionlint
+    yaml            yamllint      fast — also runs on leaving insert mode
+    dockerfile      hadolint      fast — also runs on leaving insert mode
+    yaml.ansible    ansible_lint  on write and on demand only
+    GitHub Actions  actionlint    on write and on demand only
 <
 GitHub Actions workflows keep the plain `yaml` filetype rather than getting one
 of their own. Giving them a dedicated filetype would take them out of yamlls's

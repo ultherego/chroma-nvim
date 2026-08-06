@@ -53,12 +53,16 @@ on that API, not on patterns from the 0.9/0.10 era. Any tutorial older than
 
 ## Structure
 
+The tree below is the **target**. Files appear as the layer that needs them
+lands; `lua/devops/` and `config/autocmds.lua` do not exist yet, because
+nothing has needed them. `README.md` carries the per-layer status.
+
 ```
 ~/.config/nvim
 ├── init.lua
 ├── lua
 │   ├── config
-│   │   ├── autocmds.lua
+│   │   ├── autocmds.lua          (planned)
 │   │   ├── commands.lua
 │   │   ├── keymaps.lua
 │   │   ├── lazy.lua
@@ -74,7 +78,7 @@ on that API, not on patterns from the 0.9/0.10 era. Any tutorial older than
 │   │   ├── lint.lua
 │   │   ├── editing.lua
 │   │   └── devops.lua
-│   └── devops
+│   └── devops                    (planned — our own modules)
 │       ├── ansible.lua
 │       ├── kubernetes.lua
 │       ├── terraform.lua
@@ -189,8 +193,8 @@ installs anyway:
 
 | Originally planned | Actually provided by |
 |---|---|
-| `fmt` | conform.nvim (`terraform_fmt`, `terragrunt_hclfmt`, `tofu_fmt`, `hcl`) |
-| `validate` | nvim-lint (`terraform_validate`, `tflint`) |
+| `fmt` | conform.nvim `terraform_fmt`, and `terragrunt_hclfmt` for terragrunt files. Requires the `terraform` CLI — the LSP is not a fallback, it shells out to `terraform fmt` itself. |
+| `validate` | `tflint`, running as a language server. It is deliberately **not** registered with nvim-lint as well; that would double every finding. |
 | `init` | one-off in practice; the terminal is fine |
 
 What remains is a `plan` / `apply` / `destroy` runner. Existing options were

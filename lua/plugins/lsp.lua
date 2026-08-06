@@ -105,17 +105,34 @@ return {
         "jsonls",
         "lua_ls",
       },
-      -- Calls vim.lsp.enable() for installed servers. Replaces the removed
-      -- setup_handlers() mechanism.
+      -- An explicit allow-list, not `true` and not an exclude list.
       --
-      -- stylua is excluded deliberately. It is installed above as a conform
-      -- formatter, but nvim-lspconfig also ships an lsp/stylua.lua (stylua has
-      -- a `--lsp` mode), so automatic_enable would otherwise start it as a
-      -- language server on every Lua buffer and have it compete with conform
-      -- for formatting. Verified: without this, `stylua` attaches alongside
-      -- lua_ls.
+      -- `automatic_enable = true` enables every server Mason has installed,
+      -- including ones installed by hand months ago for an unrelated project.
+      -- That silently widens what runs without any change to this repository,
+      -- and can produce duplicate diagnostics from competing servers. Naming
+      -- the list means the set of servers is a property of the config rather
+      -- than of whatever happens to be in the Mason directory.
+      --
+      -- tflint is on the list on purpose: it ships an LSP mode, and Terraform
+      -- diagnostics arrive through it. That is why plugins/lint.lua must not
+      -- also register tflint with nvim-lint.
+      --
+      -- stylua is NOT on the list even though it is installed. It is a conform
+      -- formatter here, but nvim-lspconfig also ships lsp/stylua.lua, and an
+      -- unrestricted automatic_enable starts it as a language server on every
+      -- Lua buffer where it competes with conform. Verified.
       automatic_enable = {
-        exclude = { "stylua" },
+        "terraformls",
+        "tflint",
+        "helm_ls",
+        "dockerls",
+        "docker_compose_language_service",
+        "yamlls",
+        "ansiblels",
+        "bashls",
+        "jsonls",
+        "lua_ls",
       },
     },
     config = function(_, opts)

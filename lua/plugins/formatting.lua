@@ -5,10 +5,19 @@
 -- One deliberate design point: `lsp_format = "fallback"`. Where no dedicated
 -- formatter is configured, conform hands the job to the language server.
 --
--- YAML, helm and dockerfile rely on this and it was verified to work: yamlls
--- ships with formatting enabled and reformats a manifest correctly. Installing
--- an opinionated YAML formatter on top would only produce noisy diffs in
--- Kubernetes manifests.
+-- Verified by inspecting documentFormattingProvider on the attached client:
+--
+--   yamlls    true   reformats a manifest correctly
+--   dockerls  true
+--   helm_ls   nil    does NOT format
+--
+-- So YAML and Dockerfiles are genuinely covered by their servers, and Helm
+-- templates are simply not formatted by anything. An earlier version of this
+-- comment claimed helm was covered; it was not, and Go templates interleaved
+-- with YAML are not something a YAML formatter could safely handle anyway.
+--
+-- Installing an opinionated YAML formatter on top of yamlls would only produce
+-- noisy diffs in Kubernetes manifests.
 --
 -- What the fallback does NOT do is rescue a missing binary. terraform_fmt
 -- needs the `terraform` CLI, and terraform-ls is not a substitute — it shells
@@ -34,9 +43,18 @@ return {
         terraform = { "terraform_fmt" },
         ["terraform-vars"] = { "terraform_fmt" },
 
-        -- In this stack a bare .hcl file is almost always Terragrunt, and
-        -- terragrunt is installed locally.
-        hcl = { "terragrunt_hclfmt" },
+        -- `hcl` is not a synonym for Terragrunt: Packer, Nomad, Vault and
+        -- Consul all use the same filetype, and running terragrunt's
+        -- formatter over their files is not something to do by default.
+        -- Restricted to files terragrunt actually owns; everything else falls
+        -- through to the language server, or to nothing.
+        hcl = function(bufnr)
+          local name = vim.fs.basename(vim.api.nvim_buf_get_name(bufnr))
+          if name == "terragrunt.hcl" or name == "terragrunt.stack.hcl" then
+            return { "terragrunt_hclfmt" }
+          end
+          return {}
+        end,
 
         sh = { "shfmt" },
         bash = { "shfmt" },
@@ -72,13 +90,22 @@ return {
       {
         "<leader>xF",
         function()
-          if vim.g.disable_autoformat then
-            vim.cmd("FormatEnable")
-          else
-            vim.cmd("FormatDisable")
+          -- Reflects the state that actually applies to this buffer, which is
+          -- the local flag when one is set and the global one otherwise.
+          local off = vim.b.disable_autoformat
+          if off == nil then
+            off = vim.g.disable_autoformat
           end
+          vim.cmd(off and "FormatEnable" or "FormatDisable")
         end,
-        desc = "Toggle format on save",
+        desc = "Toggle format on save (global)",
+      },
+      {
+        "<leader>xb",
+        function()
+          vim.cmd(vim.b.disable_autoformat and "FormatEnable!" or "FormatDisable!")
+        end,
+        desc = "Toggle format on save (this buffer)",
       },
       { "<leader>xi", "<cmd>ConformInfo<cr>", desc = "Formatter info" },
     },

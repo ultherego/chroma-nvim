@@ -128,8 +128,14 @@ return {
         resize_to_content = true,
       },
       on_attach = function(buf)
-        vim.keymap.set("n", "{", "<cmd>AerialPrev<cr>", { buffer = buf, desc = "Previous symbol" })
-        vim.keymap.set("n", "}", "<cmd>AerialNext<cr>", { buffer = buf, desc = "Next symbol" })
+        -- Upstream's example binds `{` and `}` here. Those are Neovim's
+        -- paragraph motions, and aerial attaches to ordinary source buffers,
+        -- so taking them would remove a core movement everywhere the outline
+        -- is active — the opposite of what the contract asks for. `[s` and
+        -- `]s` follow the bracket-motion convention instead and shadow only
+        -- spell-check navigation, which is off in this config.
+        vim.keymap.set("n", "[s", "<cmd>AerialPrev<cr>", { buffer = buf, desc = "Previous symbol" })
+        vim.keymap.set("n", "]s", "<cmd>AerialNext<cr>", { buffer = buf, desc = "Next symbol" })
       end,
     },
     keys = {

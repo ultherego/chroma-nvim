@@ -36,6 +36,16 @@ require("lazy").setup({
   -- Tracked in git, so the plugin set is reproducible across machines.
   lockfile = vim.fn.stdpath("config") .. "/lazy-lock.json",
 
+  -- SECURITY. lazy.nvim defaults this to true, which makes it load a
+  -- project-local `.lazy.lua` from whatever directory Neovim was started in.
+  -- That file is Lua: it can declare `init`, `config` and `build` hooks, so
+  -- opening a repository you did not write could execute its code or install
+  -- plugins of its choosing.
+  --
+  -- This config is used to read other people's infrastructure repositories all
+  -- day, which is exactly the situation where that is unacceptable.
+  local_spec = false,
+
   install = {
     missing = true,
     -- Used only while plugins are still installing on first start. habamax is

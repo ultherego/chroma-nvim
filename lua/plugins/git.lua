@@ -27,8 +27,12 @@ return {
       signs = {
         add = { text = "▎" },
         change = { text = "▎" },
-        delete = { text = "" },
-        topdelete = { text = "" },
+        -- Deleted lines have no line of their own to mark, so they are drawn
+        -- on the boundary. Leaving these empty — as an earlier version did —
+        -- makes deletions completely invisible in the sign column: additions
+        -- and changes show, and removals silently do not.
+        delete = { text = "▁" },
+        topdelete = { text = "▔" },
         changedelete = { text = "▎" },
         untracked = { text = "▎" },
       },
