@@ -92,10 +92,12 @@ One `plugins/*.lua` file = one domain. No junk-drawer files.
 ## Plugins
 
 ### Navigation
-- `project.nvim`
+- `DrKJeff16/project.nvim` — the maintained fork. `ahmedkhalf/project.nvim`
+  is rejected: no commit since August 2024, 96 open issues, deprecated API calls.
 - `fzf-lua`
 - `oil.nvim`
 - `yazi.nvim`
+- `mini.icons` — the single icon provider for the whole config
 
 ### UI
 - `catppuccin`
