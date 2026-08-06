@@ -109,6 +109,15 @@ end
 ---@param opts table              { auth, stdin, cwd }
 ---@return string|nil stdout, string|nil err
 local function run(args, opts)
+  -- Asserted rather than trusted. A buffer number reached this as `cwd` once,
+  -- because a caller was changed to pass a buffer while the function it called
+  -- still took a directory. vim.system rejected it, but the rejection arrived
+  -- as a notification about ansible failing, which sent the search in entirely
+  -- the wrong direction. A contract violation should look like one.
+  if opts.cwd ~= nil and type(opts.cwd) ~= "string" then
+    error(("ansible-vault.cli: cwd must be a string or nil, got %s"):format(type(opts.cwd)), 2)
+  end
+
   if vim.fn.executable("ansible-vault") ~= 1 then
     return nil, "ansible-vault not found — is ansible installed and on PATH?"
   end

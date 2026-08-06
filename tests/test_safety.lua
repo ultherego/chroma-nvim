@@ -113,6 +113,39 @@ T["is_encrypted"]["says no for an empty buffer"] = function()
 end
 
 -- ---------------------------------------------------------------------------
+-- Where ansible.cfg is looked for
+-- ---------------------------------------------------------------------------
+
+T["context_dir"] = new_set()
+
+T["context_dir"]["returns a string for a buffer"] = function()
+  -- The regression this guards against: callers were changed to pass a buffer
+  -- while the function they called still took a directory, so a buffer number
+  -- reached vim.system as its cwd. It failed as a notification about ansible
+  -- rather than as a type error, which hid it completely.
+  local r = with_lines({ "---" }, function(buf)
+    return require("ansible-vault")._test.context_dir(buf)
+  end)
+  eq(type(r), "string")
+end
+
+T["context_dir"]["falls back to the working directory for an unnamed buffer"] = function()
+  local r = with_lines({}, function(buf)
+    return require("ansible-vault")._test.context_dir(buf)
+  end)
+  eq(r, vim.fn.getcwd())
+end
+
+T["context_dir"]["rejects a non-string cwd at the process boundary"] = function()
+  -- The other half of the same guard: even if a caller gets it wrong again,
+  -- the failure should look like a contract violation, not like ansible.
+  local cli = require("ansible-vault.cli")
+  MiniTest.expect.error(function()
+    cli.decrypt_string("$ANSIBLE_VAULT;1.1;AES256", { cwd = 7 })
+  end, "cwd must be a string")
+end
+
+-- ---------------------------------------------------------------------------
 -- Finding the inline !vault block under the cursor
 -- ---------------------------------------------------------------------------
 

@@ -53,9 +53,18 @@ local function context_dir(buf)
   return found and vim.fs.dirname(found) or start
 end
 
+--- Takes a BUFFER, not a directory.
+---
+--- It used to take a directory, and when the callers were changed to pass a
+--- buffer the signature was not. Every call then handed a buffer number to
+--- vim.system as its cwd, which fails with "cwd option must be string" — and
+--- since the failure surfaced as a notification rather than an exception, it
+--- looked like an ansible problem rather than a wrong argument. Typed and named
+--- so the mistake cannot repeat silently.
+---@param buf integer|nil
 ---@return ansible_vault.Auth|nil, string|nil err
-local function auth_for(cwd)
-  cwd = cwd or context_dir()
+local function auth_for(buf)
+  local cwd = context_dir(buf)
 
   if resolved_cache[cwd] == nil then
     local resolved, err = vault_config.resolve(cwd)
@@ -675,6 +684,7 @@ end
 M._test = {
   block_at = block_at,
   is_encrypted = is_encrypted,
+  context_dir = context_dir,
 }
 
 ---@param opts ansible_vault.Opts|nil
