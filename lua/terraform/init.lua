@@ -155,10 +155,25 @@ local function show(lines, title)
   vim.bo[buf].modifiable = false
   vim.bo[buf].filetype = "terraform-plan"
 
+  -- Focus is deliberately left where it was.
+  --
+  -- These windows open from an async callback. A plan can take a minute, and
+  -- the natural thing to do meanwhile is edit another file — at which point a
+  -- split that grabs the cursor sends your keystrokes into a non-modifiable
+  -- scratch buffer without warning. Verified: it did exactly that.
+  --
+  -- The output is visible either way; `q` closes it once you move to it.
+  local previous = vim.api.nvim_get_current_win()
+
   vim.cmd("botright split")
-  vim.api.nvim_win_set_buf(0, buf)
-  vim.api.nvim_win_set_height(0, math.min(#lines + 1, math.floor(vim.o.lines * 0.6)))
-  vim.wo.winbar = title
+  local win = vim.api.nvim_get_current_win()
+  vim.api.nvim_win_set_buf(win, buf)
+  vim.api.nvim_win_set_height(win, math.min(#lines + 1, math.floor(vim.o.lines * 0.6)))
+  vim.wo[win].winbar = title
+
+  if vim.api.nvim_win_is_valid(previous) then
+    vim.api.nvim_set_current_win(previous)
+  end
 
   vim.keymap.set("n", "q", "<cmd>close<cr>", { buffer = buf, nowait = true, desc = "Close" })
 end

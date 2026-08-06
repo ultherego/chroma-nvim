@@ -485,6 +485,17 @@ slower earlier plan could overwrite the newer one that had just been read, and
 apply would then execute something other than what was on screen — breaking the
 one guarantee the module exists to make.
 
+### Command output never steals the cursor
+
+**Decision.** The plan and apply windows open without taking focus.
+
+**Why.** They open from an async callback. A plan can take a minute, and the
+natural thing to do meanwhile is edit another file — at which point a split
+that grabs the cursor sends your keystrokes into a non-modifiable scratch
+buffer with no warning. Verified that it did exactly that before the change.
+
+The output is visible either way; `q` closes it once you move to it.
+
 ### Plan files are tightened after terraform writes them
 
 **Decision.** `chmod 0600` as soon as the file exists.
