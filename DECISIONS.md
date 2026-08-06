@@ -479,6 +479,36 @@ module exists to avoid.
 This is not a compromise ansible itself avoids: a vault password file on disk
 is the normal, documented setup.
 
+### Writes follow symlinks
+
+**Decision.** The atomic write resolves the path before renaming onto it.
+
+**Why.** `rename()` replaces whatever name it is given. Handed a symlink it
+deletes the link and leaves a regular file, while the file the link pointed at
+keeps its old contents — the write appears to succeed and the real vault
+silently stays stale. Shared secrets linked into `group_vars` are a common
+enough layout for this to matter. Verified before and after.
+
+Hard links are not covered: `rename` breaks those too, and detecting them would
+mean writing in place, which is exactly what the atomic write exists to avoid.
+
+### Concurrent edits are detected, since the usual protections were removed
+
+**Decision.** The file's mtime and size are recorded when it is decrypted and
+compared before every write.
+
+**Why.** Hardening these buffers removed both of Neovim's defences against two
+editors clobbering each other. `noswapfile` takes away the "found a swap file"
+warning, and taking over the write with `BufWriteCmd` bypasses the "file has
+changed since editing started" check. Verified that a second writer landing
+between read and write had its change silently overwritten.
+
+Recording the state at read restores the protection without a swap file full of
+plaintext. The remembered state is refreshed after each successful write —
+without that the guard fires on the next save and the buffer becomes
+unsaveable, which is a worse failure than the one it prevents. That mistake was
+made and caught in testing.
+
 ### Registers and `shada` are out of scope, and said so
 
 **Decision.** Yanking a revealed secret puts it in a register, and `shada`

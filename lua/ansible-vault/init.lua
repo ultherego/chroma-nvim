@@ -364,6 +364,42 @@ function M.encrypt_selection(opts)
   vim.notify(("Encrypted %s"):format(key or "selection"), vim.log.levels.INFO)
 end
 
+--- Remembers what the file looked like when we read it.
+---
+--- Vault buffers have 'noswapfile', so Neovim's "found a swap file" warning is
+--- gone, and taking over the write with BufWriteCmd also bypasses its "file has
+--- changed since editing started" check. Both protections against two editors
+--- clobbering each other were therefore absent — verified by having a second
+--- writer land between read and write: its change vanished with no warning.
+---
+--- Recording mtime and size at read, and comparing before write, restores that
+--- protection without a swap file full of plaintext.
+---@param buf integer
+local function remember_file_state(buf)
+  local stat = vim.uv.fs_stat(vim.api.nvim_buf_get_name(buf))
+  vim.b[buf].ansible_vault_stat = stat and { mtime = stat.mtime.sec, size = stat.size } or nil
+end
+
+---@param buf integer
+---@return string|nil description of the change
+local function file_changed_since_read(buf)
+  local remembered = vim.b[buf].ansible_vault_stat
+  if not remembered then
+    return nil
+  end
+
+  local stat = vim.uv.fs_stat(vim.api.nvim_buf_get_name(buf))
+  if not stat then
+    return "the file has been removed"
+  end
+
+  if stat.mtime.sec ~= remembered.mtime or stat.size ~= remembered.size then
+    return "the file has changed on disk since it was read"
+  end
+
+  return nil
+end
+
 --- Replaces a file's contents without ever leaving it truncated.
 ---
 --- Opening the target with "w" truncates it before the first byte is written,
@@ -379,7 +415,21 @@ end
 ---@param contents string
 ---@return boolean ok, string|nil err
 local function write_atomically(path, contents)
-  local tmp = ("%s.ansible-vault.nvim.%d.tmp"):format(path, vim.uv.os_getpid())
+  -- Follow the symlink first.
+  --
+  -- rename() replaces whatever name it is given. Handed a symlink, it deletes
+  -- the link and leaves a regular file in its place, while the file the link
+  -- pointed at keeps its old contents — so the write appears to succeed and
+  -- the real vault silently stays stale. Verified: a link to real/vars.yml
+  -- became a regular file and real/vars.yml never saw the change.
+  --
+  -- That layout is not exotic; shared secrets are routinely linked into
+  -- group_vars.
+  --
+  -- Hard links are not covered: rename breaks those too, and detecting them
+  -- would mean writing in place, which is what this function exists to avoid.
+  local target = vim.uv.fs_realpath(path) or path
+  local tmp = ("%s.ansible-vault.nvim.%d.tmp"):format(target, vim.uv.os_getpid())
 
   local fd, open_err = vim.uv.fs_open(tmp, "wx", tonumber("600", 8))
   if not fd then
@@ -413,7 +463,7 @@ local function write_atomically(path, contents)
     return false, close_err or "close failed"
   end
 
-  local renamed, rename_err = vim.uv.fs_rename(tmp, path)
+  local renamed, rename_err = vim.uv.fs_rename(tmp, target)
   if not renamed then
     pcall(vim.uv.fs_unlink, tmp)
     return false, rename_err or "rename failed"
@@ -502,6 +552,7 @@ function M.decrypt_file()
   -- ordinary write, and the vault is replaced by its cleartext — while the
   -- message below promises the opposite. The writer is what makes that promise
   -- true, which is why it lives outside the transparent-editing option.
+  remember_file_state(buf)
   M.attach_writer(buf)
 
   vim.notify("Decrypted buffer — it will be re-encrypted on write", vim.log.levels.INFO)
@@ -613,6 +664,17 @@ function M.attach_writer(buf)
         return
       end
 
+      local changed = file_changed_since_read(ev.buf)
+      if changed then
+        vim.notify(
+          ("Refusing to write: %s.\n"):format(changed)
+            .. "Another editor or process has touched it since this buffer was read. "
+            .. "Use :edit! to discard your changes and reload, or :saveas to keep them elsewhere.",
+          vim.log.levels.ERROR
+        )
+        return
+      end
+
       local auth, err = auth_for(ev.buf)
       if not auth then
         vim.notify(err or "cancelled", vim.log.levels.ERROR)
@@ -639,6 +701,11 @@ function M.attach_writer(buf)
       end
 
       vim.bo[ev.buf].modified = false
+      -- Our own write changes mtime and size, so the remembered state has to
+      -- move with it. Without this the guard fires on the very next save and
+      -- the buffer becomes unsaveable — a worse failure than the one it exists
+      -- to prevent.
+      remember_file_state(ev.buf)
       vim.notify(("Encrypted and wrote %s"):format(vim.fn.fnamemodify(path, ":t")), vim.log.levels.INFO)
     end,
   })
@@ -682,6 +749,7 @@ local function enable_transparent_editing()
 
       vim.api.nvim_buf_set_lines(ev.buf, 0, -1, false, vim.split(plaintext:gsub("\n$", ""), "\n"))
       vim.bo[ev.buf].modified = false
+      remember_file_state(ev.buf)
       M.attach_writer(ev.buf)
 
       -- Filetype was detected against ciphertext, so it is worth another look
@@ -694,6 +762,8 @@ end
 --- Internals exposed for the test suite only. Not part of the public API and
 --- not covered by any compatibility promise.
 M._test = {
+  remember_file_state = remember_file_state,
+  file_changed_since_read = file_changed_since_read,
   block_at = block_at,
   is_encrypted = is_encrypted,
   context_dir = context_dir,

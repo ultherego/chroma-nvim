@@ -202,6 +202,68 @@ T["block_at"]["returns nothing for a !vault tag with no ciphertext"] = function(
 end
 
 -- ---------------------------------------------------------------------------
+-- Noticing that the file changed underneath us
+-- ---------------------------------------------------------------------------
+
+T["file_changed_since_read"] = new_set()
+
+local with_file = function(contents, fn)
+  local path = vim.fn.tempname()
+  vim.fn.writefile(vim.split(contents, "\n"), path)
+
+  local buf = vim.api.nvim_create_buf(true, false)
+  vim.api.nvim_buf_set_name(buf, path)
+
+  local ok, result = pcall(fn, buf, path)
+
+  vim.api.nvim_buf_delete(buf, { force = true })
+  os.remove(path)
+  assert(ok, result)
+  return result
+end
+
+local vault = function()
+  return require("ansible-vault")._test
+end
+
+T["file_changed_since_read"]["says nothing when the file is untouched"] = function()
+  local r = with_file("one\ntwo", function(buf)
+    vault().remember_file_state(buf)
+    return vault().file_changed_since_read(buf)
+  end)
+  eq(r, nil)
+end
+
+T["file_changed_since_read"]["notices a changed size"] = function()
+  -- Vault buffers carry 'noswapfile' and a BufWriteCmd, which between them
+  -- remove both of Neovim's protections against two editors clobbering each
+  -- other. This is the replacement, so it has to actually fire.
+  local r = with_file("one\ntwo", function(buf, path)
+    vault().remember_file_state(buf)
+    vim.fn.writefile({ "one", "two", "three", "four" }, path)
+    return vault().file_changed_since_read(buf)
+  end)
+  eq(type(r), "string")
+end
+
+T["file_changed_since_read"]["notices a removed file"] = function()
+  local r = with_file("one", function(buf, path)
+    vault().remember_file_state(buf)
+    os.remove(path)
+    return vault().file_changed_since_read(buf)
+  end)
+  eq(r, "the file has been removed")
+end
+
+T["file_changed_since_read"]["says nothing when no state was remembered"] = function()
+  -- Buffers this plugin never decrypted must write normally.
+  local r = with_file("one", function(buf)
+    return vault().file_changed_since_read(buf)
+  end)
+  eq(r, nil)
+end
+
+-- ---------------------------------------------------------------------------
 -- Encrypting a range, not whatever was selected last
 -- ---------------------------------------------------------------------------
 
