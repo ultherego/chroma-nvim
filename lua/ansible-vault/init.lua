@@ -58,7 +58,11 @@ local function auth_for(cwd)
     -- run in the directory where that ansible.cfg applies.
     return {
       cwd = cwd,
-      identities = resolved.identities,
+      -- Deliberately NOT `identities`: cli.auth_args turns that field into
+      -- --vault-id arguments, which is exactly what the paragraph above says
+      -- must not happen. Named differently so the two cannot be confused
+      -- again — it exists only so encrypt_identity_for can offer a choice.
+      configured_identities = resolved.identities,
       encrypt_identity = resolved.encrypt_identity,
     }
   end
@@ -84,7 +88,7 @@ local function encrypt_identity_for(auth)
     return auth.encrypt_identity
   end
 
-  local ids = auth.identities or {}
+  local ids = auth.configured_identities or {}
   if #ids < 2 then
     return nil
   end
@@ -318,6 +322,64 @@ function M.encrypt_selection()
   vim.notify(("Encrypted %s"):format(key or "selection"), vim.log.levels.INFO)
 end
 
+--- Replaces a file's contents without ever leaving it truncated.
+---
+--- Opening the target with "w" truncates it before the first byte is written,
+--- so a crash, a full disk or a killed process between those two moments
+--- destroys the vault. Writing a sibling temporary file and renaming over the
+--- target makes the replacement atomic: on any POSIX filesystem the target is
+--- either the old contents or the new ones, never nothing.
+---
+--- Short writes and close failures are also checked. The previous version
+--- ignored both return values and reported success regardless, which is how a
+--- half-written vault would have been announced as saved.
+---@param path string
+---@param contents string
+---@return boolean ok, string|nil err
+local function write_atomically(path, contents)
+  local tmp = ("%s.ansible-vault.nvim.%d.tmp"):format(path, vim.uv.os_getpid())
+
+  local fd, open_err = vim.uv.fs_open(tmp, "wx", tonumber("600", 8))
+  if not fd then
+    return false, ("could not create %s: %s"):format(tmp, open_err or "unknown error")
+  end
+
+  local function fail(message)
+    vim.uv.fs_close(fd)
+    pcall(vim.uv.fs_unlink, tmp)
+    return false, message
+  end
+
+  local written, write_err = vim.uv.fs_write(fd, contents)
+  if not written then
+    return fail(write_err or "write failed")
+  end
+  if written < #contents then
+    return fail(("short write: %d of %d bytes"):format(written, #contents))
+  end
+
+  -- Without this the rename can land before the data does, leaving an empty
+  -- file where a vault used to be.
+  local synced, sync_err = vim.uv.fs_fsync(fd)
+  if synced == nil then
+    return fail(sync_err or "fsync failed")
+  end
+
+  local closed, close_err = vim.uv.fs_close(fd)
+  if not closed then
+    pcall(vim.uv.fs_unlink, tmp)
+    return false, close_err or "close failed"
+  end
+
+  local renamed, rename_err = vim.uv.fs_rename(tmp, path)
+  if not renamed then
+    pcall(vim.uv.fs_unlink, tmp)
+    return false, rename_err or "rename failed"
+  end
+
+  return true
+end
+
 --- Keeps a decrypted document from being written anywhere except back into the
 --- vault. The buffer stays a real file buffer so `:w` still means what it
 --- normally means; what changes is that nothing persists in clear.
@@ -325,10 +387,15 @@ end
 local function harden_file_buffer(buf)
   vim.bo[buf].undofile = false
   vim.bo[buf].swapfile = false
-  -- 'backup' and 'writebackup' are global-local; setting them buffer-locally
-  -- stops a plaintext copy being left beside the vault while it is written.
   vim.bo[buf].modeline = false
   vim.b[buf].ansible_vault_plain = true
+
+  -- 'backup' and 'writebackup' are NOT touched here: both are global options,
+  -- and `vim.bo[buf].backup = false` raises "'buf' cannot be passed for global
+  -- option". They do not need touching either — M.attach_writer takes over the
+  -- write through BufWriteCmd, so Neovim's backup machinery never runs for
+  -- this buffer. That makes attaching the writer a security requirement, not a
+  -- convenience; see M.decrypt_file.
 end
 
 ---Encrypts the whole current buffer and writes the ciphertext to its file.
@@ -388,6 +455,13 @@ function M.decrypt_file()
 
   harden_file_buffer(buf)
   vim.api.nvim_buf_set_lines(buf, 0, -1, false, vim.split(plaintext:gsub("\n$", ""), "\n"))
+
+  -- Not optional. Without this the buffer holds plaintext, `:w` performs an
+  -- ordinary write, and the vault is replaced by its cleartext — while the
+  -- message below promises the opposite. The writer is what makes that promise
+  -- true, which is why it lives outside the transparent-editing option.
+  M.attach_writer(buf)
+
   vim.notify("Decrypted buffer — it will be re-encrypted on write", vim.log.levels.INFO)
 end
 
@@ -469,13 +543,68 @@ function M.rekey_file()
   vim.notify("Rekeyed " .. vim.fn.fnamemodify(path, ":t"), vim.log.levels.INFO)
 end
 
+--- The augroup for per-buffer write hooks. Separate from the transparent
+--- editing group, because a writer must survive `transparent = false` — a
+--- buffer decrypted by :VaultDecryptFile needs re-encrypting on write no
+--- matter how the plugin was configured.
+local writer_group = vim.api.nvim_create_augroup("ansible_vault_writer", { clear = true })
+
+-- Registered per buffer, at the moment that buffer is decrypted.
+--
+-- An earlier version attached this to every buffer and fell back to an
+-- ordinary write for the rest. That intercepts every `:write` in the editor,
+-- and it broke immediately: writing a scratch buffer produced an error from
+-- inside this plugin. A BufWriteCmd is a takeover of the write command; it
+-- has no business existing on buffers this plugin does not own.
+---@param buf integer
+function M.attach_writer(buf)
+  vim.api.nvim_create_autocmd("BufWriteCmd", {
+    group = writer_group,
+    buffer = buf,
+    callback = function(ev)
+      if not vim.b[ev.buf].ansible_vault_plain then
+        -- The buffer was decrypted once but is no longer ours — for instance
+        -- :VaultEncryptFile re-encrypted it. Write it verbatim.
+        local path = vim.api.nvim_buf_get_name(ev.buf)
+        vim.fn.writefile(vim.api.nvim_buf_get_lines(ev.buf, 0, -1, false), path)
+        vim.bo[ev.buf].modified = false
+        return
+      end
+
+      local auth, err = auth_for()
+      if not auth then
+        vim.notify(err or "cancelled", vim.log.levels.ERROR)
+        return
+      end
+
+      local ciphertext, encrypt_err = cli.encrypt_document(buffer_text(ev.buf), {
+        auth = auth,
+        cwd = auth.cwd,
+        encrypt_identity = encrypt_identity_for(auth),
+      })
+      if not ciphertext then
+        vim.notify(encrypt_err, vim.log.levels.ERROR)
+        return
+      end
+
+      local path = vim.api.nvim_buf_get_name(ev.buf)
+      local ok, write_err = write_atomically(path, ciphertext)
+      if not ok then
+        -- The buffer stays modified on purpose: the user's work is still only
+        -- in memory, and marking it saved would invite closing Neovim on it.
+        vim.notify(("Could not write %s: %s"):format(path, write_err), vim.log.levels.ERROR)
+        return
+      end
+
+      vim.bo[ev.buf].modified = false
+      vim.notify(("Encrypted and wrote %s"):format(vim.fn.fnamemodify(path, ":t")), vim.log.levels.INFO)
+    end,
+  })
+end
+
 ---Decrypts vault files as they are opened and re-encrypts them on write.
 local function enable_transparent_editing()
   local group = vim.api.nvim_create_augroup("ansible_vault_transparent", { clear = true })
-
-  -- Forward declaration: the reader attaches the writer once a buffer has
-  -- actually been decrypted.
-  local attach_writer
 
   vim.api.nvim_create_autocmd("BufReadPost", {
     group = group,
@@ -511,66 +640,13 @@ local function enable_transparent_editing()
 
       vim.api.nvim_buf_set_lines(ev.buf, 0, -1, false, vim.split(plaintext:gsub("\n$", ""), "\n"))
       vim.bo[ev.buf].modified = false
-      attach_writer(ev.buf)
+      M.attach_writer(ev.buf)
 
       -- Filetype was detected against ciphertext, so it is worth another look
       -- now that the buffer holds YAML.
       vim.cmd("filetype detect")
     end,
   })
-
-  -- Registered per buffer, at the moment that buffer is decrypted.
-  --
-  -- An earlier version attached this to every buffer and fell back to an
-  -- ordinary write for the rest. That intercepts every `:write` in the editor,
-  -- and it broke immediately: writing a scratch buffer produced an error from
-  -- inside this plugin. A BufWriteCmd is a takeover of the write command; it
-  -- has no business existing on buffers this plugin does not own.
-  ---@param buf integer
-  attach_writer = function(buf)
-    vim.api.nvim_create_autocmd("BufWriteCmd", {
-      group = group,
-      buffer = buf,
-      callback = function(ev)
-        if not vim.b[ev.buf].ansible_vault_plain then
-          -- The buffer was decrypted once but is no longer ours — for instance
-          -- :VaultEncryptFile re-encrypted it. Write it verbatim.
-          local path = vim.api.nvim_buf_get_name(ev.buf)
-          vim.fn.writefile(vim.api.nvim_buf_get_lines(ev.buf, 0, -1, false), path)
-          vim.bo[ev.buf].modified = false
-          return
-        end
-
-        local auth, err = auth_for()
-        if not auth then
-          vim.notify(err or "cancelled", vim.log.levels.ERROR)
-          return
-        end
-
-        local ciphertext, encrypt_err = cli.encrypt_document(buffer_text(ev.buf), {
-          auth = auth,
-          cwd = auth.cwd,
-          encrypt_identity = encrypt_identity_for(auth),
-        })
-        if not ciphertext then
-          vim.notify(encrypt_err, vim.log.levels.ERROR)
-          return
-        end
-
-        local path = vim.api.nvim_buf_get_name(ev.buf)
-        local fd = vim.uv.fs_open(path, "w", tonumber("600", 8))
-        if not fd then
-          vim.notify("Could not write " .. path, vim.log.levels.ERROR)
-          return
-        end
-        vim.uv.fs_write(fd, ciphertext)
-        vim.uv.fs_close(fd)
-
-        vim.bo[ev.buf].modified = false
-        vim.notify(("Encrypted and wrote %s"):format(vim.fn.fnamemodify(path, ":t")), vim.log.levels.INFO)
-      end,
-    })
-  end
 end
 
 ---@param opts ansible_vault.Opts|nil

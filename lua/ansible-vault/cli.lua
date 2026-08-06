@@ -36,6 +36,12 @@ local M = {}
 local function auth_args(auth, password_path)
   local args = {}
 
+  -- `identities` is only ever set by a caller that wants these passed
+  -- explicitly. Identities that ansible already reads from ansible.cfg must
+  -- NOT arrive here: repeating them registers each one a second time under the
+  -- same label and ansible then refuses with "The vault-ids default,default
+  -- are available to encrypt". init.lua deliberately calls that field
+  -- `configured_identities` so it cannot reach this function by accident.
   if auth.identities and #auth.identities > 0 then
     for _, id in ipairs(auth.identities) do
       table.insert(args, "--vault-id")
@@ -75,8 +81,17 @@ local function stage_password(password)
     return nil, nil, ("could not create %s: %s"):format(path, open_err or "unknown error")
   end
 
-  vim.uv.fs_write(fd, password .. "\n")
+  -- Checked rather than assumed: a short write here hands ansible a truncated
+  -- password, which fails as "decryption failed" and sends the user looking
+  -- for the wrong problem entirely.
+  local payload = password .. "\n"
+  local written, write_err = vim.uv.fs_write(fd, payload)
   vim.uv.fs_close(fd)
+
+  if not written or written < #payload then
+    pcall(vim.uv.fs_unlink, path)
+    return nil, nil, ("could not stage the password: %s"):format(write_err or "short write")
+  end
 
   return path, function()
     pcall(vim.uv.fs_unlink, path)
