@@ -76,7 +76,34 @@ return {
         if vim.g.disable_autoformat or vim.b[bufnr].disable_autoformat then
           return
         end
-        return { timeout_ms = 1000, lsp_format = "fallback" }
+
+        -- Large files are skipped deliberately, and audibly.
+        --
+        -- format_on_save is synchronous and bounded by timeout_ms. Past that
+        -- conform abandons the formatting — without a message. Measured: a
+        -- 900 KB YAML took just over a second through yamlls and saved
+        -- completely unformatted, with nothing to indicate it. Believing a file
+        -- was formatted when it was not is worse than knowing it was not.
+        --
+        -- The threshold is set below where that starts happening rather than
+        -- guessed. <leader>xf still formats these: it runs async and is not
+        -- bound by the timeout at all.
+        local max_bytes = 512 * 1024
+        local stat = vim.uv.fs_stat(vim.api.nvim_buf_get_name(bufnr))
+        if stat and stat.size > max_bytes then
+          vim.notify(
+            ("Not formatting on save: %.1f MB exceeds the synchronous budget. Use <leader>xf."):format(
+              stat.size / 1024 / 1024
+            ),
+            vim.log.levels.WARN
+          )
+          return
+        end
+
+        -- Raised from the 1000 ms default to leave headroom for a slow
+        -- formatter on a file that is still small enough to be worth waiting
+        -- for.
+        return { timeout_ms = 3000, lsp_format = "fallback" }
       end,
     },
     keys = {

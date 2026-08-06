@@ -67,6 +67,37 @@ local function check_core()
   end
 end
 
+local function check_lockfile()
+  health.start("Plugin lockfile")
+
+  local path = vim.fs.joinpath(vim.fn.stdpath("config"), "lazy-lock.json")
+  local contents = vim.uv.fs_stat(path) and table.concat(vim.fn.readfile(path), "\n") or nil
+
+  if not contents then
+    health.warn(
+      ("No lazy-lock.json at %s"):format(path),
+      "plugin versions are not pinned; run :Lazy sync and commit the result"
+    )
+    return
+  end
+
+  -- A corrupted lockfile does not stop Neovim starting — lazy.nvim falls back
+  -- to whatever is installed and says nothing. What is lost is silent: the
+  -- pinned versions, and any chance of :Lazy restore working. Verified that a
+  -- broken file still boots all plugins with no message.
+  local ok, decoded = pcall(vim.json.decode, contents)
+  if not ok or type(decoded) ~= "table" then
+    health.error(
+      "lazy-lock.json is not valid JSON",
+      "plugin versions are no longer pinned and :Lazy restore will not work. "
+        .. "Restore it from git, or run :Lazy sync to regenerate it."
+    )
+    return
+  end
+
+  health.ok(("lazy-lock.json pins %d plugins"):format(vim.tbl_count(decoded)))
+end
+
 local function check_pickers()
   health.start("Search and navigation")
 
@@ -164,6 +195,7 @@ end
 function M.check()
   check_neovim()
   check_core()
+  check_lockfile()
   check_pickers()
   check_devops()
   check_terminal()

@@ -303,6 +303,24 @@ terraform CLI, and terraform-ls is not a substitute: it shells out to
 files stay unformatted until the binary is on PATH. That is a machine
 prerequisite, and `:checkhealth devops` reports it.
 
+### Large files are not formatted on save, and say so
+
+**Decision.** Above 512 KB, `format_on_save` skips and notifies. `<leader>xf`
+still formats them.
+
+**Why.** `format_on_save` is synchronous and bounded by `timeout_ms`. Past that
+conform abandons the work — with no message. Measured: a 900 KB YAML took just
+over a second through yamlls and saved completely unformatted, with nothing to
+indicate it. Believing a file was formatted when it was not is worse than
+knowing it was not.
+
+The threshold sits below where that starts happening rather than being a round
+number chosen for looks. Manual formatting runs async and is not bound by the
+timeout at all.
+
+**What would change it.** A formatter fast enough that the ceiling stops
+mattering.
+
 ### GitHub Actions workflows keep the plain `yaml` filetype
 
 **Decision.** actionlint is selected by path, not by giving workflows their own
