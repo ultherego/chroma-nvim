@@ -182,7 +182,7 @@ we maintain — unless the gap is genuine.
 
 Scope set by the survey of 2026-08-06, not by assumption.
 
-### `ansible-vault.nvim` — build it
+### `ansible-vault.nvim` — being built, lives in `lua/ansible-vault/`
 The one genuine gap. Every existing candidate is a single-person project with
 0–7 stars, the most visible one abandoned since 2023. Nothing meets the bar of
 "actively maintained + properly documented", so this is ours to build.

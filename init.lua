@@ -10,3 +10,9 @@ require("config.options")
 require("config.keymaps")
 require("config.commands")
 require("config.lazy")
+
+-- ansible-vault.nvim lives in lua/ansible-vault/ and depends on nothing in this
+-- configuration, so it can be lifted into its own repository unchanged. setup()
+-- only registers four user commands and three mappings, so there is nothing to
+-- gain from deferring it.
+require("ansible-vault").setup({ keymaps = true })

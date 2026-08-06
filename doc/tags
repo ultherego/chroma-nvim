@@ -23,5 +23,8 @@ devops-nvim-troubleshooting	devops-nvim.txt	/*devops-nvim-troubleshooting*
 devops-nvim-ui	devops-nvim.txt	/*devops-nvim-ui*
 devops-nvim-ui-split	devops-nvim.txt	/*devops-nvim-ui-split*
 devops-nvim-ui-v3	devops-nvim.txt	/*devops-nvim-ui-v3*
+devops-nvim-vault	devops-nvim.txt	/*devops-nvim-vault*
+devops-nvim-vault-pass	devops-nvim.txt	/*devops-nvim-vault-pass*
+devops-nvim-vault-safe	devops-nvim.txt	/*devops-nvim-vault-safe*
 devops-nvim-zellij	devops-nvim.txt	/*devops-nvim-zellij*
 devops-nvim.txt	devops-nvim.txt	/*devops-nvim.txt*

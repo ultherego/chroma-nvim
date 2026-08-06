@@ -21,9 +21,10 @@ CONTENTS                                                 *devops-nvim-contents*
  11. Formatting ......................... |devops-nvim-formatting|
  12. Linting ............................ |devops-nvim-linting|
  13. User interface ..................... |devops-nvim-ui|
- 14. Adding a plugin .................... |devops-nvim-adding|
- 15. Troubleshooting .................... |devops-nvim-troubleshooting|
- 16. Rules .............................. |devops-nvim-rules|
+ 14. Ansible Vault ...................... |devops-nvim-vault|
+ 15. Adding a plugin .................... |devops-nvim-adding|
+ 16. Troubleshooting .................... |devops-nvim-troubleshooting|
+ 17. Rules .............................. |devops-nvim-rules|
 
 ==============================================================================
 1. INTRODUCTION                                      *devops-nvim-introduction*
@@ -186,7 +187,13 @@ Three of the plugin's defaults are remapped because Zellij eats them: >
 Ansible ~
 >
     <leader>ar   Run the playbook or role (also on a visual selection)
+    <leader>av   Reveal the encrypted value under the cursor
+    <leader>av   Encrypt the selection in place        (visual mode)
+    <leader>aV   Show where the vault password comes from
 <
+Vault handling is ansible-vault.nvim, written for this project — see
+|devops-nvim-vault|.
+
 Playbooks, roles, `group_vars`, `host_vars`, `defaults`, `tasks`, `handlers`
 and `molecule` files are detected as `yaml.ansible`. That filetype is what
 activates ansible-lint and the ansiblels language server, and it also points
@@ -615,7 +622,61 @@ Markdown files are rendered in the buffer: headings, code blocks, tables and
 lists. Toggle with `:RenderMarkdown`.
 
 ==============================================================================
-14. ADDING A PLUGIN                                        *devops-nvim-adding*
+14. ANSIBLE VAULT                                           *devops-nvim-vault*
+
+`lua/ansible-vault/` is our own plugin, written because the survey found no
+maintained candidate: every existing one is a single-person project of 0–7
+stars, the most visible untouched since 2023. It depends on nothing else in
+this configuration and can be moved to its own repository unchanged.
+
+Commands ~
+>
+    :VaultReveal    show the value under the cursor, without altering the file
+    :VaultEncrypt   encrypt the visual selection in place
+    :VaultStatus    report where the password will come from
+    :VaultReload    re-read ansible.cfg after changing it
+<
+Encrypting `db_password: hunter2` gives back `db_password: !vault |` with the
+ciphertext indented beneath it, ready to commit. Revealing opens a float that
+closes with `q`.
+
+Where the password comes from                          *devops-nvim-vault-pass*
+
+Ansible's own configuration is consulted rather than reimplemented: the plugin
+runs `ansible-config dump` in the project directory and reads the resolved
+`vault_password_file` and `vault_identity_list`, along with which file supplied
+them. `:VaultStatus` prints the answer.
+
+When ansible already knows the password, no credentials are passed on the
+command line at all — the subprocess simply runs in the right directory.
+Passing them again registers a second identity under the same label and ansible
+refuses with "The vault-ids default,default are available to encrypt".
+
+With nothing configured, you are prompted; the password is then written to
+$XDG_RUNTIME_DIR with mode 0600 and unlinked as soon as the command returns.
+That directory is tmpfs, so it never reaches persistent storage. If
+XDG_RUNTIME_DIR is unset the plugin refuses rather than quietly falling back
+to /tmp.
+
+What it protects against                               *devops-nvim-vault-safe*
+
+The encryption is one subprocess call. The work is in everything around it:
+
+  Plaintext never appears in argv. `ansible-vault encrypt_string` accepts the
+  string as a positional argument, which would publish the secret to anyone
+  running `ps`. Given no positional argument it reads stdin, which is what
+  this plugin does.
+
+  Plaintext never reaches the undo file. This configuration enables 'undofile'
+  globally, so a revealed secret would otherwise be written verbatim to
+  stdpath("state")/undo and survive reboots. Buffers holding plaintext are
+  created with 'noundofile', 'noswapfile', buftype=nofile and bufhidden=wipe.
+
+  Ciphertext is treated as public, because it is. That is what frees stdin for
+  the plaintext.
+
+==============================================================================
+15. ADDING A PLUGIN                                        *devops-nvim-adding*
 
 Before writing any configuration, do the reading. This is rule #1 and it is
 not decorative; see |devops-nvim-rules|.
@@ -633,7 +694,7 @@ not decorative; see |devops-nvim-rules|.
   7. Commit `lazy-lock.json` along with the change.
 
 ==============================================================================
-15. TROUBLESHOOTING                                *devops-nvim-troubleshooting*
+16. TROUBLESHOOTING                                *devops-nvim-troubleshooting*
 
 A language server is not attaching ~
 >
@@ -679,7 +740,7 @@ Plugins are in a strange state ~
     :Lazy sync        install, clean and update to match the specs
 <
 ==============================================================================
-16. RULES                                                   *devops-nvim-rules*
+17. RULES                                                   *devops-nvim-rules*
 
 Two rules govern this repository. `CONTRACT.md` is the full version.
 
