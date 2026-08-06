@@ -16,6 +16,17 @@ return {
     "nvim-mini/mini.icons",
     lazy = true,
     opts = {},
+    init = function()
+      -- Several plugins (aerial among them) look for nvim-web-devicons by
+      -- name rather than asking for icons in the abstract. mini.icons ships
+      -- mock_nvim_web_devicons() for exactly this; hooking it into
+      -- package.preload means a require of the old name transparently returns
+      -- mini.icons, so one provider still serves everything.
+      package.preload["nvim-web-devicons"] = function()
+        require("mini.icons").mock_nvim_web_devicons()
+        return package.loaded["nvim-web-devicons"]
+      end
+    end,
   },
 
   -- fzf-lua: requires fzf > 0.36 (local: 0.74.2) and Neovim >= 0.9.

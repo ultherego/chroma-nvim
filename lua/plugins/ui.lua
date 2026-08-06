@@ -67,4 +67,109 @@ return {
       },
     },
   },
+
+  -- snacks.nvim — base spec.
+  --
+  -- The contract named `alpha` for the start screen. snacks is already a
+  -- dependency (it provides lazygit in the git layer) and ships a dashboard
+  -- module that detects fzf-lua on its own, so using it removes a plugin
+  -- rather than adding one. alpha is not abandoned — last push 2026-04 — so
+  -- this is a deduplication, not a rejection.
+  --
+  -- The dashboard has to draw on an empty start, which is why snacks now
+  -- loads eagerly with a high priority, as upstream recommends. The git layer
+  -- only adds its lazygit keys and options on top of this spec.
+  {
+    "folke/snacks.nvim",
+    lazy = false,
+    priority = 1000,
+    opts = {
+      dashboard = {
+        enabled = true,
+        sections = {
+          { section = "header" },
+          { section = "keys", gap = 1, padding = 1 },
+          { section = "recent_files", title = "Recent files", indent = 2, padding = 1 },
+          { section = "projects", title = "Projects", indent = 2, padding = 1 },
+          { section = "startup" },
+        },
+        preset = {
+          -- Actions are written as the keymaps this config already defines,
+          -- so the dashboard stays in step with them instead of duplicating
+          -- command strings that could drift.
+          keys = {
+            { icon = " ", key = "f", desc = "Find file", action = "<leader>ff" },
+            { icon = " ", key = "g", desc = "Grep", action = "<leader>fg" },
+            { icon = " ", key = "r", desc = "Recent files", action = "<leader>fo" },
+            { icon = " ", key = "p", desc = "Projects", action = "<leader>pp" },
+            { icon = " ", key = "e", desc = "File explorer", action = "<leader>fe" },
+            { icon = " ", key = "c", desc = "Config", action = ":e $MYVIMRC" },
+            { icon = "󰒲 ", key = "l", desc = "Lazy", action = ":Lazy" },
+            { icon = " ", key = "m", desc = "Mason", action = ":Mason" },
+            { icon = " ", key = "q", desc = "Quit", action = ":qa" },
+          },
+        },
+      },
+    },
+  },
+
+  -- Code outline. Distinct from trouble on purpose: aerial answers "what is
+  -- in this file and where", trouble answers "what is wrong and where".
+  -- Backends default to treesitter first, then LSP, so it works even for
+  -- filetypes with no language server attached.
+  {
+    "stevearc/aerial.nvim",
+    dependencies = { "nvim-treesitter/nvim-treesitter", "nvim-mini/mini.icons" },
+    cmd = { "AerialToggle", "AerialOpen", "AerialNavToggle" },
+    opts = {
+      backends = { "treesitter", "lsp", "markdown", "man" },
+      layout = {
+        default_direction = "prefer_right",
+        resize_to_content = true,
+      },
+      on_attach = function(buf)
+        vim.keymap.set("n", "{", "<cmd>AerialPrev<cr>", { buffer = buf, desc = "Previous symbol" })
+        vim.keymap.set("n", "}", "<cmd>AerialNext<cr>", { buffer = buf, desc = "Next symbol" })
+      end,
+    },
+    keys = {
+      { "<leader>lo", "<cmd>AerialToggle<cr>", desc = "Outline" },
+    },
+  },
+
+  -- Diagnostics, quickfix and LSP result lists in a proper panel.
+  --
+  -- v3 is a full rewrite and the old command is gone: `TroubleToggle` no
+  -- longer exists, the syntax is now `Trouble <mode> <action>`. Anything
+  -- copied from a pre-2024 guide will fail.
+  --
+  -- The `symbols` mode is deliberately unused: aerial already owns outlines,
+  -- and having two ways to list the same thing is exactly the kind of
+  -- accidental duplication the contract rules out.
+  {
+    "folke/trouble.nvim",
+    cmd = "Trouble",
+    opts = {},
+    keys = {
+      { "<leader>xx", "<cmd>Trouble diagnostics toggle<cr>", desc = "Diagnostics (workspace)" },
+      { "<leader>xX", "<cmd>Trouble diagnostics toggle filter.buf=0<cr>", desc = "Diagnostics (buffer)" },
+      { "<leader>xq", "<cmd>Trouble qflist toggle<cr>", desc = "Quickfix list" },
+      { "<leader>xL", "<cmd>Trouble loclist toggle<cr>", desc = "Location list" },
+      {
+        "<leader>lt",
+        "<cmd>Trouble lsp toggle focus=false win.position=right<cr>",
+        desc = "LSP references and definitions",
+      },
+    },
+  },
+
+  -- Markdown rendered in the buffer. Every infrastructure repository is half
+  -- README, and this config already installs the markdown and markdown_inline
+  -- parsers it needs.
+  {
+    "MeanderingProgrammer/render-markdown.nvim",
+    dependencies = { "nvim-treesitter/nvim-treesitter", "nvim-mini/mini.icons" },
+    ft = { "markdown" },
+    opts = {},
+  },
 }

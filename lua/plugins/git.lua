@@ -90,11 +90,10 @@ return {
 
   {
     "folke/snacks.nvim",
-    -- Only the lazygit module is enabled, and it is only ever reached through
-    -- the keys below, so the plugin is lazy-loaded. Upstream recommends
-    -- lazy = false with priority = 1000, but that is for configurations where
-    -- other plugins depend on snacks being set up early. Nothing here does yet.
-    -- Revisit if a snacks module that must run at startup is adopted.
+    -- This spec only adds the lazygit module and its keys. Loading is settled
+    -- in plugins/ui.lua, where the snacks base spec lives: the dashboard has
+    -- to draw on an empty start, so snacks loads eagerly with a high priority
+    -- as upstream recommends. lazy.nvim merges the two specs.
     keys = {
       {
         "<leader>gg",

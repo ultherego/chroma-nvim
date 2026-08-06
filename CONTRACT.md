@@ -102,11 +102,14 @@ One `plugins/*.lua` file = one domain. No junk-drawer files.
 ### UI
 - `catppuccin`
 - `which-key`
-- `alpha`
-- `aerial`
-- `trouble`
+- `aerial` — code outline: what is in this file and where
+- `trouble` — diagnostic, quickfix and LSP lists: what is wrong and where.
+  Its `symbols` mode stays unused so it does not duplicate aerial.
 - `render-markdown`
-- `snacks.nvim` — **selected modules only**, the module list is a deliberate choice
+- `snacks.nvim` — **selected modules only**. Enabled so far: `lazygit`,
+  `dashboard`. The dashboard replaces the planned `alpha`; alpha is still
+  maintained, so this is deduplication rather than rejection — snacks was
+  already a dependency and its dashboard finds fzf-lua by itself.
 
 ### Git
 - `gitsigns`
@@ -242,3 +245,4 @@ not an inconvenience.
 | 2026-08-06 | Renamed UltherNvim → DevOps nVim; all project files switched to English; `lua/ulther/` → `lua/devops/` | owner decision |
 | 2026-08-06 | Added rule #2 (survey before building); dropped `kube.nvim` for `kubectl.nvim`; narrowed `terraform.nvim` to a plan/apply/destroy runner | plugin survey showed the planned scope was partly already solved |
 | 2026-08-06 | `lazygit.nvim` replaced by the `snacks.nvim` lazygit module | upstream stale and has no colourscheme integration; snacks was already a dependency |
+| 2026-08-06 | `alpha` replaced by the `snacks.nvim` dashboard module | snacks was already a dependency; alpha remains maintained, so this is deduplication, not rejection |

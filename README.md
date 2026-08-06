@@ -35,10 +35,10 @@ Kitty → Zellij → Yazi → Neovim
 | Lint — nvim-lint | done |
 | Git — gitsigns, lazygit via snacks | done |
 | Editing — surround, pairs, text objects, todo | done |
-| UI extras | not yet |
+| UI — dashboard, aerial, trouble, markdown | done |
 | `ansible-vault.nvim`, `terraform.nvim` | not yet |
 
-Startup is currently ~23 ms.
+Startup is currently ~24 ms with 29 plugins.
 
 > **Note:** Terraform formatting needs the `terraform` CLI on your PATH.
 > terraform-ls is not a substitute — it shells out to `terraform fmt` itself.
