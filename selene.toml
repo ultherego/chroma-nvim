@@ -1,0 +1,17 @@
+# Lua linting for this repository's own code.
+#
+# std composes selene's built-in lua51 (LuaJIT is 5.1-compatible) with the
+# local vim.yml, which declares the globals Neovim injects. Without it every
+# reference to `vim` would be reported as an undefined variable.
+
+std = "lua51+vim"
+
+[rules]
+# Plugin specs are data: `opts` tables and `keys` lists routinely repeat
+# shapes that this rule reads as suspicious.
+mixed_table = "allow"
+
+# Callbacks receive arguments they do not always use — autocmd events,
+# on_attach's client — and renaming them to `_` costs more clarity than the
+# warning is worth.
+unused_variable = "allow"

@@ -37,6 +37,7 @@ Kitty → Zellij → Yazi → Neovim
 | Editing — surround, pairs, text objects, todo | done |
 | UI — dashboard, aerial, trouble, markdown | done |
 | DevOps — kubectl.nvim, nvim-ansible | done |
+| Health check, CI, lint config | done |
 | `ansible-vault.nvim`, `terraform.nvim` | not yet |
 
 Startup is ~25 ms with 32 plugins, measured locally with
@@ -73,8 +74,15 @@ nvim
 ```
 
 First start bootstraps lazy.nvim, installs the plugins, and lets Mason fetch the
-language servers while treesitter compiles parsers. Give it a minute, then check
-`:Lazy`, `:Mason` and `:checkhealth`.
+language servers while treesitter compiles parsers. Give it a minute, then run:
+
+```vim
+:checkhealth devops
+```
+
+That reports which external programs are present and what stops working
+without each one — it is the fastest way to find out why something does
+nothing. `:Lazy`, `:Mason` and the full `:checkhealth` cover the rest.
 
 To try it alongside an existing config instead:
 

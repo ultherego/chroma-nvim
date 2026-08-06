@@ -68,10 +68,51 @@ return {
     lazy = false,
     build = ":TSUpdate",
     config = function()
-      require("nvim-treesitter").install(parsers)
+      -- Only what is actually missing. Calling install() with the full list
+      -- runs the check machinery for every parser on every start; asking for
+      -- the difference takes startup out of it once the set is complete.
+      local installed = {}
+      for _, name in ipairs(require("nvim-treesitter.config").get_installed("parsers")) do
+        installed[name] = true
+      end
+
+      local missing = vim.tbl_filter(function(name)
+        return not installed[name]
+      end, parsers)
+
+      if #missing > 0 then
+        require("nvim-treesitter").install(missing)
+      end
+
+      local group = vim.api.nvim_create_augroup("devops_treesitter", { clear = true })
+
+      -- 'foldmethod' and 'foldexpr' are window options, not buffer options.
+      -- Setting them from FileType alone leaves the same buffer unfolded when
+      -- it is later shown in a second window — a split, or a jump out of a
+      -- picker. Reapplying on BufWinEnter covers every window that comes to
+      -- display it.
+      local function set_folding(buf)
+        if not vim.api.nvim_buf_is_valid(buf) then
+          return
+        end
+        for _, win in ipairs(vim.fn.win_findbuf(buf)) do
+          -- [win][0] is `:setlocal` for this window-buffer pair.
+          vim.wo[win][0].foldmethod = "expr"
+          vim.wo[win][0].foldexpr = "v:lua.vim.treesitter.foldexpr()"
+        end
+      end
+
+      vim.api.nvim_create_autocmd("BufWinEnter", {
+        group = group,
+        callback = function(ev)
+          if vim.b[ev.buf].devops_treesitter then
+            set_folding(ev.buf)
+          end
+        end,
+      })
 
       vim.api.nvim_create_autocmd("FileType", {
-        group = vim.api.nvim_create_augroup("devops_treesitter", { clear = true }),
+        group = group,
         callback = function(ev)
           -- Fails for any filetype without an installed parser, which is
           -- expected and not an error worth reporting.
@@ -79,8 +120,8 @@ return {
             return
           end
 
-          vim.wo.foldmethod = "expr"
-          vim.wo.foldexpr = "v:lua.vim.treesitter.foldexpr()"
+          vim.b[ev.buf].devops_treesitter = true
+          set_folding(ev.buf)
 
           -- Treesitter indentation is deliberately NOT enabled.
           --

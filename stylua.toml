@@ -1,0 +1,16 @@
+# Formatting rules for this repository's own Lua.
+#
+# StyLua's defaults are tabs at width 4; this project uses two spaces
+# everywhere (see lua/config/options.lua for why), so both are set explicitly.
+# column_width is 120 rather than the narrower 80 because the comments here
+# carry reasoning, and rewrapping them at 80 would fragment the explanations
+# this repository depends on.
+
+column_width = 120
+line_endings = "Unix"
+indent_type = "Spaces"
+indent_width = 2
+quote_style = "AutoPreferDouble"
+call_parentheses = "Always"
+collapse_simple_statement = "Never"
+syntax = "LuaJIT"

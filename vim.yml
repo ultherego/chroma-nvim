@@ -1,0 +1,19 @@
+# Selene standard library for Neovim.
+#
+# Deliberately minimal. A full description of the Neovim API would have to be
+# regenerated every release and would go stale silently — the sort of drift
+# this project exists to avoid. Declaring `vim` as an opaque global is enough
+# for selene to do what it is here for: catch undefined variables, shadowing
+# and unreachable code in our own Lua.
+#
+# Real API checking is the language server's job, and lua_ls already does it
+# in the editor (see after/lsp/lua_ls.lua).
+
+---
+base: lua51
+
+globals:
+  vim:
+    any: true
+  jit:
+    any: true

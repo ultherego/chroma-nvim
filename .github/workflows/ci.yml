@@ -1,0 +1,125 @@
+name: CI
+
+# A configuration repository has no test suite, so CI answers the two
+# questions that actually break it: is the Lua well-formed and consistent, and
+# does Neovim still start clean with it.
+#
+# Action versions were checked against their current releases rather than
+# copied from an older workflow. NTBBloodbath/selene-action was rejected — its
+# last release is from 2021 — so selene is fetched from its own release
+# archive instead.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  lua:
+    name: Lua formatting and lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: stylua
+        uses: JohnnyMorganz/stylua-action@v5
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          version: latest
+          args: --check .
+
+      - name: Install selene
+        run: |
+          set -euo pipefail
+          version=0.31.0
+          curl -fsSL -o selene.zip \
+            "https://github.com/Kampfkarren/selene/releases/download/${version}/selene-${version}-linux.zip"
+          unzip -q selene.zip
+          chmod +x selene
+          sudo mv selene /usr/local/bin/
+
+      - name: selene
+        run: selene .
+
+  startup:
+    name: Neovim starts clean
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install Neovim
+        uses: rhysd/action-setup-vim@v1
+        with:
+          neovim: true
+          version: stable
+
+      - name: Install build prerequisites
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends build-essential curl tar ripgrep fd-find
+          # tree-sitter-cli must not come from npm; upstream is explicit about that.
+          cargo install tree-sitter-cli --locked
+
+      - name: Bootstrap plugins
+        env:
+          XDG_CONFIG_HOME: ${{ github.workspace }}/.xdg-config
+        run: |
+          set -euo pipefail
+          mkdir -p "$XDG_CONFIG_HOME"
+          ln -s "$GITHUB_WORKSPACE" "$XDG_CONFIG_HOME/nvim"
+          nvim --headless "+Lazy! sync" +qa
+
+      - name: Fail on any startup message
+        env:
+          XDG_CONFIG_HOME: ${{ github.workspace }}/.xdg-config
+        run: |
+          set -euo pipefail
+          out=$(nvim --headless -c 'lua io.write(vim.fn.execute("messages"))' -c 'qa!' 2>&1)
+          if [ -n "$out" ]; then
+            echo "Neovim produced output on startup:"
+            echo "$out"
+            exit 1
+          fi
+          echo "Startup is silent."
+
+      - name: Every plugin spec module loads
+        env:
+          XDG_CONFIG_HOME: ${{ github.workspace }}/.xdg-config
+        run: |
+          set -euo pipefail
+          nvim --headless -c 'lua
+            local failed = {}
+            for name, _ in vim.fs.dir("lua/plugins") do
+              local mod = "plugins." .. name:gsub("%.lua$", "")
+              local ok, err = pcall(require, mod)
+              if not ok then table.insert(failed, mod .. ": " .. tostring(err)) end
+            end
+            local ok2, err2 = pcall(require, "devops.health")
+            if not ok2 then table.insert(failed, "devops.health: " .. tostring(err2)) end
+            if #failed > 0 then
+              io.write(table.concat(failed, "\n") .. "\n")
+              vim.cmd("cquit 1")
+            end
+            io.write("All spec modules load.\n")
+          ' -c 'qa!'
+
+      - name: Help tags are current
+        env:
+          XDG_CONFIG_HOME: ${{ github.workspace }}/.xdg-config
+        run: |
+          set -euo pipefail
+          nvim --headless -c 'helptags doc' -c 'qa!'
+          if ! git diff --quiet -- doc/tags; then
+            echo "doc/tags is out of date. Run :helptags doc and commit the result."
+            git --no-pager diff -- doc/tags
+            exit 1
+          fi
+          echo "Help tags are current."
+
+      - name: Lockfile is valid JSON
+        run: python3 -c "import json; json.load(open('lazy-lock.json'))"

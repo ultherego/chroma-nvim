@@ -94,6 +94,11 @@ return {
 
   {
     "folke/snacks.nvim",
+    -- Called through require("snacks") rather than the `Snacks` global.
+    -- Upstream documents the global, and the two are the same table — verified
+    -- — but the global only exists once snacks has set itself up, and a static
+    -- linter cannot know about it at all.
+    --
     -- This spec only adds the lazygit module and its keys. Loading is settled
     -- in plugins/ui.lua, where the snacks base spec lives: the dashboard has
     -- to draw on an empty start, so snacks loads eagerly with a high priority
@@ -102,21 +107,21 @@ return {
       {
         "<leader>gg",
         function()
-          Snacks.lazygit.open()
+          require("snacks").lazygit.open()
         end,
         desc = "Lazygit",
       },
       {
         "<leader>gl",
         function()
-          Snacks.lazygit.log()
+          require("snacks").lazygit.log()
         end,
         desc = "Lazygit log",
       },
       {
         "<leader>gf",
         function()
-          Snacks.lazygit.log_file()
+          require("snacks").lazygit.log_file()
         end,
         desc = "Lazygit file history",
       },

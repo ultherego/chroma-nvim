@@ -89,6 +89,8 @@ the background. Give the first run a minute.
 
 Verify afterwards: >
 
+    :checkhealth devops   this config's own check: external tools, kubeconfig,
+                          terminal integration
     :Lazy                 plugin status
     :Mason                language server and tool status
     :checkhealth          everything at once
@@ -111,7 +113,10 @@ a different name and use |$NVIM_APPNAME|: >
       lazy.lua                  plugin manager bootstrap
     lua/plugins/
       <domain>.lua              one file per domain, one domain per file
-    lua/devops/                 planned — our own DevOps modules
+    lua/devops/
+      health.lua                :checkhealth devops
+    stylua.toml, selene.toml    lint configuration for our own Lua
+    .github/workflows/ci.yml    formatting, lint and a clean-startup check
     after/lsp/
       <server>.lua              per-server LSP overrides
     doc/                        this file
@@ -653,6 +658,15 @@ Completion is poor or missing ~
 
 Confirm the server attached at all (above). If it did, check that blink loaded
 before it: `:Lazy` should show blink.cmp as loaded at startup, not lazily.
+
+Something external is missing ~
+>
+    :checkhealth devops
+<
+Reports which of the external programs this config depends on are present,
+and what stops working without each one. Most "feature X does nothing"
+reports resolve here — a missing `terraform`, `bat` or kubeconfig produces
+silence rather than an error.
 
 A key does nothing ~
 
