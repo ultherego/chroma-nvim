@@ -34,6 +34,7 @@ Kitty → Zellij → Yazi → Neovim
 | Formatting — conform.nvim | done |
 | Lint — nvim-lint | done |
 | Git — gitsigns, lazygit via snacks | done |
+| Editing — surround, pairs, text objects, todo | done |
 | UI extras | not yet |
 | `ansible-vault.nvim`, `terraform.nvim` | not yet |
 

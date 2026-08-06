@@ -209,7 +209,37 @@ Tools ~
     <leader>xF   Toggle format on save
     <leader>xi   Formatter info (:ConformInfo)
     <leader>xl   Lint buffer now
+    <leader>xt   Todo comments
+    <leader>xT   Todo comments to quickfix
 <
+Editing ~
+
+Surrounding pairs, on `gs` rather than the upstream `s`: >
+
+    gsa   Add surrounding      — gsaiw" wraps a word in quotes
+    gsd   Delete surrounding   — gsd" removes them again
+    gsr   Replace surrounding  — gsr"' swaps quotes
+    gsf   Find surrounding to the right      gsF   to the left
+    gsh   Highlight surrounding
+<
+mini.surround's own default prefix is `s`, which shadows Neovim's built-in
+`s` in normal and visual mode. Since `s` is a perfectly good key, the prefix
+moved to `gs` — Vim's `gs` only means "sleep", which nobody misses.
+
+Extra text objects, from mini.ai: >
+
+    f    Function call      cif   changes what is inside call(...)
+    a    Argument           cia   changes one argument
+    t    Tag
+    (  [  {  "  '          brackets and quotes, with whitespace variants
+<
+Each accepts next/last variants: `cin"` acts on the next quoted string, `cil"`
+on the previous one.
+
+TODO, FIXME, HACK, WARN, PERF, NOTE and TEST comments are highlighted, and
+`<leader>xt` lists them all.
+
+
 Editing, visual mode ~
 >
     <leader>p    Paste without overwriting the register
