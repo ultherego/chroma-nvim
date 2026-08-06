@@ -30,4 +30,41 @@ return {
       vim.cmd.colorscheme("catppuccin-mocha")
     end,
   },
+
+  -- which-key, verified against https://github.com/folke/which-key.nvim
+  -- (v3 spec format; requires Neovim >= 0.9.4).
+  --
+  -- This is where the contract's keymap groups are declared. Every <leader>
+  -- prefix is assigned exactly once, here, so a conflict shows up as a visible
+  -- duplicate rather than as a mapping that silently stops working.
+  {
+    "folke/which-key.nvim",
+    event = "VeryLazy",
+    opts = {
+      preset = "modern",
+      spec = {
+        { "<leader>f", group = "Find" },
+        { "<leader>p", group = "Project" },
+        { "<leader>g", group = "Git" },
+        { "<leader>l", group = "LSP" },
+        { "<leader>t", group = "Terraform" },
+        { "<leader>k", group = "Kubernetes" },
+        { "<leader>a", group = "Ansible" },
+        { "<leader>A", group = "AWS" },
+        { "<leader>b", group = "Buffers" },
+        { "<leader>w", group = "Windows" },
+        { "<leader>s", group = "Sessions" },
+        { "<leader>x", group = "Tools" },
+      },
+    },
+    keys = {
+      {
+        "<leader>?",
+        function()
+          require("which-key").show({ global = false })
+        end,
+        desc = "Buffer-local keymaps",
+      },
+    },
+  },
 }
