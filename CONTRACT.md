@@ -136,6 +136,11 @@ One `plugins/*.lua` file = one domain. No junk-drawer files.
 ### DevOps
 Terraform · Terragrunt · Helm · Docker · Kubernetes · YAML · Ansible
 
+- `kubectl.nvim` — full Kubernetes workflow (see *Custom code* for why this
+  replaced the planned `kube.nvim`)
+- `nvim-ansible` — running playbooks and roles; a separate concern from vault
+  handling. Note: the upstream repo ships no licence.
+
 ---
 
 ## Operational decisions
@@ -148,29 +153,54 @@ Terraform · Terragrunt · Helm · Docker · Kubernetes · YAML · Ansible
 
 ---
 
+## Rule #2 — survey before building
+
+Before writing any custom plugin, survey what already exists: search, then
+judge candidates on activity (last push, open issues), licence, documentation
+and fit with the rest of this config. Write custom code only where the survey
+shows a real gap.
+
+A worse plugin that someone else maintains still beats a better one that only
+we maintain — unless the gap is genuine.
+
+---
+
 ## Custom code
 
-This is where something genuinely good is meant to come out. Not helpers —
-real plugins.
+Scope set by the survey of 2026-08-06, not by assumption.
 
-### `ansible-vault.nvim`
-A real plugin. Not a helper.
+### `ansible-vault.nvim` — build it
+The one genuine gap. Every existing candidate is a single-person project with
+0–7 stars, the most visible one abandoned since 2023. Nothing meets the bar of
+"actively maintained + properly documented", so this is ours to build.
 
-### `kube.nvim`
-- context
-- namespace
-- pods
-- logs
-- describe
-- exec
+### `terraform.nvim` — build a thin runner
+Most of the originally planned scope is already covered by plugins this config
+installs anyway:
 
-### `terraform.nvim`
-- init
-- fmt
-- validate
-- plan
-- apply
-- destroy
+| Originally planned | Actually provided by |
+|---|---|
+| `fmt` | conform.nvim (`terraform_fmt`, `terragrunt_hclfmt`, `tofu_fmt`, `hcl`) |
+| `validate` | nvim-lint (`terraform_validate`, `tflint`) |
+| `init` | one-off in practice; the terminal is fine |
+
+What remains is a `plan` / `apply` / `destroy` runner. Existing options were
+rejected: `mvaldes14/terraform.nvim` had no push for a year, and
+`telescope-terraform.nvim` is built on telescope, which this config does not use.
+
+### ~~`kube.nvim`~~ — dropped, use `kubectl.nvim`
+[Ramilito/kubectl.nvim](https://github.com/Ramilito/kubectl.nvim) covers the
+entire planned scope — context, namespace, pods, logs, describe, exec — and
+adds port-forwarding, diffs, log tailing, column sorting and a Helm view.
+Apache-2.0, released the same day as this survey, no telescope dependency.
+
+Two things accepted deliberately:
+- it loads a prebuilt Rust binary via `blink.download` (the blink ecosystem is
+  already present through blink.cmp);
+- the repo contains a `kubectl-telemetry` crate. It is an optional Cargo
+  feature, built only by the `build_dev` target; release builds omit it, and
+  it is tracing instrumentation (tokio-console, OTLP to a local collector),
+  not analytics.
 
 ---
 
@@ -204,3 +234,4 @@ not an inconvenience.
 |---|---|---|
 | 2026-08-06 | v1.0 — contract established | project start |
 | 2026-08-06 | Renamed UltherNvim → DevOps nVim; all project files switched to English; `lua/ulther/` → `lua/devops/` | owner decision |
+| 2026-08-06 | Added rule #2 (survey before building); dropped `kube.nvim` for `kubectl.nvim`; narrowed `terraform.nvim` to a plan/apply/destroy runner | plugin survey showed the planned scope was partly already solved |
