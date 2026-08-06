@@ -197,6 +197,19 @@ maintains beats a better one only you maintain — unless the gap is real.
 
 Full terms: [`CONTRACT.md`](./CONTRACT.md)
 
+## Tests
+
+The own modules — vault, terraform, AWS — have a suite, because they touch
+secrets and infrastructure:
+
+```sh
+nvim --headless --noplugin -u tests/minimal_init.lua \
+     -c "lua MiniTest.run()" -c "qa!"
+```
+
+It loads mini.test and `lua/` only, not the configuration, so it finishes in
+under a second.
+
 ## Regenerating the help tags
 
 After editing `doc/devops-nvim.txt`:

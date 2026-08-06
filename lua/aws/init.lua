@@ -212,6 +212,11 @@ function M.whoami()
   vim.notify(("Caller identity: %s"):format(table.concat(out, " ")), vim.log.levels.INFO)
 end
 
+--- Internals exposed for the test suite only.
+M._test = {
+  overriding_credentials = overriding_credentials,
+}
+
 ---@param opts table|nil
 function M.setup(opts)
   M.options = vim.tbl_deep_extend("force", vim.deepcopy(defaults), opts or {})

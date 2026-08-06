@@ -356,6 +356,11 @@ function M.discard()
   vim.notify(("Discarded %d saved plan(s)"):format(count), vim.log.levels.INFO)
 end
 
+--- Internals exposed for the test suite only.
+M._test = {
+  context_differs = context_differs,
+}
+
 ---@param opts table|nil
 function M.setup(opts)
   M.options = vim.tbl_deep_extend("force", vim.deepcopy(defaults), opts or {})

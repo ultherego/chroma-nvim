@@ -67,6 +67,14 @@ return {
     opts = {},
   },
 
+  -- The test framework. Same family as the mini modules above, runs inside
+  -- Neovim with no luarocks, and is only ever loaded by tests/minimal_init.lua
+  -- — never during normal editing.
+  {
+    "nvim-mini/mini.test",
+    lazy = true,
+  },
+
   -- TODO / FIXME / HACK highlighting, and a way to find them all. More useful
   -- than it sounds in infrastructure repositories, where "TODO: remove before
   -- prod" has a habit of surviving to prod.

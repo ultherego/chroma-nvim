@@ -1,13 +1,18 @@
 name: CI
 
-# A configuration repository has no test suite, so CI answers the two
-# questions that actually break it: is the Lua well-formed and consistent, and
-# does Neovim still start clean with it.
+# This repository stopped being only a configuration some time ago: lua/ now
+# holds modules that handle secrets and run infrastructure commands. CI is
+# split accordingly — a smoke test that Neovim still starts, and a real test
+# suite for the logic where being wrong is expensive.
 #
-# Action versions were checked against their current releases rather than
-# copied from an older workflow. NTBBloodbath/selene-action was rejected — its
-# last release is from 2021 — so selene is fetched from its own release
-# archive instead.
+# Actions are pinned to full commit SHAs rather than tags. A tag is a moving
+# pointer that the action's owner can repoint at any time, which makes it a
+# credential-shaped hole in any workflow that touches a token. GitHub documents
+# the SHA as the only immutable form. The readable version is kept in a comment
+# so the pin can be audited without a lookup.
+#
+# NTBBloodbath/selene-action is not used: its last release is from 2021. selene
+# is fetched from its own release archive at a fixed version instead.
 
 on:
   push:
@@ -18,26 +23,36 @@ on:
 permissions:
   contents: read
 
+env:
+  # Pinned so a formatting or lint release cannot turn a green branch red
+  # without a commit here. Raise them deliberately.
+  STYLUA_VERSION: 2.5.2
+  SELENE_VERSION: 0.31.0
+  TREE_SITTER_VERSION: 0.26.9
+  # The version this configuration targets. `stable` is deliberately not used:
+  # this config requires the 0.12 LSP API and the rewritten nvim-treesitter, so
+  # a silent major bump should fail here rather than on somebody's machine.
+  NEOVIM_VERSION: v0.12.4
+
 jobs:
   lua:
-    name: Lua formatting and lint
+    name: Formatting and lint
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: stylua
-        uses: JohnnyMorganz/stylua-action@v5
+        uses: JohnnyMorganz/stylua-action@76fd70c03e6340ceaf673366712db9b20560b402 # v5.0.0
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-          version: latest
+          version: ${{ env.STYLUA_VERSION }}
           args: --check .
 
       - name: Install selene
         run: |
           set -euo pipefail
-          version=0.31.0
           curl -fsSL -o selene.zip \
-            "https://github.com/Kampfkarren/selene/releases/download/${version}/selene-${version}-linux.zip"
+            "https://github.com/Kampfkarren/selene/releases/download/${SELENE_VERSION}/selene-${SELENE_VERSION}-linux.zip"
           unzip -q selene.zip
           chmod +x selene
           sudo mv selene /usr/local/bin/
@@ -45,25 +60,59 @@ jobs:
       - name: selene
         run: selene .
 
+  tests:
+    name: Test suite
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install Neovim
+        uses: rhysd/action-setup-vim@febef33995d6649302e9d88dda81e071b68f16a7 # v1.6.1
+        with:
+          neovim: true
+          version: ${{ env.NEOVIM_VERSION }}
+
+      - name: Fetch mini.test
+        # The suite needs nothing else: tests/minimal_init.lua loads this
+        # repository's lua/ directory and mini.test, not the configuration.
+        run: |
+          set -euo pipefail
+          commit=$(python3 -c "import json; print(json.load(open('lazy-lock.json'))['mini.test']['commit'])")
+          target="${HOME}/.local/share/nvim/lazy/mini.test"
+          git clone --filter=blob:none https://github.com/nvim-mini/mini.test "$target"
+          git -C "$target" checkout --quiet "$commit"
+
+      - name: Run tests
+        run: |
+          set -euo pipefail
+          nvim --headless --noplugin -u tests/minimal_init.lua \
+            -c "lua MiniTest.run()" -c "qa!" 2>&1 | tee result.txt
+          # MiniTest reports failures in its summary rather than through the
+          # exit code, so the summary is what decides this job.
+          if grep -qE 'Fails \([1-9]' result.txt; then
+            echo "::error::test failures above"
+            exit 1
+          fi
+
   startup:
     name: Neovim starts clean
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Install Neovim
-        uses: rhysd/action-setup-vim@v1
+        uses: rhysd/action-setup-vim@febef33995d6649302e9d88dda81e071b68f16a7 # v1.6.1
         with:
           neovim: true
-          version: stable
+          version: ${{ env.NEOVIM_VERSION }}
 
       - name: Install build prerequisites
         run: |
           set -euo pipefail
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends build-essential curl tar ripgrep fd-find
-          # tree-sitter-cli must not come from npm; upstream is explicit about that.
-          cargo install tree-sitter-cli --locked
+          # Upstream is explicit that the npm build is not supported.
+          cargo install tree-sitter-cli --locked --version "${TREE_SITTER_VERSION}"
 
       - name: Bootstrap plugins
         env:
@@ -87,7 +136,7 @@ jobs:
           fi
           echo "Startup is silent."
 
-      - name: Every plugin spec module loads
+      - name: Every module loads
         env:
           XDG_CONFIG_HOME: ${{ github.workspace }}/.xdg-config
         run: |
@@ -99,13 +148,15 @@ jobs:
               local ok, err = pcall(require, mod)
               if not ok then table.insert(failed, mod .. ": " .. tostring(err)) end
             end
-            local ok2, err2 = pcall(require, "devops.health")
-            if not ok2 then table.insert(failed, "devops.health: " .. tostring(err2)) end
+            for _, mod in ipairs({ "ansible-vault", "terraform", "aws", "devops.health" }) do
+              local ok, err = pcall(require, mod)
+              if not ok then table.insert(failed, mod .. ": " .. tostring(err)) end
+            end
             if #failed > 0 then
               io.write(table.concat(failed, "\n") .. "\n")
               vim.cmd("cquit 1")
             end
-            io.write("All spec modules load.\n")
+            io.write("All modules load.\n")
           ' -c 'qa!'
 
       - name: Help tags are current

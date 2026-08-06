@@ -922,6 +922,24 @@ not decorative; see |devops-nvim-rules|.
   6. Start Neovim, run `:Lazy sync`, then `:checkhealth`.
   7. Commit `lazy-lock.json` along with the change.
 
+Testing your own code                                    *devops-nvim-tests*
+
+The modules under `lua/ansible-vault/`, `lua/terraform/` and `lua/aws/` have a
+test suite, because they handle secrets and run infrastructure commands and
+being wrong there is expensive. Run it with: >
+
+    nvim --headless --noplugin -u tests/minimal_init.lua \
+         -c "lua MiniTest.run()" -c "qa!"
+<
+It loads mini.test and this repository's `lua/` directory — not the
+configuration — so it runs in under a second and a failure cannot be somebody
+else's plugin.
+
+What is covered is deliberately narrow: parsing another tool's output,
+recognising an encrypted block, detecting that credentials changed between
+planning and applying, and detecting credentials that override the selected
+profile. There is no value in testing that conform formats Lua.
+
 ==============================================================================
 18. TROUBLESHOOTING                                *devops-nvim-troubleshooting*
 

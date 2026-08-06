@@ -23,6 +23,7 @@ devops-nvim-sessions	devops-nvim.txt	/*devops-nvim-sessions*
 devops-nvim-terraform	devops-nvim.txt	/*devops-nvim-terraform*
 devops-nvim-terraform-plans	devops-nvim.txt	/*devops-nvim-terraform-plans*
 devops-nvim-terraform-safety	devops-nvim.txt	/*devops-nvim-terraform-safety*
+devops-nvim-tests	devops-nvim.txt	/*devops-nvim-tests*
 devops-nvim-treesitter	devops-nvim.txt	/*devops-nvim-treesitter*
 devops-nvim-troubleshooting	devops-nvim.txt	/*devops-nvim-troubleshooting*
 devops-nvim-ui	devops-nvim.txt	/*devops-nvim-ui*

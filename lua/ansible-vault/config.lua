@@ -38,16 +38,14 @@ local function dump(cwd)
   return vim.split(result.stdout or "", "\n", { trimempty = true })
 end
 
----@param cwd string? defaults to the current working directory
----@return ansible_vault.Resolved|nil, string|nil err
-function M.resolve(cwd)
-  cwd = cwd or vim.fn.getcwd()
-
-  local lines, err = dump(cwd)
-  if not lines then
-    return nil, err
-  end
-
+---Turns `ansible-config dump` output into the fields this plugin needs.
+---
+---Separated from the process call so it can be tested without ansible: the
+---shape of these lines is the contract with an external tool, and a change in
+---it should fail a test rather than silently produce "no password configured".
+---@param lines string[]
+---@return ansible_vault.Resolved
+function M.parse_dump(lines)
   local resolved = { identities = {} }
 
   for _, line in ipairs(lines) do
@@ -72,6 +70,19 @@ function M.resolve(cwd)
   end
 
   return resolved
+end
+
+---@param cwd string? defaults to the current working directory
+---@return ansible_vault.Resolved|nil, string|nil err
+function M.resolve(cwd)
+  cwd = cwd or vim.fn.getcwd()
+
+  local lines, err = dump(cwd)
+  if not lines then
+    return nil, err
+  end
+
+  return M.parse_dump(lines)
 end
 
 ---Human-readable description of what will be used, for messages and health.

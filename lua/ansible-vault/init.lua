@@ -670,6 +670,13 @@ local function enable_transparent_editing()
   })
 end
 
+--- Internals exposed for the test suite only. Not part of the public API and
+--- not covered by any compatibility promise.
+M._test = {
+  block_at = block_at,
+  is_encrypted = is_encrypted,
+}
+
 ---@param opts ansible_vault.Opts|nil
 function M.setup(opts)
   M.options = vim.tbl_deep_extend("force", vim.deepcopy(defaults), opts or {})

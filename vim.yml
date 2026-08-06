@@ -17,3 +17,6 @@ globals:
     any: true
   jit:
     any: true
+  # Set by mini.test when the suite runs. Real global, not a workaround.
+  MiniTest:
+    any: true
