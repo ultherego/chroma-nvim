@@ -72,10 +72,67 @@ found by running something rather than reading it:
   The function passed them.
 - `:VaultDecryptFile` announced "it will be re-encrypted on write" and did not
   attach the hook that makes that true.
+- `:VaultEncrypt` claimed to encrypt the visual selection. It read the `'<` and
+  `'>` marks, which outlive the selection that set them, so from normal mode it
+  encrypted whatever had been selected earlier — leaving the value you meant to
+  protect in the clear.
 
 Each of those read as correct. None survived being exercised.
 
 **What would change it.** Nothing.
+
+### A fix is tested through its callers, not at the point of change
+
+**Decision.** After changing a function's signature or an option's meaning,
+exercise the code that *uses* it. Re-running the thing you just edited proves
+nothing about the things that call it.
+
+**Why.** Two of the four defects found while auditing this repository's own
+modules were introduced by earlier fixes in it:
+
+- `auth_for` was changed to resolve ansible.cfg from the buffer's directory,
+  and all eight call sites were updated to pass a buffer. The function still
+  took a directory. Every vault operation then handed a buffer number to
+  `vim.system` as its working directory — encrypt, decrypt, reveal and
+  transparent editing were all broken. It survived because the only thing
+  re-tested afterwards was `:VaultStatus`, which does not go through
+  `auth_for` at all.
+
+- `transparent = false` was found not to disable transparent editing. Every
+  earlier test that claimed to exercise that path had run with it enabled, so
+  a security fix that looked verified was not.
+
+Both changes were tested. Both tests looked green. Neither touched the path
+that broke.
+
+**What would change it.** Nothing. It costs one extra run.
+
+### Assert on state, not on observed behaviour
+
+**Decision.** Where a test can check that something is *registered*, *set* or
+*absent*, prefer that over checking that the outcome looks right.
+
+**Why.** The `transparent = false` bug is the case in point. Behaviour looked
+correct — files opened decrypted, writes came back encrypted, no plaintext
+reached disk — and every one of those observations was true for the wrong
+reason: the automatic reader was doing the work the disabled path was credited
+with. Counting the registered autocmds found it in one line.
+
+Observed behaviour cannot distinguish "this works" from "something else
+happens to be covering for it".
+
+**What would change it.** Nothing.
+
+### Report what was checked and found fine
+
+**Decision.** An audit report lists the paths that turned out correct
+alongside the ones that did not.
+
+**Why.** Reporting only findings makes a codebase look worse than it is and
+hides how much was actually examined. Of the twelve paths exercised in the
+last round, eight were correct and two suspicions — an unbounded `generation`
+table, the same file in two buffers — turned out not to be problems at all.
+That is as much a result as the four defects.
 
 ### Survey before building
 
