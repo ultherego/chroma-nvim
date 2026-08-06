@@ -713,18 +713,31 @@ mini.ai can generate treesitter-based textobjects through
 install. Writing the specs without them would be guesswork — rule #1 applies to
 our own code too.
 
-### Mason packages and treesitter parsers are not version-pinned
+### Mason packages are pinned; parsers and the kubectl binary already were
 
-`lazy-lock.json` pins plugins. It does not pin language server versions,
-formatter versions, treesitter parsers or the prebuilt binary kubectl.nvim
-downloads. A fresh install in six months gets different tool versions.
+`lazy-lock.json` pins plugins and says nothing about the binaries Mason
+fetches, so all seventeen carry an explicit `package@version`. Without it a
+fresh install six months from now gets different tool versions and different
+diagnostics from the same configuration.
 
-This is a real gap, left open on purpose. Pinning them means raising every pin
-by hand, and committing parsers would inflate the repository considerably. For
-a single-machine setup the maintenance cost outweighs the benefit.
+Two things that looked like the same gap turned out not to be, and were checked
+before any work was done on them:
 
-**What would change it.** A second machine, or a second person. At that point
-reproducibility stops being theoretical.
+- **Treesitter parsers** are pinned upstream. nvim-treesitter's own
+  `parsers.lua` carries an explicit `revision` for each of its 320 grammars, so
+  pinning its commit pins the parsers.
+- **The kubectl.nvim binary** is downloaded to match the plugin's checked-out
+  release — verified as `v2.44.1` on both sides — so it follows the lockfile
+  too.
+
+The cost is real: seventeen versions to raise by hand. `:MasonVersions` prints
+them in exactly the form the lists use, so raising them is run, compare, paste.
+Pinning is only sustainable if bumping is mechanical — otherwise the pins rot,
+which is worse than not pinning at all, because you get an old toolchain *and*
+the illusion of a deliberate choice.
+
+**What would change it.** Nothing, unless the bumping stops happening — at
+which point unpinning honestly beats pretending.
 
 ### The repository does not test against real infrastructure
 

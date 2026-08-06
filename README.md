@@ -63,7 +63,9 @@ promise for your machine.
 - Optional but assumed: `lazygit`, `yazi`
 - DevOps tooling as needed: `terraform`/`tofu`, `terragrunt`, `kubectl`, `helm`, `ansible`
 
-Language servers and linters install themselves through Mason.
+Language servers and linters install themselves through Mason, at versions
+pinned in `lua/plugins/lsp.lua`. `:MasonVersions` prints what is installed, in
+the form those lists use.
 
 ## Installation
 

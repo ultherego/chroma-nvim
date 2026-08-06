@@ -30,8 +30,30 @@
 return {
   {
     "mason-org/mason.nvim",
-    cmd = { "Mason", "MasonInstall", "MasonUpdate" },
+    cmd = { "Mason", "MasonInstall", "MasonUpdate", "MasonVersions" },
     opts = {},
+    config = function(_, opts)
+      require("mason").setup(opts)
+
+      -- Prints installed packages as `name@version`, the exact form the
+      -- ensure_installed lists below use.
+      --
+      -- Pinning versions is only sustainable if raising them is mechanical:
+      -- run this, compare, paste. Without it the pins rot, which is worse than
+      -- not pinning at all — you get an old toolchain *and* the illusion of
+      -- deliberate choice.
+      vim.api.nvim_create_user_command("MasonVersions", function()
+        local lines = {}
+        for _, pkg in ipairs(require("mason-registry").get_installed_packages()) do
+          local ok, id = pcall(function()
+            return pkg:get_receipt()._value.source.id
+          end)
+          table.insert(lines, ("%s@%s"):format(pkg.name, (ok and id and id:match("@([^@]+)$")) or "?"))
+        end
+        table.sort(lines)
+        vim.print(table.concat(lines, "\n"))
+      end, { desc = "Print installed Mason packages as name@version" })
+    end,
   },
 
   -- Non-LSP tooling (linters, formatters). The formatting and lint layers
@@ -41,6 +63,21 @@ return {
     event = "VeryLazy",
     dependencies = { "mason-org/mason.nvim" },
     opts = {
+      -- Pinned with `package@version`, which Mason supports directly.
+      --
+      -- lazy-lock.json pins plugins; it says nothing about the binaries Mason
+      -- fetches, so without this a fresh install six months from now gets
+      -- different tool versions and different diagnostics from the same
+      -- configuration.
+      --
+      -- Two things this deliberately does NOT cover, because they turned out
+      -- to be pinned already: treesitter parsers carry explicit revisions in
+      -- nvim-treesitter's own parsers.lua, and kubectl.nvim downloads the
+      -- binary matching its checked-out release — both therefore follow
+      -- lazy-lock.json.
+      --
+      -- The cost is that these have to be raised by hand. `:MasonVersions`
+      -- prints what is installed, in the exact form used here.
       ensure_installed = {
         -- tflint ships an LSP mode and nvim-lspconfig exposes lsp/tflint.lua,
         -- so installing it here also enables it as a language server and it
@@ -48,16 +85,16 @@ return {
         -- behaviour: diagnostics arrive natively over LSP. The lint layer must
         -- therefore NOT also register tflint with nvim-lint, or every finding
         -- would be reported twice.
-        "tflint",
+        "tflint@v0.64.0",
         -- nvim-lint linters (see plugins/lint.lua)
-        "ansible-lint",
-        "yamllint",
-        "hadolint",
-        "actionlint",
+        "ansible-lint@26.6.0",
+        "yamllint@1.38.0",
+        "hadolint@v2.15.1",
+        "actionlint@v1.7.12",
         -- conform formatters (see plugins/formatting.lua)
-        "stylua",
-        "shfmt",
-        "jq",
+        "stylua@v2.5.2",
+        "shfmt@v3.13.1",
+        "jq@jq-1.7",
       },
       run_on_start = true,
     },
@@ -91,19 +128,20 @@ return {
       "neovim/nvim-lspconfig",
     },
     opts = {
-      -- Names are nvim-lspconfig config names; mason-lspconfig maps them onto
-      -- mason package names. Every one verified to exist in nvim-lspconfig's
-      -- lsp/ directory before being listed here.
+      -- Names are nvim-lspconfig config names, which mason-lspconfig maps onto
+      -- Mason packages; every one was verified to exist in nvim-lspconfig's
+      -- lsp/ directory. The version after `@` is the Mason package's, pinned
+      -- for the same reason as the tools above.
       ensure_installed = {
-        "terraformls",
-        "helm_ls",
-        "dockerls",
-        "docker_compose_language_service",
-        "yamlls",
-        "ansiblels",
-        "bashls",
-        "jsonls",
-        "lua_ls",
+        "terraformls@v0.39.0",
+        "helm_ls@v0.5.4",
+        "dockerls@0.15.0",
+        "docker_compose_language_service@1.0.0",
+        "yamlls@1.24.0",
+        "ansiblels@26.6.0",
+        "bashls@5.6.0",
+        "jsonls@4.10.0",
+        "lua_ls@3.18.2",
       },
       -- An explicit allow-list, not `true` and not an exclude list.
       --
