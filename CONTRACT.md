@@ -53,9 +53,14 @@ on that API, not on patterns from the 0.9/0.10 era. Any tutorial older than
 
 ## Structure
 
-The tree below is the **target**. Files appear as the layer that needs them
-lands; `lua/devops/` and `config/autocmds.lua` do not exist yet, because
-nothing has needed them. `README.md` carries the per-layer status.
+The tree below is what exists. `config/autocmds.lua` is still absent because
+nothing has needed it. `README.md` carries the per-layer status.
+
+The own-code layout diverged from the original plan on purpose: each module is
+a self-contained plugin under its own name rather than a file under a shared
+`lua/devops/` namespace, so any of them can be lifted into its own repository
+without edits. `lua/devops/` kept only what is genuinely about this
+configuration rather than about a tool — the health check.
 
 ```
 ~/.config/nvim
@@ -78,12 +83,11 @@ nothing has needed them. `README.md` carries the per-layer status.
 │   │   ├── lint.lua
 │   │   ├── editing.lua
 │   │   └── devops.lua
-│   └── devops                    (planned — our own modules)
-│       ├── ansible.lua
-│       ├── kubernetes.lua
-│       ├── terraform.lua
-│       ├── aws.lua
-│       └── utils.lua
+│   ├── ansible-vault             our own plugin
+│   ├── terraform                 our own runner
+│   ├── aws                       our own profile/region switcher
+│   └── devops
+│       └── health.lua            :checkhealth devops
 ├── after
 ├── README.md
 └── LICENSE
@@ -189,12 +193,12 @@ we maintain — unless the gap is genuine.
 
 Scope set by the survey of 2026-08-06, not by assumption.
 
-### `ansible-vault.nvim` — being built, lives in `lua/ansible-vault/`
+### `ansible-vault.nvim` — built, in `lua/ansible-vault/`
 The one genuine gap. Every existing candidate is a single-person project with
 0–7 stars, the most visible one abandoned since 2023. Nothing meets the bar of
 "actively maintained + properly documented", so this is ours to build.
 
-### `terraform.nvim` — build a thin runner
+### `terraform.nvim` — built as a thin runner, in `lua/terraform/`
 Most of the originally planned scope is already covered by plugins this config
 installs anyway:
 
@@ -202,13 +206,13 @@ installs anyway:
 |---|---|
 | `fmt` | conform.nvim `terraform_fmt`, and `terragrunt_hclfmt` for terragrunt files. Requires the `terraform` CLI — the LSP is not a fallback, it shells out to `terraform fmt` itself. |
 | `validate` | `tflint`, running as a language server. It is deliberately **not** registered with nvim-lint as well; that would double every finding. |
-| `init` | one-off in practice; the terminal is fine |
+| `init` | implemented after all as `:TerraformInit`; it is one keystroke from where you already are |
 
 What remains is a `plan` / `apply` / `destroy` runner. Existing options were
 rejected: `mvaldes14/terraform.nvim` had no push for a year, and
 `telescope-terraform.nvim` is built on telescope, which this config does not use.
 
-### `aws` — build it, lives in `lua/aws/`
+### `aws` — built, in `lua/aws/`
 Not in the original plan, but the contract reserved an AWS keymap group and
 the survey found nothing to fill it with: `nvim-aws-cli` has no stars and no
 commit since March 2025, `nvimawscli` has twelve and manages EC2 instances.

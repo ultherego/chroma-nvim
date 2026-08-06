@@ -28,7 +28,7 @@ Kitty → Zellij → Yazi → Neovim
 | Bootstrap, colourscheme | done |
 | Options, keymaps, which-key | done |
 | Navigation — fzf-lua, oil, yazi, project | done |
-| LSP — mason, native `vim.lsp` API, 9 servers | done |
+| LSP — mason, native `vim.lsp` API, 10 servers | done |
 | Completion — blink.cmp | done |
 | Treesitter | done |
 | Formatting — conform.nvim | done |

@@ -32,9 +32,30 @@ M.options = vim.deepcopy(defaults)
 --- answer only changes when ansible.cfg does.
 local resolved_cache = {}
 
+--- The directory whose ansible.cfg applies to a buffer.
+---
+--- Neovim's working directory is not it. Open a playbook from another project
+--- — through a picker, a session, or `nvim path/to/other/repo/vars.yml` — and
+--- getcwd() still points at the first project, so ansible would be asked about
+--- the wrong ansible.cfg and hand back the wrong password file entirely.
+---@param buf integer|nil
+---@return string
+local function context_dir(buf)
+  local name = vim.api.nvim_buf_get_name(buf or 0)
+  if name == "" then
+    return vim.fn.getcwd()
+  end
+
+  local start = vim.fs.dirname(name)
+  -- The nearest ansible.cfg above the file wins, matching how ansible itself
+  -- resolves configuration relative to where it runs.
+  local found = vim.fs.find("ansible.cfg", { path = start, upward = true, type = "file" })[1]
+  return found and vim.fs.dirname(found) or start
+end
+
 ---@return ansible_vault.Auth|nil, string|nil err
 local function auth_for(cwd)
-  cwd = cwd or vim.fn.getcwd()
+  cwd = cwd or context_dir()
 
   if resolved_cache[cwd] == nil then
     local resolved, err = vault_config.resolve(cwd)
@@ -131,7 +152,7 @@ end
 ---Describes where the password will come from, without using it.
 ---@return string
 function M.status()
-  local cwd = vim.fn.getcwd()
+  local cwd = context_dir()
   local resolved, err = vault_config.resolve(cwd)
   if not resolved then
     return ("ansible-vault.nvim: %s"):format(err)
@@ -255,7 +276,7 @@ function M.reveal()
     return
   end
 
-  local auth, err = auth_for()
+  local auth, err = auth_for(buf)
   if not auth then
     if err ~= "cancelled" then
       vim.notify(err, vim.log.levels.ERROR)
@@ -293,7 +314,7 @@ function M.encrypt_selection()
   local key, value = plaintext:match("^%s*([%w_%-%.]+)%s*:%s*(.*)$")
   local indent = lines[1]:match("^(%s*)") or ""
 
-  local auth, err = auth_for()
+  local auth, err = auth_for(buf)
   if not auth then
     if err ~= "cancelled" then
       vim.notify(err, vim.log.levels.ERROR)
@@ -407,7 +428,7 @@ function M.encrypt_file()
     return
   end
 
-  local auth, err = auth_for()
+  local auth, err = auth_for(buf)
   if not auth then
     if err ~= "cancelled" then
       vim.notify(err, vim.log.levels.ERROR)
@@ -439,7 +460,7 @@ function M.decrypt_file()
     return
   end
 
-  local auth, err = auth_for()
+  local auth, err = auth_for(buf)
   if not auth then
     if err ~= "cancelled" then
       vim.notify(err, vim.log.levels.ERROR)
@@ -474,7 +495,7 @@ function M.view_file()
     return
   end
 
-  local auth, err = auth_for()
+  local auth, err = auth_for(buf)
   if not auth then
     if err ~= "cancelled" then
       vim.notify(err, vim.log.levels.ERROR)
@@ -506,7 +527,7 @@ function M.rekey_file()
     return
   end
 
-  local auth, err = auth_for()
+  local auth, err = auth_for(buf)
   if not auth then
     if err ~= "cancelled" then
       vim.notify(err, vim.log.levels.ERROR)
@@ -571,7 +592,7 @@ function M.attach_writer(buf)
         return
       end
 
-      local auth, err = auth_for()
+      local auth, err = auth_for(ev.buf)
       if not auth then
         vim.notify(err or "cancelled", vim.log.levels.ERROR)
         return
@@ -622,7 +643,7 @@ local function enable_transparent_editing()
       -- in which it is still true.
       harden_file_buffer(ev.buf)
 
-      local auth, err = auth_for()
+      local auth, err = auth_for(ev.buf)
       if not auth then
         vim.b[ev.buf].ansible_vault_plain = nil
         if err ~= "cancelled" then

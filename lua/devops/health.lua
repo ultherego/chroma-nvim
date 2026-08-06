@@ -93,6 +93,7 @@ local function check_devops()
     { cmd = "helm", what = "the Helm view inside kubectl.nvim" },
     { cmd = "ansible", what = "running playbooks (<leader>ar)" },
     { cmd = "terragrunt", what = "formatting terragrunt.hcl files" },
+    { cmd = "aws", what = "the AWS profile and region switcher (<leader>Ap)" },
   }, health.warn)
 
   -- Terraform is called out separately because its absence has a specific,
@@ -108,12 +109,32 @@ local function check_devops()
   end
 
   if vim.fn.executable("kubectl") == 1 then
-    local kubeconfig = vim.env.KUBECONFIG or (vim.env.HOME .. "/.kube/config")
-    if vim.uv.fs_stat(kubeconfig) then
-      health.ok(("kubeconfig found at %s"):format(kubeconfig))
+    -- KUBECONFIG is a path LIST, not a path. kubectl merges every entry, and
+    -- splitting on the platform separator is the difference between reporting
+    -- a perfectly good multi-cluster setup as missing and reading it correctly.
+    local separator = vim.fn.has("win32") == 1 and ";" or ":"
+    local entries = vim.env.KUBECONFIG and vim.split(vim.env.KUBECONFIG, separator, { trimempty = true })
+      or { vim.fs.joinpath(vim.env.HOME, ".kube", "config") }
+
+    local present, missing = {}, {}
+    for _, entry in ipairs(entries) do
+      local path = vim.fs.normalize(entry)
+      table.insert(vim.uv.fs_stat(path) and present or missing, path)
+    end
+
+    if #present > 0 then
+      health.ok(("kubeconfig: %s"):format(table.concat(present, ", ")))
+      if #missing > 0 then
+        health.warn(
+          ("KUBECONFIG also lists files that do not exist: %s"):format(table.concat(missing, ", ")),
+          "kubectl ignores them, but the list is probably not what you intended"
+        )
+      end
     else
       health.warn(
-        ("No kubeconfig at %s — the cluster views will have nothing to show"):format(kubeconfig),
+        ("No kubeconfig found (looked at %s) — the cluster views will have nothing to show"):format(
+          table.concat(missing, ", ")
+        ),
         "set KUBECONFIG or create ~/.kube/config"
       )
     end

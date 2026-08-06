@@ -41,8 +41,61 @@ local defaults = {
 M.options = vim.deepcopy(defaults)
 
 --- Saved plans, keyed by the directory they belong to.
----@type table<string, { path: string, destroy: boolean }>
+---@type table<string, table>
 local plans = {}
+
+--- Monotonic counter per directory. Two plans can be in flight at once — start
+--- one, edit, start another — and vim.system callbacks arrive in whatever order
+--- the processes finish. Without this the slower run overwrites the newer plan
+--- after you have already read the newer one, and apply then executes something
+--- other than what was on screen. That is the exact guarantee this plugin
+--- exists to make, so the stale callback is discarded instead.
+---@type table<string, integer>
+local generation = {}
+
+--- What the next subprocess will authenticate as.
+---
+--- Recorded with every plan and compared before apply. The AWS module sets
+--- these on the Neovim process, so switching profile between reading a plan and
+--- applying it would run the apply against a different account while terraform
+--- happily performs the operations the plan described.
+---
+--- This compares environment, not identity: it does not ask STS who the
+--- credentials actually resolve to, because that is a network round trip on
+--- every plan. `:AwsWhoami` answers that question when it matters.
+---@return table
+local function aws_context()
+  return {
+    profile = vim.env.AWS_PROFILE,
+    region = vim.env.AWS_REGION or vim.env.AWS_DEFAULT_REGION,
+  }
+end
+
+---@param a table
+---@param b table
+---@return string|nil description of the difference
+local function context_differs(a, b)
+  local function show(v)
+    return v == nil and "(unset)" or v
+  end
+  if a.profile ~= b.profile then
+    return ("AWS_PROFILE changed: %s -> %s"):format(show(a.profile), show(b.profile))
+  end
+  if a.region ~= b.region then
+    return ("AWS region changed: %s -> %s"):format(show(a.region), show(b.region))
+  end
+  return nil
+end
+
+---Drops a saved plan and removes its file.
+---@param dir string
+local function discard_plan(dir)
+  local saved = plans[dir]
+  if saved then
+    pcall(vim.uv.fs_unlink, saved.path)
+    plans[dir] = nil
+  end
+end
 
 ---Terragrunt owns a directory when terragrunt.hcl sits in it. Running
 ---`terraform` there would ignore the generated configuration entirely.
@@ -64,8 +117,11 @@ local function root_dir()
   local buf = vim.api.nvim_buf_get_name(0)
   local start = buf ~= "" and vim.fs.dirname(buf) or vim.fn.getcwd()
 
+  -- Must stay in step with binary_for, which already knew about
+  -- terragrunt.stack.hcl. A stack-only directory was invisible here, so every
+  -- command reported "nothing found" in a project that plainly had one.
   local found = vim.fs.find(function(name)
-    return name:match("%.tf$") or name == "terragrunt.hcl"
+    return name:match("%.tf$") or name == "terragrunt.hcl" or name == "terragrunt.stack.hcl"
   end, { path = start, upward = true, type = "file" })[1]
 
   return found and vim.fs.dirname(found) or nil
@@ -152,7 +208,21 @@ local function plan(destroy)
     table.insert(args, 2, "-destroy")
   end
 
+  -- Claim this generation before starting. Any plan already running for this
+  -- directory becomes stale the moment a newer one is asked for.
+  generation[dir] = (generation[dir] or 0) + 1
+  local mine = generation[dir]
+  local context = aws_context()
+  local binary = binary_for(dir)
+
   run(args, dir, function(code, lines)
+    if generation[dir] ~= mine then
+      -- A newer plan was started while this one was running. Its output would
+      -- be misleading and its file must not become the plan that apply uses.
+      pcall(vim.uv.fs_unlink, path)
+      return
+    end
+
     show(lines, (" %s plan%s "):format(vim.fs.basename(dir), destroy and " -destroy" or ""))
 
     -- -detailed-exitcode: 0 no changes, 1 error, 2 changes present.
@@ -165,7 +235,12 @@ local function plan(destroy)
       -- variable values. Tightened as soon as it exists. It cannot be
       -- pre-created with the right mode because terraform replaces it.
       pcall(vim.uv.fs_chmod, path, tonumber("600", 8))
-      plans[dir] = { path = path, destroy = destroy }
+
+      -- Removes the file of the plan being replaced. Without this each
+      -- superseded plan leaked a file into XDG_RUNTIME_DIR until logout.
+      discard_plan(dir)
+
+      plans[dir] = { path = path, destroy = destroy, context = context, binary = binary }
       vim.notify(
         ("Plan saved. Review it, then :TerraformApply%s"):format(destroy and "  (this plan DESTROYS)" or ""),
         destroy and vim.log.levels.WARN or vim.log.levels.INFO
@@ -200,6 +275,21 @@ function M.apply()
     return
   end
 
+  -- The plan file fixes what terraform will do. It does not fix who it will
+  -- do it as: credentials come from the environment, which the AWS module can
+  -- change between reading a plan and applying it. Terraform would carry out
+  -- the reviewed operations against whatever account is configured now.
+  local drift = context_differs(saved.context or {}, aws_context())
+  if drift then
+    vim.notify(
+      ("Refusing to apply: %s since this plan was made.\nRun :TerraformPlan again under the current credentials."):format(
+        drift
+      ),
+      vim.log.levels.ERROR
+    )
+    return
+  end
+
   -- The plan file is the approval as far as terraform is concerned. This
   -- prompt is for the human: applying is the point of no return, and a
   -- destroy plan deserves to be typed out rather than confirmed by reflex.
@@ -216,8 +306,7 @@ function M.apply()
   run({ "apply", "-no-color", "-input=false", saved.path }, dir, function(code, lines)
     -- Spent, whatever happened: terraform refuses to reuse a plan file, and
     -- keeping it would only invite applying a stale one.
-    pcall(vim.uv.fs_unlink, saved.path)
-    plans[dir] = nil
+    discard_plan(dir)
 
     show(lines, (" %s apply "):format(vim.fs.basename(dir)))
     if code == 0 then
@@ -260,9 +349,8 @@ end
 ---Discards any reviewed plan without applying it.
 function M.discard()
   local count = 0
-  for dir, saved in pairs(plans) do
-    pcall(vim.uv.fs_unlink, saved.path)
-    plans[dir] = nil
+  for dir, _ in pairs(vim.deepcopy(plans)) do
+    discard_plan(dir)
     count = count + 1
   end
   vim.notify(("Discarded %d saved plan(s)"):format(count), vim.log.levels.INFO)

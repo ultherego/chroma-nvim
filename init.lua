@@ -11,10 +11,14 @@ require("config.keymaps")
 require("config.commands")
 require("config.lazy")
 
--- ansible-vault.nvim lives in lua/ansible-vault/ and depends on nothing in this
--- configuration, so it can be lifted into its own repository unchanged. setup()
--- only registers four user commands and three mappings, so there is nothing to
--- gain from deferring it.
+-- These three live in lua/ansible-vault/, lua/terraform/ and lua/aws/, and
+-- depend on nothing in this configuration, so each can be lifted into its own
+-- repository unchanged.
+--
+-- Their setup() calls only register user commands, mappings and — for the
+-- vault — a pair of autocmds, so there is nothing to gain from deferring them.
+-- The vault's write hook in particular must exist before any vault file is
+-- opened, which rules out lazy loading it.
 require("ansible-vault").setup({ keymaps = true })
 require("terraform").setup({ keymaps = true })
 require("aws").setup({ keymaps = true })

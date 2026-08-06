@@ -28,6 +28,39 @@ local defaults = {
 
 M.options = vim.deepcopy(defaults)
 
+--- The environment Neovim was started with, captured once at setup.
+---
+--- :AwsClear used to unset everything, which is not the same as undoing what
+--- this module did: a shell that exported AWS_PROFILE=production before
+--- launching Neovim ended up with no profile at all, silently switching to the
+--- default one rather than back to production.
+---@type table<string, string|nil>
+local initial = {}
+
+--- Credentials that take precedence over AWS_PROFILE.
+---
+--- The SDK resolves static keys in the environment before it looks at a named
+--- profile, so with these set, changing AWS_PROFILE changes what this plugin
+--- reports and nothing about what terraform actually authenticates as.
+local OVERRIDING = {
+  "AWS_ACCESS_KEY_ID",
+  "AWS_SECRET_ACCESS_KEY",
+  "AWS_SESSION_TOKEN",
+  "AWS_WEB_IDENTITY_TOKEN_FILE",
+  "AWS_ROLE_ARN",
+}
+
+---@return string[] names of overriding variables that are set
+local function overriding_credentials()
+  local found = {}
+  for _, name in ipairs(OVERRIDING) do
+    if vim.env[name] and vim.env[name] ~= "" then
+      table.insert(found, name)
+    end
+  end
+  return found
+end
+
 ---@param cmd string[]
 ---@return string[]|nil lines, string|nil err
 local function capture(cmd)
@@ -51,7 +84,21 @@ end
 
 function M.status()
   local profile, region = current()
-  vim.notify(("AWS profile: %s   region: %s"):format(profile, region), vim.log.levels.INFO)
+  local message = ("AWS profile: %s   region: %s"):format(profile, region)
+
+  local overriding = overriding_credentials()
+  if #overriding > 0 then
+    vim.notify(
+      ("%s\n%s set in the environment — these take precedence over AWS_PROFILE, so the profile above is not what will be used."):format(
+        message,
+        table.concat(overriding, ", ")
+      ),
+      vim.log.levels.WARN
+    )
+    return
+  end
+
+  vim.notify(message, vim.log.levels.INFO)
 end
 
 ---Picks a profile from those the CLI knows about.
@@ -74,8 +121,13 @@ function M.pick_profile()
 
     vim.env.AWS_PROFILE = choice
 
-    -- A profile usually carries its own region; adopting it avoids the case
-    -- where the profile changes but the region silently does not.
+    -- Cleared first. A profile usually carries its own region, but if the new
+    -- one does not, keeping the previous profile's region is worse than having
+    -- none: the display would show the new profile beside a region belonging
+    -- to the old account.
+    vim.env.AWS_REGION = nil
+    vim.env.AWS_DEFAULT_REGION = nil
+
     local region = capture({ "aws", "configure", "get", "region", "--profile", choice })
     if region and region[1] and region[1] ~= "" then
       vim.env.AWS_REGION = region[1]
@@ -131,12 +183,20 @@ function M.pick_region()
   end)
 end
 
----Unsets both, so the next subprocess falls back to the ambient configuration.
+---Restores the environment Neovim started with.
+---
+---Deliberately not "unset everything": undoing this module's changes means
+---going back to what the shell provided, which may well have been a profile.
 function M.clear()
-  vim.env.AWS_PROFILE = nil
-  vim.env.AWS_REGION = nil
-  vim.env.AWS_DEFAULT_REGION = nil
-  vim.notify("AWS profile and region cleared for this session", vim.log.levels.INFO)
+  vim.env.AWS_PROFILE = initial.AWS_PROFILE
+  vim.env.AWS_REGION = initial.AWS_REGION
+  vim.env.AWS_DEFAULT_REGION = initial.AWS_DEFAULT_REGION
+
+  local profile, region = current()
+  vim.notify(
+    ("Restored the starting environment — profile: %s   region: %s"):format(profile, region),
+    vim.log.levels.INFO
+  )
 end
 
 ---Confirms which account the current credentials actually resolve to.
@@ -155,6 +215,10 @@ end
 ---@param opts table|nil
 function M.setup(opts)
   M.options = vim.tbl_deep_extend("force", vim.deepcopy(defaults), opts or {})
+
+  for _, name in ipairs({ "AWS_PROFILE", "AWS_REGION", "AWS_DEFAULT_REGION" }) do
+    initial[name] = vim.env[name]
+  end
 
   local commands = {
     AwsProfile = M.pick_profile,

@@ -38,8 +38,9 @@ return {
       formatters_by_ft = {
         lua = { "stylua" },
 
-        -- Terraform's own canonical formatter; falls back to terraform-ls
-        -- when the terraform binary is absent.
+        -- Terraform's own canonical formatter. There is no fallback: without
+        -- the terraform CLI nothing formats these files, for the reason set
+        -- out at the top of this file.
         terraform = { "terraform_fmt" },
         ["terraform-vars"] = { "terraform_fmt" },
 
