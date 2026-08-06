@@ -724,8 +724,16 @@ function M.setup(opts)
     desc = "Re-encrypt this file with a new password",
   })
 
+  -- Both branches act. Creating the augroup with clear = true only happens on
+  -- the enabling path, so calling setup a second time with transparent = false
+  -- used to leave the first call's autocmds in place: the option looked
+  -- respected and was not. Found by asserting on the autocmd count rather than
+  -- on the observed behaviour, which is what made the earlier "transparent is
+  -- off" tests meaningless.
   if M.options.transparent then
     enable_transparent_editing()
+  else
+    pcall(vim.api.nvim_del_augroup_by_name, "ansible_vault_transparent")
   end
 
   if M.options.keymaps then

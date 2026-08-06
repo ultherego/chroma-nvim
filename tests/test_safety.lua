@@ -202,6 +202,39 @@ T["block_at"]["returns nothing for a !vault tag with no ciphertext"] = function(
 end
 
 -- ---------------------------------------------------------------------------
+-- setup() options actually take effect
+-- ---------------------------------------------------------------------------
+
+T["setup"] = new_set({
+  hooks = {
+    -- Leave the suite in the state the configuration expects.
+    post_once = function()
+      require("ansible-vault").setup({ transparent = true })
+    end,
+  },
+})
+
+local transparent_autocmds = function()
+  local ok, cmds = pcall(vim.api.nvim_get_autocmds, { group = "ansible_vault_transparent" })
+  return ok and #cmds or 0
+end
+
+T["setup"]["registers transparent editing when asked"] = function()
+  require("ansible-vault").setup({ transparent = true })
+  eq(transparent_autocmds() > 0, true)
+end
+
+T["setup"]["removes it when asked, even after enabling"] = function()
+  -- The bug this guards against: only the enabling branch touched the augroup,
+  -- so a later setup with transparent = false left the earlier autocmds in
+  -- place. The option looked respected and was not — which quietly invalidated
+  -- every test that thought it had transparent editing switched off.
+  require("ansible-vault").setup({ transparent = true })
+  require("ansible-vault").setup({ transparent = false })
+  eq(transparent_autocmds(), 0)
+end
+
+-- ---------------------------------------------------------------------------
 -- Credential drift between plan and apply
 -- ---------------------------------------------------------------------------
 
