@@ -17,3 +17,4 @@ require("config.lazy")
 -- gain from deferring it.
 require("ansible-vault").setup({ keymaps = true })
 require("terraform").setup({ keymaps = true })
+require("aws").setup({ keymaps = true })

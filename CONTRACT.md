@@ -146,6 +146,11 @@ One `plugins/*.lua` file = one domain. No junk-drawer files.
 ### Lint
 - `nvim-lint`
 
+### Sessions
+- `persisted.nvim` — chosen over `auto-session` (larger surface, 28 open
+  issues) and `persistence.nvim` (no push in nine months). Sessions are per
+  directory and per git branch.
+
 ### DevOps
 Terraform · Terragrunt · Helm · Docker · Kubernetes · YAML · Ansible
 
@@ -201,6 +206,13 @@ What remains is a `plan` / `apply` / `destroy` runner. Existing options were
 rejected: `mvaldes14/terraform.nvim` had no push for a year, and
 `telescope-terraform.nvim` is built on telescope, which this config does not use.
 
+### `aws` — build it, lives in `lua/aws/`
+Not in the original plan, but the contract reserved an AWS keymap group and
+the survey found nothing to fill it with: `nvim-aws-cli` has no stars and no
+commit since March 2025, `nvimawscli` has twelve and manages EC2 instances.
+Scope is deliberately one thing — set AWS_PROFILE and AWS_REGION on the Neovim
+process so every subprocess, the terraform runner included, inherits them.
+
 ### ~~`kube.nvim`~~ — dropped, use `kubectl.nvim`
 [Ramilito/kubectl.nvim](https://github.com/Ramilito/kubectl.nvim) covers the
 entire planned scope — context, namespace, pods, logs, describe, exec — and
@@ -250,3 +262,4 @@ not an inconvenience.
 | 2026-08-06 | Added rule #2 (survey before building); dropped `kube.nvim` for `kubectl.nvim`; narrowed `terraform.nvim` to a plan/apply/destroy runner | plugin survey showed the planned scope was partly already solved |
 | 2026-08-06 | `lazygit.nvim` replaced by the `snacks.nvim` lazygit module | upstream stale and has no colourscheme integration; snacks was already a dependency |
 | 2026-08-06 | `alpha` replaced by the `snacks.nvim` dashboard module | snacks was already a dependency; alpha remains maintained, so this is deduplication, not rejection |
+| 2026-08-06 | Added `persisted.nvim` for Sessions and a own `lua/aws/` module for the AWS group | both groups were reserved but unfilled; no adoptable AWS plugin exists |

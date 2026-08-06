@@ -40,6 +40,8 @@ Kitty → Zellij → Yazi → Neovim
 | Health check, CI, lint config | done |
 | `ansible-vault.nvim` — inline values, whole files, transparent editing, rekey | done |
 | `terraform.nvim` — plan / review / apply, terragrunt-aware | done |
+| Sessions — persisted.nvim | done |
+| AWS — own profile/region switcher | done |
 
 Startup is ~25 ms with 32 plugins, measured locally with
 `nvim --headless --startuptime` on CachyOS; treat it as an indication, not a

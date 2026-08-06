@@ -1,5 +1,6 @@
 devops-nvim	devops-nvim.txt	/*devops-nvim*
 devops-nvim-adding	devops-nvim.txt	/*devops-nvim-adding*
+devops-nvim-aws	devops-nvim.txt	/*devops-nvim-aws*
 devops-nvim-builtin-keys	devops-nvim.txt	/*devops-nvim-builtin-keys*
 devops-nvim-completion	devops-nvim.txt	/*devops-nvim-completion*
 devops-nvim-contents	devops-nvim.txt	/*devops-nvim-contents*
@@ -18,6 +19,7 @@ devops-nvim-lsp-dual	devops-nvim.txt	/*devops-nvim-lsp-dual*
 devops-nvim-lsp-helm	devops-nvim.txt	/*devops-nvim-lsp-helm*
 devops-nvim-requirements	devops-nvim.txt	/*devops-nvim-requirements*
 devops-nvim-rules	devops-nvim.txt	/*devops-nvim-rules*
+devops-nvim-sessions	devops-nvim.txt	/*devops-nvim-sessions*
 devops-nvim-terraform	devops-nvim.txt	/*devops-nvim-terraform*
 devops-nvim-terraform-plans	devops-nvim.txt	/*devops-nvim-terraform-plans*
 devops-nvim-terraform-safety	devops-nvim.txt	/*devops-nvim-terraform-safety*

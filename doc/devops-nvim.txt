@@ -23,9 +23,10 @@ CONTENTS                                                 *devops-nvim-contents*
  13. User interface ..................... |devops-nvim-ui|
  14. Ansible Vault ...................... |devops-nvim-vault|
  15. Terraform .......................... |devops-nvim-terraform|
- 16. Adding a plugin .................... |devops-nvim-adding|
- 17. Troubleshooting .................... |devops-nvim-troubleshooting|
- 18. Rules .............................. |devops-nvim-rules|
+ 16. AWS and sessions ................... |devops-nvim-aws|
+ 17. Adding a plugin .................... |devops-nvim-adding|
+ 18. Troubleshooting .................... |devops-nvim-troubleshooting|
+ 19. Rules .............................. |devops-nvim-rules|
 
 ==============================================================================
 1. INTRODUCTION                                      *devops-nvim-introduction*
@@ -174,6 +175,18 @@ Terraform ~
 <
 `:TerraformPlanDestroy` has no mapping on purpose — see |devops-nvim-terraform|.
 
+AWS ~
+>
+    <leader>Ap   Pick profile      <leader>As   Show profile and region
+    <leader>Ar   Pick region       <leader>Aw   Who am I (sts get-caller-identity)
+    <leader>Ac   Clear both
+<
+Sessions ~
+>
+    <leader>ss   Select a session      <leader>sw   Save now
+    <leader>sl   Load for this dir     <leader>st   Toggle recording
+    <leader>sL   Load the last one     <leader>sd   Delete this session
+<
 Kubernetes ~
 >
     <leader>kk   Open the cluster view
@@ -786,7 +799,49 @@ apply and on exiting Neovim. If XDG_RUNTIME_DIR is unset the plugin refuses to
 plan rather than writing one to persistent storage.
 
 ==============================================================================
-16. ADDING A PLUGIN                                        *devops-nvim-adding*
+16. AWS AND SESSIONS                                          *devops-nvim-aws*
+
+AWS ~
+
+`lua/aws/` is ours. The survey found nothing worth adopting: nvim-aws-cli has
+no stars and no commit since March 2025, nvimawscli has twelve and manages EC2
+instances, which is not what an editor is for.
+
+The scope is one thing: make sure the next `terraform plan` runs against the
+account you meant. `:AwsProfile` and `:AwsRegion` set AWS_PROFILE and
+AWS_REGION on the Neovim process, so every subprocess inherits them — the
+terraform runner, a `:terminal`, a language server. Verified: after setting
+them, a subprocess sees the new values.
+>
+    :AwsProfile   choose from `aws configure list-profiles`
+    :AwsRegion    choose from the account, or type one
+    :AwsStatus    what the next subprocess will see
+    :AwsWhoami    what those credentials actually resolve to
+    :AwsClear     unset both
+<
+Profiles come from the CLI rather than from parsing ~/.aws/config, because the
+CLI already understands config, credentials, SSO sessions and AWS_CONFIG_FILE.
+
+Regions are not hardcoded — a baked-in list is wrong the day AWS opens a
+region. They are read from the account when credentials allow, and typed when
+they do not.
+
+`:AwsWhoami` exists because AWS_PROFILE being set is not the same as it
+working, and finding that out from a failed apply is expensive.
+
+Sessions                                                 *devops-nvim-sessions*
+
+persisted.nvim, chosen over auto-session (larger surface, 28 open issues) and
+persistence.nvim (no push in nine months). Sessions are per directory and per
+git branch: infrastructure repositories tend to keep a long-lived branch per
+environment, and the files that matter on `prod` are rarely the ones that
+matter on a feature branch.
+
+The dashboard is excluded from what gets saved, so a restored session opens
+onto the work rather than onto a stale start screen.
+
+==============================================================================
+17. ADDING A PLUGIN                                        *devops-nvim-adding*
 
 Before writing any configuration, do the reading. This is rule #1 and it is
 not decorative; see |devops-nvim-rules|.
@@ -804,7 +859,7 @@ not decorative; see |devops-nvim-rules|.
   7. Commit `lazy-lock.json` along with the change.
 
 ==============================================================================
-17. TROUBLESHOOTING                                *devops-nvim-troubleshooting*
+18. TROUBLESHOOTING                                *devops-nvim-troubleshooting*
 
 A language server is not attaching ~
 >
@@ -850,7 +905,7 @@ Plugins are in a strange state ~
     :Lazy sync        install, clean and update to match the specs
 <
 ==============================================================================
-18. RULES                                                   *devops-nvim-rules*
+19. RULES                                                   *devops-nvim-rules*
 
 Two rules govern this repository. `CONTRACT.md` is the full version.
 
