@@ -49,12 +49,15 @@ return {
         -- therefore NOT also register tflint with nvim-lint, or every finding
         -- would be reported twice.
         "tflint",
-        -- nvim-lint supports these two by name
+        -- nvim-lint linters (see plugins/lint.lua)
         "ansible-lint",
         "yamllint",
-        -- conform supports these two by name
+        "hadolint",
+        "actionlint",
+        -- conform formatters (see plugins/formatting.lua)
         "stylua",
         "shfmt",
+        "jq",
       },
       run_on_start = true,
     },

@@ -18,9 +18,11 @@ CONTENTS                                                 *devops-nvim-contents*
   8. LSP .................................. |devops-nvim-lsp|
   9. Treesitter ........................... |devops-nvim-treesitter|
  10. Completion ........................... |devops-nvim-completion|
- 11. Adding a plugin ...................... |devops-nvim-adding|
- 12. Troubleshooting ...................... |devops-nvim-troubleshooting|
- 13. Rules ................................ |devops-nvim-rules|
+ 11. Formatting ........................... |devops-nvim-formatting|
+ 12. Linting .............................. |devops-nvim-linting|
+ 13. Adding a plugin ...................... |devops-nvim-adding|
+ 14. Troubleshooting ...................... |devops-nvim-troubleshooting|
+ 15. Rules ................................ |devops-nvim-rules|
 
 ==============================================================================
 1. INTRODUCTION                                      *devops-nvim-introduction*
@@ -175,6 +177,13 @@ Buffers and windows ~
                                           <leader>wo   Close other windows
                                           <leader>w=   Equalise sizes
 <
+Tools ~
+>
+    <leader>xf   Format buffer or selection   (also works in visual mode)
+    <leader>xF   Toggle format on save
+    <leader>xi   Formatter info (:ConformInfo)
+    <leader>xl   Lint buffer now
+<
 Editing, visual mode ~
 >
     <leader>p    Paste without overwriting the register
@@ -199,9 +208,9 @@ Note that oil's upstream defaults for splitting and previewing are <C-s>,
 
 Groups not yet populated ~
 
-Git, Terraform, Kubernetes, Ansible, AWS, Sessions and Tools are declared but
-still empty. The prefixes are reserved so that later layers cannot collide
-with what already exists.
+Git, Terraform, Kubernetes, Ansible, AWS and Sessions are declared but still
+empty. The prefixes are reserved so that later layers cannot collide with what
+already exists.
 
 ==============================================================================
 6. BUILT-IN NEOVIM KEYS                             *devops-nvim-builtin-keys*
@@ -360,7 +369,74 @@ before the first language server attaches — otherwise servers start with the
 plain built-in capabilities and completion quietly degrades.
 
 ==============================================================================
-11. ADDING A PLUGIN                                        *devops-nvim-adding*
+11. FORMATTING                                         *devops-nvim-formatting*
+
+conform.nvim formats on save, and `<leader>xf` formats on demand.
+
+Formatters by filetype ~
+>
+    lua                 stylua
+    terraform           terraform_fmt
+    hcl                 terragrunt_hclfmt
+    sh, bash            shfmt
+    json                jq
+    yaml, helm, docker  the language server
+<
+Anything without an entry falls through to the language server, because
+`lsp_format` is set to "fallback". YAML depends on that deliberately: yamlls
+formats manifests correctly, and adding an opinionated YAML formatter on top
+would only create noise in Kubernetes diffs.
+
+Terraform needs the terraform CLI               *devops-nvim-formatting-tf*
+
+The fallback does not rescue a missing binary. `terraform_fmt` needs the
+`terraform` executable, and terraform-ls is not a substitute — it shells out to
+`terraform fmt` itself and replies:
+>
+    Terraform (CLI) is required. Please install Terraform or make it
+    available in $PATH
+<
+Terraform files therefore stay unformatted until `terraform` is on your PATH.
+That is a machine prerequisite; no editor configuration can work around it.
+
+Turning it off ~
+>
+    :FormatDisable      stop formatting on save
+    :FormatDisable!     stop, for the current buffer only
+    :FormatEnable       resume
+    <leader>xF          toggle
+<
+Useful when editing a repository whose formatting you do not want to churn.
+
+==============================================================================
+12. LINTING                                               *devops-nvim-linting*
+
+nvim-lint covers what the language servers do not. It runs on write, on read,
+and on leaving insert mode; `<leader>xl` runs it immediately.
+>
+    yaml            yamllint
+    dockerfile      hadolint
+    yaml.ansible    ansible_lint
+    GitHub Actions  actionlint
+<
+GitHub Actions workflows keep the plain `yaml` filetype rather than getting one
+of their own. Giving them a dedicated filetype would take them out of yamlls's
+filetype list and lose schema validation, which is most of the value of editing
+them in an editor at all. actionlint is therefore selected by matching the
+path `.github/workflows/*.yml` instead.
+
+Ansible linting waits on the `yaml.ansible` filetype, which arrives with
+nvim-ansible in the DevOps layer.
+
+Why tflint is not here                              *devops-nvim-linting-tf*
+
+tflint ships an LSP mode and nvim-lspconfig exposes a config for it, so
+installing it through Mason already starts it as a language server that
+attaches to Terraform buffers. Registering it with nvim-lint as well would
+report every finding twice.
+
+==============================================================================
+13. ADDING A PLUGIN                                        *devops-nvim-adding*
 
 Before writing any configuration, do the reading. This is rule #1 and it is
 not decorative; see |devops-nvim-rules|.
@@ -378,7 +454,7 @@ not decorative; see |devops-nvim-rules|.
   7. Commit `lazy-lock.json` along with the change.
 
 ==============================================================================
-12. TROUBLESHOOTING                                *devops-nvim-troubleshooting*
+14. TROUBLESHOOTING                                *devops-nvim-troubleshooting*
 
 A language server is not attaching ~
 >
@@ -415,7 +491,7 @@ Plugins are in a strange state ~
     :Lazy sync        install, clean and update to match the specs
 <
 ==============================================================================
-13. RULES                                                   *devops-nvim-rules*
+15. RULES                                                   *devops-nvim-rules*
 
 Two rules govern this repository. `CONTRACT.md` is the full version.
 

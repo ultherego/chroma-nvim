@@ -31,11 +31,16 @@ Kitty → Zellij → Yazi → Neovim
 | LSP — mason, native `vim.lsp` API, 9 servers | done |
 | Completion — blink.cmp | done |
 | Treesitter | done |
-| Formatting, lint | not yet |
+| Formatting — conform.nvim | done |
+| Lint — nvim-lint | done |
 | Git, UI extras | not yet |
 | `ansible-vault.nvim`, `terraform.nvim` | not yet |
 
-Startup is currently ~22 ms.
+Startup is currently ~23 ms.
+
+> **Note:** Terraform formatting needs the `terraform` CLI on your PATH.
+> terraform-ls is not a substitute — it shells out to `terraform fmt` itself.
+> See `:help devops-nvim-formatting-tf`.
 
 ## Requirements
 

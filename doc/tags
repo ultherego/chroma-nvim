@@ -3,10 +3,14 @@ devops-nvim-adding	devops-nvim.txt	/*devops-nvim-adding*
 devops-nvim-builtin-keys	devops-nvim.txt	/*devops-nvim-builtin-keys*
 devops-nvim-completion	devops-nvim.txt	/*devops-nvim-completion*
 devops-nvim-contents	devops-nvim.txt	/*devops-nvim-contents*
+devops-nvim-formatting	devops-nvim.txt	/*devops-nvim-formatting*
+devops-nvim-formatting-tf	devops-nvim.txt	/*devops-nvim-formatting-tf*
 devops-nvim-installation	devops-nvim.txt	/*devops-nvim-installation*
 devops-nvim-introduction	devops-nvim.txt	/*devops-nvim-introduction*
 devops-nvim-keymaps	devops-nvim.txt	/*devops-nvim-keymaps*
 devops-nvim-layout	devops-nvim.txt	/*devops-nvim-layout*
+devops-nvim-linting	devops-nvim.txt	/*devops-nvim-linting*
+devops-nvim-linting-tf	devops-nvim.txt	/*devops-nvim-linting-tf*
 devops-nvim-lsp	devops-nvim.txt	/*devops-nvim-lsp*
 devops-nvim-lsp-dual	devops-nvim.txt	/*devops-nvim-lsp-dual*
 devops-nvim-lsp-helm	devops-nvim.txt	/*devops-nvim-lsp-helm*
