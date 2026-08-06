@@ -1,0 +1,18 @@
+# lazy.nvim (lazy-lock.json is tracked on purpose — reproducible plugin set)
+lazy-lock.json.bak
+
+# runtime / state
+.luarc.json
+*.log
+spell/
+shada/
+sessions/
+
+# claude code
+.claude/
+
+# editor / os
+.DS_Store
+*.swp
+*~
+.direnv/
