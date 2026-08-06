@@ -475,6 +475,30 @@ It also removes the need to touch `backup`/`writebackup`: taking over
 `BufWriteCmd` means Neovim's backup machinery never runs for the buffer. Those
 options are global and cannot be set per buffer at all.
 
+### There is one write path, not two
+
+**Decision.** Every write this plugin performs goes through a single `persist`
+helper: conflict check, atomic replacement, error handling, bookkeeping.
+
+**Why.** There were two. The writer had a second branch, for buffers holding
+ciphertext rather than plaintext, that called `vim.fn.writefile` directly — no
+change detection, no atomicity, no check of the return value, and
+`modified = false` set regardless. It ran after `:VaultEncryptFile`, which is
+precisely when the buffer holds a vault.
+
+A second path is not a shortcut, it is a copy of the safety rules that nobody
+maintains. Merging them means a guard cannot be added to one and forgotten in
+the other.
+
+### One write hook per buffer
+
+**Decision.** `attach_writer` clears any existing `BufWriteCmd` for the buffer
+before creating one.
+
+**Why.** It is called on every decrypt, and a buffer is decrypted again on
+every `:edit!`. Without clearing, each reload added another hook, so one
+`:write` ran the whole encrypt-and-persist sequence once per reload.
+
 ### Vault writes are atomic
 
 **Decision.** Write to a sibling temp file, check the length, fsync, rename.

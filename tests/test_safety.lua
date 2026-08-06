@@ -202,6 +202,48 @@ T["block_at"]["returns nothing for a !vault tag with no ciphertext"] = function(
 end
 
 -- ---------------------------------------------------------------------------
+-- Exactly one write hook per buffer
+-- ---------------------------------------------------------------------------
+
+T["attach_writer"] = new_set()
+
+local writers_for = function(buf)
+  local ok, cmds = pcall(vim.api.nvim_get_autocmds, {
+    group = "ansible_vault_writer",
+    event = "BufWriteCmd",
+    buffer = buf,
+  })
+  return ok and #cmds or 0
+end
+
+T["attach_writer"]["attaches one"] = function()
+  local buf = vim.api.nvim_create_buf(true, false)
+  vim.api.nvim_buf_set_name(buf, vim.fn.tempname())
+
+  require("ansible-vault").attach_writer(buf)
+  local n = writers_for(buf)
+
+  vim.api.nvim_buf_delete(buf, { force = true })
+  eq(n, 1)
+end
+
+T["attach_writer"]["stays at one across repeated attaches"] = function()
+  -- A buffer is decrypted again on every `:edit!`, and each decrypt attaches.
+  -- Without clearing first, one `:write` ran the whole encrypt-and-persist
+  -- sequence once per reload.
+  local buf = vim.api.nvim_create_buf(true, false)
+  vim.api.nvim_buf_set_name(buf, vim.fn.tempname())
+
+  for _ = 1, 3 do
+    require("ansible-vault").attach_writer(buf)
+  end
+  local n = writers_for(buf)
+
+  vim.api.nvim_buf_delete(buf, { force = true })
+  eq(n, 1)
+end
+
+-- ---------------------------------------------------------------------------
 -- Noticing that the file changed underneath us
 -- ---------------------------------------------------------------------------
 

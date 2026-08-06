@@ -636,6 +636,46 @@ function M.rekey_file()
   vim.notify("Rekeyed " .. vim.fn.fnamemodify(path, ":t"), vim.log.levels.INFO)
 end
 
+--- The one way this plugin writes a file.
+---
+--- Every path that persists a buffer goes through here, so the conflict check,
+--- the atomic replacement, the error handling and the bookkeeping cannot be
+--- forgotten by one caller and remembered by another. They were: a second
+--- branch in the writer called vim.fn.writefile directly, skipping the change
+--- detection, the atomicity, the return value and the remembered state, and
+--- marking the buffer saved regardless. That branch ran after
+--- :VaultEncryptFile, which is exactly when the buffer holds a vault.
+---@param buf integer
+---@param contents string
+---@return boolean ok, string|nil err
+local function persist(buf, contents)
+  local path = vim.api.nvim_buf_get_name(buf)
+  if path == "" then
+    return false, "buffer has no file name"
+  end
+
+  local changed = file_changed_since_read(buf)
+  if changed then
+    return false,
+      ("%s. Another editor or process has touched it since this buffer was read. "):format(changed)
+        .. "Use :edit! to discard your changes and reload, or :saveas to keep them elsewhere."
+  end
+
+  local ok, err = write_atomically(path, contents)
+  if not ok then
+    -- The buffer stays modified on purpose: the work is still only in memory,
+    -- and marking it saved would invite closing Neovim on it.
+    return false, err
+  end
+
+  vim.bo[buf].modified = false
+  -- Our own write changes mtime and size, so the remembered state moves with
+  -- it. Without this the conflict check fires on the very next save and the
+  -- buffer becomes unsaveable — a worse failure than the one it prevents.
+  remember_file_state(buf)
+  return true
+end
+
 --- The augroup for per-buffer write hooks. Separate from the transparent
 --- editing group, because a writer must survive `transparent = false` — a
 --- buffer decrypted by :VaultDecryptFile needs re-encrypting on write no
@@ -651,27 +691,30 @@ local writer_group = vim.api.nvim_create_augroup("ansible_vault_writer", { clear
 -- has no business existing on buffers this plugin does not own.
 ---@param buf integer
 function M.attach_writer(buf)
+  -- Cleared first. This is called on every decrypt, and a buffer is decrypted
+  -- again on every `:edit!`, so without this each reload added another
+  -- BufWriteCmd and a single `:write` ran the whole encrypt-and-persist
+  -- sequence once per reload.
+  pcall(vim.api.nvim_clear_autocmds, {
+    group = writer_group,
+    event = "BufWriteCmd",
+    buffer = buf,
+  })
+
   vim.api.nvim_create_autocmd("BufWriteCmd", {
     group = writer_group,
     buffer = buf,
     callback = function(ev)
-      if not vim.b[ev.buf].ansible_vault_plain then
-        -- The buffer was decrypted once but is no longer ours — for instance
-        -- :VaultEncryptFile re-encrypted it. Write it verbatim.
-        local path = vim.api.nvim_buf_get_name(ev.buf)
-        vim.fn.writefile(vim.api.nvim_buf_get_lines(ev.buf, 0, -1, false), path)
-        vim.bo[ev.buf].modified = false
-        return
-      end
+      local name = vim.fn.fnamemodify(vim.api.nvim_buf_get_name(ev.buf), ":t")
 
-      local changed = file_changed_since_read(ev.buf)
-      if changed then
-        vim.notify(
-          ("Refusing to write: %s.\n"):format(changed)
-            .. "Another editor or process has touched it since this buffer was read. "
-            .. "Use :edit! to discard your changes and reload, or :saveas to keep them elsewhere.",
-          vim.log.levels.ERROR
-        )
+      if not vim.b[ev.buf].ansible_vault_plain then
+        -- The buffer was decrypted once but currently holds ciphertext — after
+        -- :VaultEncryptFile, for instance. It is written verbatim, but through
+        -- the same guarded path as everything else.
+        local ok, err = persist(ev.buf, buffer_text(ev.buf))
+        if not ok then
+          vim.notify(("Could not write %s: %s"):format(name, err), vim.log.levels.ERROR)
+        end
         return
       end
 
@@ -691,22 +734,13 @@ function M.attach_writer(buf)
         return
       end
 
-      local path = vim.api.nvim_buf_get_name(ev.buf)
-      local ok, write_err = write_atomically(path, ciphertext)
+      local ok, write_err = persist(ev.buf, ciphertext)
       if not ok then
-        -- The buffer stays modified on purpose: the user's work is still only
-        -- in memory, and marking it saved would invite closing Neovim on it.
-        vim.notify(("Could not write %s: %s"):format(path, write_err), vim.log.levels.ERROR)
+        vim.notify(("Could not write %s: %s"):format(name, write_err), vim.log.levels.ERROR)
         return
       end
 
-      vim.bo[ev.buf].modified = false
-      -- Our own write changes mtime and size, so the remembered state has to
-      -- move with it. Without this the guard fires on the very next save and
-      -- the buffer becomes unsaveable — a worse failure than the one it exists
-      -- to prevent.
-      remember_file_state(ev.buf)
-      vim.notify(("Encrypted and wrote %s"):format(vim.fn.fnamemodify(path, ":t")), vim.log.levels.INFO)
+      vim.notify(("Encrypted and wrote %s"):format(name), vim.log.levels.INFO)
     end,
   })
 end
