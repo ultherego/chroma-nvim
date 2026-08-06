@@ -63,6 +63,12 @@ vim.opt.listchars = {
   nbsp = "␣",
 }
 
+-- Folding is driven by treesitter (see plugins/treesitter.lua), but a file
+-- should open fully expanded. Without these, every buffer with a parser opens
+-- collapsed to its top-level nodes.
+o.foldlevel = 99
+o.foldlevelstart = 99
+
 -- Global default border for every floating window, so plugins look consistent
 -- without configuring each one separately. Option added in Neovim 0.11.
 o.winborder = "rounded"
