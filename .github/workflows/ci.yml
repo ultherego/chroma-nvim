@@ -72,6 +72,15 @@ jobs:
           neovim: true
           version: ${{ env.NEOVIM_VERSION }}
 
+      - name: Install ansible
+        # The integration tests drive the real ansible-vault CLI. Without it
+        # they skip, which would quietly remove the regression cover for every
+        # defect they were written for.
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ansible
+
       - name: Fetch mini.test
         # The suite needs nothing else: tests/minimal_init.lua loads this
         # repository's lua/ directory and mini.test, not the configuration.

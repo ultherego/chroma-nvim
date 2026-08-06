@@ -631,6 +631,26 @@ finishes in under a second and a failure cannot be somebody else's plugin.
 `context_differs` — the exact gap an audit found — fails exactly one case with
 a readable message. A suite that only ever passes proves nothing.
 
+### Integration tests exist because the unit tests missed everything
+
+**Decision.** A second suite drives the real `ansible-vault` CLI through
+encrypt, decrypt, transparent editing, symlinks and concurrent writes.
+
+**Why.** All seven defects found in these modules were in integration paths: a
+signature that no longer matched its callers, a write hook that was never
+attached, an option that disabled nothing, a rename that ate a symlink. The
+unit tests cover pure functions and would not have caught a single one.
+
+Each case reproduces one of those failures, so a regression turns a test red
+rather than putting a secret on disk in the clear. Verified by mutation:
+reverting the symlink fix fails exactly one case.
+
+They skip when ansible is absent, so the suite still runs on a machine without
+it — and CI installs ansible, because skipping there would quietly remove the
+cover they exist to provide.
+
+**What would change it.** Nothing.
+
 ### CI pins everything it runs
 
 **Decision.** Actions by full commit SHA, fixed versions for stylua, selene and

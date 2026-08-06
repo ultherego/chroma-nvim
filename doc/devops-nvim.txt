@@ -935,10 +935,19 @@ It loads mini.test and this repository's `lua/` directory — not the
 configuration — so it runs in under a second and a failure cannot be somebody
 else's plugin.
 
-What is covered is deliberately narrow: parsing another tool's output,
+Two files, two purposes.
+
+`tests/test_safety.lua` covers pure logic: parsing another tool's output,
 recognising an encrypted block, detecting that credentials changed between
-planning and applying, and detecting credentials that override the selected
+planning and applying, detecting credentials that override the selected
 profile. There is no value in testing that conform formats Lua.
+
+`tests/test_vault_roundtrip.lua` drives the real `ansible-vault` CLI, and
+exists because of what an audit found: every defect in these modules was in an
+integration path, and the unit tests would not have caught a single one. Each
+case reproduces one of them — a write hook that was never attached, an option
+that disabled nothing, a rename that ate a symlink, two editors clobbering each
+other. It skips when ansible is not installed.
 
 ==============================================================================
 18. TROUBLESHOOTING                                *devops-nvim-troubleshooting*
