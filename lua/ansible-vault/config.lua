@@ -14,9 +14,10 @@
 local M = {}
 
 ---@class ansible_vault.Resolved
----@field password_file string|nil  absolute path, from ansible's own config
----@field identities string[]       vault ids from vault_identity_list
----@field source string|nil         which config file supplied the password file
+---@field password_file string|nil     absolute path, from ansible's own config
+---@field identities string[]          vault ids from vault_identity_list
+---@field encrypt_identity string|nil  which id to encrypt with, when several exist
+---@field source string|nil            which config file supplied the password file
 
 ---Runs ansible-config in `cwd` so that a project-local ansible.cfg applies.
 ---@param cwd string
@@ -57,6 +58,11 @@ function M.resolve(cwd)
     if key == "DEFAULT_VAULT_PASSWORD_FILE" and value ~= "None" then
       resolved.password_file = vim.fs.normalize(value)
       resolved.source = source
+    elseif key == "DEFAULT_VAULT_ENCRYPT_IDENTITY" and value ~= "None" then
+      -- Which identity to encrypt with when several are available. Ansible
+      -- refuses to guess: "The vault-ids dev,prod are available to encrypt.
+      -- Specify the vault-id to encrypt with --encrypt-vault-id".
+      resolved.encrypt_identity = value
     elseif key == "DEFAULT_VAULT_IDENTITY_LIST" and value ~= "[]" then
       -- Rendered as a Python list literal: ['dev@~/.dev_pass', 'prod@prompt']
       for id in value:gmatch("'([^']+)'") do

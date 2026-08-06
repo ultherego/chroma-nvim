@@ -38,7 +38,7 @@ Kitty → Zellij → Yazi → Neovim
 | UI — dashboard, aerial, trouble, markdown | done |
 | DevOps — kubectl.nvim, nvim-ansible | done |
 | Health check, CI, lint config | done |
-| `ansible-vault.nvim` — reveal / encrypt inline values | first slice |
+| `ansible-vault.nvim` — inline values, whole files, transparent editing, rekey | done |
 | `terraform.nvim` | not yet |
 
 Startup is ~25 ms with 32 plugins, measured locally with

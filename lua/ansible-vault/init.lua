@@ -19,9 +19,11 @@ local vault_config = require("ansible-vault.config")
 local M = {}
 
 ---@class ansible_vault.Opts
----@field keymaps boolean|nil  create the default <leader>a mappings
+---@field keymaps boolean|nil      create the default <leader>a mappings
+---@field transparent boolean|nil  decrypt vault files on open, re-encrypt on write
 local defaults = {
   keymaps = false,
+  transparent = true,
 }
 
 M.options = vim.deepcopy(defaults)
@@ -54,7 +56,11 @@ local function auth_for(cwd)
     --
     -- Found by running it, not by reading about it. All that is needed is to
     -- run in the directory where that ansible.cfg applies.
-    return { cwd = cwd }
+    return {
+      cwd = cwd,
+      identities = resolved.identities,
+      encrypt_identity = resolved.encrypt_identity,
+    }
   end
 
   -- Nothing configured: ask. inputsecret keeps the password off the screen and
@@ -65,6 +71,52 @@ local function auth_for(cwd)
   end
 
   return { password = password }
+end
+
+---Which identity to encrypt with.
+---
+---With one identity ansible picks it. With several it refuses to guess, so
+---either vault_encrypt_identity is configured or the user is asked here.
+---@param auth ansible_vault.Auth
+---@return string|nil
+local function encrypt_identity_for(auth)
+  if auth.encrypt_identity then
+    return auth.encrypt_identity
+  end
+
+  local ids = auth.identities or {}
+  if #ids < 2 then
+    return nil
+  end
+
+  local labels = {}
+  for i, id in ipairs(ids) do
+    -- vault_identity_list entries look like `dev@~/.dev_pass`; only the label
+    -- goes to --encrypt-vault-id.
+    table.insert(labels, ("%d. %s"):format(i, id:match("^([^@]+)") or id))
+  end
+
+  local choice = vim.fn.inputlist(vim.list_extend({ "Encrypt with which vault id?" }, labels))
+  if choice < 1 or choice > #ids then
+    return nil
+  end
+
+  return ids[choice]:match("^([^@]+)") or ids[choice]
+end
+
+---Reads the whole buffer as one string.
+---@param buf integer
+---@return string
+local function buffer_text(buf)
+  return table.concat(vim.api.nvim_buf_get_lines(buf, 0, -1, false), "\n") .. "\n"
+end
+
+---True when the buffer holds a vault-encrypted document.
+---@param buf integer
+---@return boolean
+local function is_encrypted(buf)
+  local first = vim.api.nvim_buf_get_lines(buf, 0, 1, false)[1]
+  return first ~= nil and first:match("^%$ANSIBLE_VAULT") ~= nil
 end
 
 ---Forgets what ansible-config said, for when ansible.cfg changes mid-session.
@@ -266,6 +318,261 @@ function M.encrypt_selection()
   vim.notify(("Encrypted %s"):format(key or "selection"), vim.log.levels.INFO)
 end
 
+--- Keeps a decrypted document from being written anywhere except back into the
+--- vault. The buffer stays a real file buffer so `:w` still means what it
+--- normally means; what changes is that nothing persists in clear.
+---@param buf integer
+local function harden_file_buffer(buf)
+  vim.bo[buf].undofile = false
+  vim.bo[buf].swapfile = false
+  -- 'backup' and 'writebackup' are global-local; setting them buffer-locally
+  -- stops a plaintext copy being left beside the vault while it is written.
+  vim.bo[buf].modeline = false
+  vim.b[buf].ansible_vault_plain = true
+end
+
+---Encrypts the whole current buffer and writes the ciphertext to its file.
+function M.encrypt_file()
+  local buf = vim.api.nvim_get_current_buf()
+
+  if is_encrypted(buf) then
+    vim.notify("Buffer is already encrypted", vim.log.levels.WARN)
+    return
+  end
+
+  local auth, err = auth_for()
+  if not auth then
+    if err ~= "cancelled" then
+      vim.notify(err, vim.log.levels.ERROR)
+    end
+    return
+  end
+
+  local ciphertext, encrypt_err = cli.encrypt_document(buffer_text(buf), {
+    auth = auth,
+    cwd = auth.cwd,
+    encrypt_identity = encrypt_identity_for(auth),
+  })
+  if not ciphertext then
+    vim.notify(encrypt_err, vim.log.levels.ERROR)
+    return
+  end
+
+  vim.api.nvim_buf_set_lines(buf, 0, -1, false, vim.split(ciphertext:gsub("\n$", ""), "\n"))
+  vim.b[buf].ansible_vault_plain = nil
+  vim.notify("Encrypted buffer — write it to persist", vim.log.levels.INFO)
+end
+
+---Decrypts the whole current buffer in place, leaving it unsaved.
+function M.decrypt_file()
+  local buf = vim.api.nvim_get_current_buf()
+
+  if not is_encrypted(buf) then
+    vim.notify("Buffer is not vault-encrypted", vim.log.levels.WARN)
+    return
+  end
+
+  local auth, err = auth_for()
+  if not auth then
+    if err ~= "cancelled" then
+      vim.notify(err, vim.log.levels.ERROR)
+    end
+    return
+  end
+
+  local plaintext, decrypt_err = cli.decrypt_document(buffer_text(buf), { auth = auth, cwd = auth.cwd })
+  if not plaintext then
+    vim.notify(decrypt_err, vim.log.levels.ERROR)
+    return
+  end
+
+  harden_file_buffer(buf)
+  vim.api.nvim_buf_set_lines(buf, 0, -1, false, vim.split(plaintext:gsub("\n$", ""), "\n"))
+  vim.notify("Decrypted buffer — it will be re-encrypted on write", vim.log.levels.INFO)
+end
+
+---Opens an encrypted file's contents read-only, without altering the buffer.
+function M.view_file()
+  local buf = vim.api.nvim_get_current_buf()
+
+  if not is_encrypted(buf) then
+    vim.notify("Buffer is not vault-encrypted", vim.log.levels.WARN)
+    return
+  end
+
+  local auth, err = auth_for()
+  if not auth then
+    if err ~= "cancelled" then
+      vim.notify(err, vim.log.levels.ERROR)
+    end
+    return
+  end
+
+  local plaintext, decrypt_err = cli.decrypt_document(buffer_text(buf), { auth = auth, cwd = auth.cwd })
+  if not plaintext then
+    vim.notify(decrypt_err, vim.log.levels.ERROR)
+    return
+  end
+
+  show(plaintext, vim.fn.fnamemodify(vim.api.nvim_buf_get_name(buf), ":t"))
+end
+
+---Re-encrypts the current file with a different password.
+function M.rekey_file()
+  local buf = vim.api.nvim_get_current_buf()
+  local path = vim.api.nvim_buf_get_name(buf)
+
+  if path == "" or not is_encrypted(buf) then
+    vim.notify("Current buffer is not a saved, vault-encrypted file", vim.log.levels.WARN)
+    return
+  end
+
+  if vim.bo[buf].modified then
+    vim.notify("Save the buffer first — rekey works on the file", vim.log.levels.WARN)
+    return
+  end
+
+  local auth, err = auth_for()
+  if not auth then
+    if err ~= "cancelled" then
+      vim.notify(err, vim.log.levels.ERROR)
+    end
+    return
+  end
+
+  local new_password = vim.fn.inputsecret("New vault password: ")
+  if new_password == "" then
+    return
+  end
+
+  -- The new password needs a file of its own, staged the same way as a typed
+  -- password: tmpfs, 0600, removed immediately.
+  local staged, cleanup, stage_err = require("ansible-vault.cli").stage_password_for_rekey(new_password)
+  if not staged then
+    vim.notify(stage_err, vim.log.levels.ERROR)
+    return
+  end
+
+  local ok, rekey_err = cli.rekey(path, {
+    auth = auth,
+    cwd = auth.cwd,
+    new_password_file = staged,
+  })
+  cleanup()
+
+  if not ok then
+    vim.notify(rekey_err, vim.log.levels.ERROR)
+    return
+  end
+
+  vim.cmd.edit({ bang = true })
+  vim.notify("Rekeyed " .. vim.fn.fnamemodify(path, ":t"), vim.log.levels.INFO)
+end
+
+---Decrypts vault files as they are opened and re-encrypts them on write.
+local function enable_transparent_editing()
+  local group = vim.api.nvim_create_augroup("ansible_vault_transparent", { clear = true })
+
+  -- Forward declaration: the reader attaches the writer once a buffer has
+  -- actually been decrypted.
+  local attach_writer
+
+  vim.api.nvim_create_autocmd("BufReadPost", {
+    group = group,
+    callback = function(ev)
+      -- The decision is made on what the buffer actually holds, not on a flag
+      -- set earlier. `:edit!` on a decrypted buffer reloads the ciphertext from
+      -- disk while the flag is still set, and keying off the flag left the user
+      -- staring at base64 with no way back. Found by reloading during testing.
+      if not is_encrypted(ev.buf) then
+        return
+      end
+
+      -- Harden before the plaintext exists, not after: 'undofile' is consulted
+      -- when the undo file is written, but there is no reason to leave a window
+      -- in which it is still true.
+      harden_file_buffer(ev.buf)
+
+      local auth, err = auth_for()
+      if not auth then
+        vim.b[ev.buf].ansible_vault_plain = nil
+        if err ~= "cancelled" then
+          vim.notify(err, vim.log.levels.ERROR)
+        end
+        return
+      end
+
+      local plaintext, decrypt_err = cli.decrypt_document(buffer_text(ev.buf), { auth = auth, cwd = auth.cwd })
+      if not plaintext then
+        vim.b[ev.buf].ansible_vault_plain = nil
+        vim.notify(decrypt_err, vim.log.levels.ERROR)
+        return
+      end
+
+      vim.api.nvim_buf_set_lines(ev.buf, 0, -1, false, vim.split(plaintext:gsub("\n$", ""), "\n"))
+      vim.bo[ev.buf].modified = false
+      attach_writer(ev.buf)
+
+      -- Filetype was detected against ciphertext, so it is worth another look
+      -- now that the buffer holds YAML.
+      vim.cmd("filetype detect")
+    end,
+  })
+
+  -- Registered per buffer, at the moment that buffer is decrypted.
+  --
+  -- An earlier version attached this to every buffer and fell back to an
+  -- ordinary write for the rest. That intercepts every `:write` in the editor,
+  -- and it broke immediately: writing a scratch buffer produced an error from
+  -- inside this plugin. A BufWriteCmd is a takeover of the write command; it
+  -- has no business existing on buffers this plugin does not own.
+  ---@param buf integer
+  attach_writer = function(buf)
+    vim.api.nvim_create_autocmd("BufWriteCmd", {
+      group = group,
+      buffer = buf,
+      callback = function(ev)
+        if not vim.b[ev.buf].ansible_vault_plain then
+          -- The buffer was decrypted once but is no longer ours — for instance
+          -- :VaultEncryptFile re-encrypted it. Write it verbatim.
+          local path = vim.api.nvim_buf_get_name(ev.buf)
+          vim.fn.writefile(vim.api.nvim_buf_get_lines(ev.buf, 0, -1, false), path)
+          vim.bo[ev.buf].modified = false
+          return
+        end
+
+        local auth, err = auth_for()
+        if not auth then
+          vim.notify(err or "cancelled", vim.log.levels.ERROR)
+          return
+        end
+
+        local ciphertext, encrypt_err = cli.encrypt_document(buffer_text(ev.buf), {
+          auth = auth,
+          cwd = auth.cwd,
+          encrypt_identity = encrypt_identity_for(auth),
+        })
+        if not ciphertext then
+          vim.notify(encrypt_err, vim.log.levels.ERROR)
+          return
+        end
+
+        local path = vim.api.nvim_buf_get_name(ev.buf)
+        local fd = vim.uv.fs_open(path, "w", tonumber("600", 8))
+        if not fd then
+          vim.notify("Could not write " .. path, vim.log.levels.ERROR)
+          return
+        end
+        vim.uv.fs_write(fd, ciphertext)
+        vim.uv.fs_close(fd)
+
+        vim.bo[ev.buf].modified = false
+        vim.notify(("Encrypted and wrote %s"):format(vim.fn.fnamemodify(path, ":t")), vim.log.levels.INFO)
+      end,
+    })
+  end
+end
+
 ---@param opts ansible_vault.Opts|nil
 function M.setup(opts)
   M.options = vim.tbl_deep_extend("force", vim.deepcopy(defaults), opts or {})
@@ -287,10 +594,34 @@ function M.setup(opts)
     desc = "Re-read ansible.cfg for vault settings",
   })
 
+  vim.api.nvim_create_user_command("VaultEncryptFile", M.encrypt_file, {
+    desc = "Encrypt the whole buffer",
+  })
+
+  vim.api.nvim_create_user_command("VaultDecryptFile", M.decrypt_file, {
+    desc = "Decrypt the whole buffer in place",
+  })
+
+  vim.api.nvim_create_user_command("VaultView", M.view_file, {
+    desc = "View an encrypted file without decrypting the buffer",
+  })
+
+  vim.api.nvim_create_user_command("VaultRekey", M.rekey_file, {
+    desc = "Re-encrypt this file with a new password",
+  })
+
+  if M.options.transparent then
+    enable_transparent_editing()
+  end
+
   if M.options.keymaps then
     vim.keymap.set("n", "<leader>av", M.reveal, { desc = "Reveal vault value" })
     vim.keymap.set("x", "<leader>av", ":VaultEncrypt<cr>", { desc = "Encrypt selection" })
     vim.keymap.set("n", "<leader>aV", "<cmd>VaultStatus<cr>", { desc = "Vault password source" })
+    vim.keymap.set("n", "<leader>ae", "<cmd>VaultEncryptFile<cr>", { desc = "Encrypt whole file" })
+    vim.keymap.set("n", "<leader>ad", "<cmd>VaultDecryptFile<cr>", { desc = "Decrypt whole file" })
+    vim.keymap.set("n", "<leader>aw", "<cmd>VaultView<cr>", { desc = "View encrypted file" })
+    vim.keymap.set("n", "<leader>ak", "<cmd>VaultRekey<cr>", { desc = "Rekey encrypted file" })
   end
 end
 

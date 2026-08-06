@@ -83,6 +83,13 @@ local function stage_password(password)
   end
 end
 
+---Exposed for rekey, which needs a second password staged the same way.
+---@param password string
+---@return string|nil path, function|nil cleanup, string|nil err
+function M.stage_password_for_rekey(password)
+  return stage_password(password)
+end
+
 ---@param args string[]           arguments after `ansible-vault`
 ---@param opts table              { auth, stdin, cwd }
 ---@return string|nil stdout, string|nil err
@@ -143,6 +150,10 @@ function M.encrypt_string(plaintext, opts)
     table.insert(args, "--stdin-name")
     table.insert(args, opts.name)
   end
+  if opts.encrypt_identity then
+    table.insert(args, "--encrypt-vault-id")
+    table.insert(args, opts.encrypt_identity)
+  end
 
   -- The plaintext goes in on stdin; see rule 1 above.
   local out, err = run(args, { auth = opts.auth, cwd = opts.cwd, stdin = plaintext })
@@ -151,6 +162,62 @@ function M.encrypt_string(plaintext, opts)
   end
 
   return vim.split(out:gsub("%s+$", ""), "\n", { trimempty = true })
+end
+
+---Encrypts a whole document, in memory.
+---
+---`ansible-vault encrypt` reads stdin and writes to stdout with `--output -`,
+---verified, so transparent editing never needs a plaintext file on disk.
+---@param plaintext string
+---@param opts table { auth, cwd, encrypt_identity }
+---@return string|nil ciphertext, string|nil err
+function M.encrypt_document(plaintext, opts)
+  opts = opts or {}
+
+  local args = { "encrypt", "--output", "-" }
+  if opts.encrypt_identity then
+    table.insert(args, "--encrypt-vault-id")
+    table.insert(args, opts.encrypt_identity)
+  end
+
+  return run(args, { auth = opts.auth, cwd = opts.cwd, stdin = plaintext })
+end
+
+---Decrypts a whole document, in memory.
+---@param ciphertext string
+---@param opts table { auth, cwd }
+---@return string|nil plaintext, string|nil err
+function M.decrypt_document(ciphertext, opts)
+  opts = opts or {}
+  return run({ "decrypt", "--output", "-" }, { auth = opts.auth, cwd = opts.cwd, stdin = ciphertext })
+end
+
+---Re-encrypts a file with a different password.
+---
+---Unlike everything else here this works on the file in place, because that is
+---what `rekey` does — there is no stdout form. The file only ever holds
+---ciphertext, so nothing secret is written that was not already there.
+---@param path string
+---@param opts table { auth, cwd, new_password_file, new_identity }
+---@return boolean ok, string|nil err
+function M.rekey(path, opts)
+  opts = opts or {}
+
+  local args = { "rekey" }
+  if opts.new_identity then
+    table.insert(args, "--new-vault-id")
+    table.insert(args, opts.new_identity)
+  elseif opts.new_password_file then
+    table.insert(args, "--new-vault-password-file")
+    table.insert(args, opts.new_password_file)
+  end
+  table.insert(args, path)
+
+  local out, err = run(args, { auth = opts.auth, cwd = opts.cwd })
+  if not out then
+    return false, err
+  end
+  return true
 end
 
 ---Decrypts a `$ANSIBLE_VAULT...` block.

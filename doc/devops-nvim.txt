@@ -631,14 +631,50 @@ this configuration and can be moved to its own repository unchanged.
 
 Commands ~
 >
-    :VaultReveal    show the value under the cursor, without altering the file
-    :VaultEncrypt   encrypt the visual selection in place
-    :VaultStatus    report where the password will come from
-    :VaultReload    re-read ansible.cfg after changing it
+    :VaultReveal       show the value under the cursor, file untouched
+    :VaultEncrypt      encrypt the visual selection in place
+    :VaultEncryptFile  encrypt the whole buffer
+    :VaultDecryptFile  decrypt the whole buffer in place
+    :VaultView         read an encrypted file without decrypting the buffer
+    :VaultRekey        re-encrypt this file under a new password
+    :VaultStatus       report where the password will come from
+    :VaultReload       re-read ansible.cfg after changing it
+<
+Mapped under the Ansible group: >
+
+    <leader>av   reveal (normal) / encrypt selection (visual)
+    <leader>ae   encrypt file        <leader>ad   decrypt file
+    <leader>aw   view                <leader>ak   rekey
+    <leader>aV   password source
 <
 Encrypting `db_password: hunter2` gives back `db_password: !vault |` with the
 ciphertext indented beneath it, ready to commit. Revealing opens a float that
 closes with `q`.
+
+Transparent editing                             *devops-nvim-vault-transparent*
+
+A file whose first line is `$ANSIBLE_VAULT` is decrypted when opened and
+re-encrypted when written. Editing a vault is therefore ordinary editing: `:w`
+means what it always means, and the file on disk is never plaintext.
+
+The write hook is attached only to buffers this plugin has decrypted. An
+earlier version registered it globally with a fallback for everything else,
+which is a takeover of `:write` for the entire editor — it broke on the first
+scratch buffer that was saved.
+
+Turn it off with: >
+    require("ansible-vault").setup({ transparent = false })
+<
+Several vault ids                                 *devops-nvim-vault-ids*
+
+With more than one id in `vault_identity_list`, ansible refuses to guess which
+to encrypt with:
+>
+    The vault-ids dev,prod are available to encrypt.
+    Specify the vault-id to encrypt with --encrypt-vault-id
+<
+Set `vault_encrypt_identity` in ansible.cfg and it is used silently. Without
+it, you are asked which one to use each time.
 
 Where the password comes from                          *devops-nvim-vault-pass*
 
@@ -674,6 +710,17 @@ The encryption is one subprocess call. The work is in everything around it:
 
   Ciphertext is treated as public, because it is. That is what frees stdin for
   the plaintext.
+
+Verified by searching for a known secret after a full encrypt/edit/write/reopen
+cycle: nothing under stdpath("state"), nothing in the undo directory, nothing
+beside the file, and no leftover staged password in $XDG_RUNTIME_DIR.
+
+One limit worth stating: registers and marks are outside this plugin's reach.
+Yanking a decrypted value puts it in a register, and 'shada' persists registers
+between sessions. If that matters for your threat model, add `"` to 'shada' 
+exclusions or avoid yanking out of a vault buffer.
+
+`:checkhealth ansible-vault` reports which of this applies to your setup.
 
 ==============================================================================
 15. ADDING A PLUGIN                                        *devops-nvim-adding*
