@@ -680,6 +680,184 @@ T["arguments"]["other arguments are passed through untouched"] = function()
 end
 
 -- ---------------------------------------------------------------------------
+-- The reviewed plan as an artefact
+-- ---------------------------------------------------------------------------
+
+T["integrity"] = new_set()
+
+-- Regression: the chmod was wrapped in pcall, which catches nothing here.
+-- fs_chmod reports failure by returning nil and an error rather than raising,
+-- so pcall reported success whatever happened and a plan the runner could not
+-- protect was saved as though it had been.
+T["integrity"]["a plan that cannot be protected is discarded"] = function()
+  local h = harness()
+  fake_terraform_by_mode(h)
+  start(h)
+
+  -- Only the plan file's chmod fails. The runtime directory's own chmod has to
+  -- keep working, or the case would fail before reaching what it tests.
+  local original = vim.uv.fs_chmod
+  vim.uv.fs_chmod = function(target, mode)
+    if tostring(target):match("%.tfplan$") then
+      return nil, "EPERM: operation not permitted"
+    end
+    return original(target, mode)
+  end
+
+  next_plan(h, "changes", "first")
+  terraform.plan()
+  settle("could not be protected", "Plan saved", "Plan failed")
+
+  vim.uv.fs_chmod = original
+
+  eq(said("could not be protected"), true)
+  eq(said("Plan saved"), false)
+  -- The file goes with it, rather than being left in the runtime directory.
+  eq(#h.plan_files(), 0)
+  notices = {}
+
+  terraform.apply()
+  settle("No reviewed plan", "Applied", "Apply failed")
+  eq(said("No reviewed plan"), true)
+  eq(applied_marker(h), nil)
+  notices = {}
+
+  -- And the directory is not left claimed by the plan that failed.
+  next_plan(h, "changes", "second")
+  terraform.plan()
+  settle("Plan saved", "Plan failed", "still running")
+  eq(said("Plan saved"), true)
+end
+
+T["integrity"]["an unchanged plan applies"] = function()
+  local h = harness()
+  fake_terraform_by_mode(h)
+  start(h)
+
+  next_plan(h, "changes", "first")
+  terraform.plan()
+  settle("Plan saved")
+  notices = {}
+
+  terraform.apply()
+  settle("Applied", "Apply failed", "Refusing")
+
+  eq(said("Applied"), true)
+  eq(applied_marker(h), "first")
+end
+
+T["integrity"]["a plan whose contents changed is refused"] = function()
+  local h = harness()
+  fake_terraform_by_mode(h)
+  start(h)
+
+  next_plan(h, "changes", "first")
+  terraform.plan()
+  settle("Plan saved")
+  notices = {}
+
+  local plan_file = h.plan_files()[1]
+  vim.fn.writefile({ "tampered-with-a-longer-line" }, plan_file)
+
+  terraform.apply()
+  settle("Refusing to apply", "Applied", "Apply failed")
+
+  eq(said("has changed on disk"), true)
+  eq(applied_marker(h), nil)
+  -- Discarded rather than left for the next attempt.
+  eq(#h.plan_files(), 0)
+  notices = {}
+
+  terraform.apply()
+  settle("No reviewed plan", "Applied", "Apply failed")
+  eq(said("No reviewed plan"), true)
+end
+
+-- The case that says why this is a hash rather than a stat fingerprint: same
+-- size, same mtime down to the nanosecond, different bytes.
+T["integrity"]["a plan replaced with same-size contents is refused"] = function()
+  local h = harness()
+  fake_terraform_by_mode(h)
+  start(h)
+
+  next_plan(h, "changes", "first")
+  terraform.plan()
+  settle("Plan saved")
+  notices = {}
+
+  local plan_file = h.plan_files()[1]
+  local original = vim.fn.readfile(plan_file)[1]
+  local stat = vim.uv.fs_stat(plan_file)
+
+  -- Same number of bytes, different content.
+  local replacement = original:upper()
+  eq(#replacement, #original)
+  MiniTest.expect.no_equality(replacement, original)
+  vim.fn.writefile({ replacement }, plan_file)
+
+  -- And the timestamp put back, so nothing about the stat has moved either.
+  vim.uv.fs_utime(plan_file, stat.atime.sec, stat.mtime.sec)
+  local after = vim.uv.fs_stat(plan_file)
+  eq(after.size, stat.size)
+  eq(after.mtime.sec, stat.mtime.sec)
+
+  terraform.apply()
+  settle("Refusing to apply", "Applied", "Apply failed")
+
+  eq(said("has changed on disk"), true)
+  eq(applied_marker(h), nil)
+end
+
+-- The digest is taken before the review and again after it, and the pair has to
+-- match. The review is synchronous, so the only way to be the process that
+-- touches the file in between is to act from inside it: show() ends by mapping
+-- `q` in the output buffer, which puts this exactly between the two digests.
+-- Coupled to an implementation detail on purpose — there is no other moment.
+T["integrity"]["a plan that changes while being reviewed is discarded"] = function()
+  local h = harness()
+  fake_terraform_by_mode(h)
+  start(h)
+
+  local original = vim.keymap.set
+  vim.keymap.set = function(...)
+    vim.keymap.set = original
+    for _, file in ipairs(h.plan_files()) do
+      vim.fn.writefile({ "changed-while-you-were-reading" }, file)
+    end
+    return original(...)
+  end
+
+  next_plan(h, "changes", "first")
+  terraform.plan()
+  settle("changed while it was being reviewed", "Plan saved", "Plan failed")
+
+  vim.keymap.set = original
+
+  eq(said("changed while it was being reviewed"), true)
+  eq(said("Plan saved"), false)
+  eq(#h.plan_files(), 0)
+end
+
+T["integrity"]["a plan that vanished is refused"] = function()
+  local h = harness()
+  fake_terraform_by_mode(h)
+  start(h)
+
+  next_plan(h, "changes", "first")
+  terraform.plan()
+  settle("Plan saved")
+  notices = {}
+
+  vim.fn.delete(h.plan_files()[1])
+
+  terraform.apply()
+  settle("No reviewed plan", "Refusing", "Applied", "Apply failed")
+
+  eq(applied_marker(h), nil)
+  eq(said("Applied"), false)
+end
+
+-- ---------------------------------------------------------------------------
 -- init against the rest of the lifecycle
 -- ---------------------------------------------------------------------------
 

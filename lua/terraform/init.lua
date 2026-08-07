@@ -391,6 +391,39 @@ local function argv(command, flags, positional)
   return out
 end
 
+---The SHA-256 of a file's contents.
+---
+---libuv rather than io.open, to keep every filesystem error in this module
+---arriving the same way — as a value, with a message worth showing.
+---@param path string
+---@return string|nil digest, string|nil err
+local function file_sha256(path)
+  local fd, open_err = vim.uv.fs_open(path, "r", tonumber("400", 8))
+  if not fd then
+    return nil, open_err or "open failed"
+  end
+
+  local stat, stat_err = vim.uv.fs_fstat(fd)
+  if not stat then
+    vim.uv.fs_close(fd)
+    return nil, stat_err or "fstat failed"
+  end
+
+  -- fstat on the open descriptor, not stat on the path: the size read here
+  -- describes the same file the bytes come from.
+  local data, read_err = vim.uv.fs_read(fd, stat.size, 0)
+  local closed, close_err = vim.uv.fs_close(fd)
+
+  if data == nil then
+    return nil, read_err or "read failed"
+  end
+  if not closed then
+    return nil, close_err or "close failed"
+  end
+
+  return vim.fn.sha256(data)
+end
+
 ---The option a token sets: `-out=x` and `-out` both name `-out`.
 ---@param arg string
 ---@return string
@@ -616,6 +649,47 @@ local function plan(destroy)
       -- refusing every apply for the rest of the session.
       finish_planning(dir, mine)
 
+      ---Removes the plan file and says why nothing was kept.
+      ---@param message string
+      local function abandon(message)
+        pcall(vim.uv.fs_unlink, path)
+        vim.notify(message, vim.log.levels.ERROR)
+      end
+
+      -- -detailed-exitcode: 0 no changes, 1 error, 2 changes present. Only 2
+      -- leaves a file worth keeping, and only that path protects and
+      -- fingerprints it — before the review rather than after, so the digest
+      -- recorded belongs to the file that existed when the plan was read.
+      local before
+      if code == 2 then
+        -- terraform creates the plan file itself, under the ambient umask — it
+        -- came out 0644 in testing, which is world-readable and a plan can quote
+        -- variable values. Tightened as soon as it exists. It cannot be
+        -- pre-created with the right mode because terraform replaces it.
+        --
+        -- Checked rather than attempted. This used to be wrapped in pcall, which
+        -- catches nothing here: verified that fs_chmod reports failure by
+        -- returning nil and an error, and raises nothing, so pcall reported
+        -- success whatever happened. A plan the runner could not protect was
+        -- then saved as though it had been.
+        local protected, chmod_err = vim.uv.fs_chmod(path, tonumber("600", 8))
+        if not protected then
+          return abandon(
+            ("The plan could not be protected (%s), so it was discarded rather than left readable.\nNothing to apply."):format(
+              chmod_err or "chmod failed"
+            )
+          )
+        end
+
+        local digest_err
+        before, digest_err = file_sha256(path)
+        if not before then
+          return abandon(
+            ("The plan could not be read back (%s), so it was discarded.\nNothing to apply."):format(digest_err)
+          )
+        end
+      end
+
       -- Showing the plan is not decoration, it is the review step, and a plan
       -- becomes appliable only because it was reviewed. If the window could not
       -- be opened then nothing was read, so this fails closed: the file
@@ -623,30 +697,40 @@ local function plan(destroy)
       -- replaced is already gone, discarded when this run was asked for, so
       -- nothing is left that :TerraformApply could run.
       if not try_show(lines, (" %s plan%s "):format(vim.fs.basename(dir), destroy and " -destroy" or "")) then
-        pcall(vim.uv.fs_unlink, path)
-        vim.notify(
-          "The plan ran, but it could not be shown, so it was discarded unread.\nNothing to apply — run :TerraformPlan again.",
-          vim.log.levels.ERROR
+        return abandon(
+          "The plan ran, but it could not be shown, so it was discarded unread.\nNothing to apply — run :TerraformPlan again."
         )
-        return
       end
 
-      -- -detailed-exitcode: 0 no changes, 1 error, 2 changes present.
       if code == 0 then
         pcall(vim.uv.fs_unlink, path)
         vim.notify("No changes — infrastructure matches the configuration", vim.log.levels.INFO)
       elseif code == 2 then
-        -- terraform creates the plan file itself, under the ambient umask — it
-        -- came out 0644 in testing, which is world-readable and a plan can quote
-        -- variable values. Tightened as soon as it exists. It cannot be
-        -- pre-created with the right mode because terraform replaces it.
-        pcall(vim.uv.fs_chmod, path, tonumber("600", 8))
+        -- The pair of digests brackets the review. The window between them is
+        -- short — the review renders terraform's captured output, it does not
+        -- read the file — so this is not a defence against a determined process
+        -- of the same user. What it does buy is an exact statement: the digest
+        -- recorded is one that survived the review step, so a file that changed
+        -- during it cannot become the reviewed plan.
+        local after, digest_err = file_sha256(path)
+        if not after then
+          return abandon(
+            ("The plan could not be read back after review (%s), so it was discarded.\nNothing to apply."):format(
+              digest_err
+            )
+          )
+        end
+        if after ~= before then
+          return abandon(
+            "The plan file changed while it was being reviewed, so it was discarded.\nRun :TerraformPlan again."
+          )
+        end
 
         -- Nothing to discard first: the plan this one replaces was dropped, and
         -- its file unlinked, when this run was asked for. That is also what
         -- keeps superseded plans from leaking files into XDG_RUNTIME_DIR until
         -- logout.
-        plans[dir] = { path = path, destroy = destroy, context = context, binary = binary }
+        plans[dir] = { path = path, destroy = destroy, context = context, binary = binary, sha256 = after }
         vim.notify(
           ("Plan saved%s. Review it, then :TerraformApply%s"):format(
             identity and (" as " .. (identity.arn or identity.account)) or "",
@@ -720,6 +804,36 @@ function M.apply()
   if not saved or not vim.uv.fs_stat(saved.path) then
     plans[dir] = nil
     vim.notify("No reviewed plan for this directory — run :TerraformPlan first", vim.log.levels.WARN)
+    return
+  end
+
+  -- The file, not just its name. `plans[dir]` records where the plan is; it is
+  -- the bytes that were reviewed, and until now nothing checked that the two
+  -- still went together. The runtime directory is 0700, so this is not a
+  -- defence against other users, and a process running as this one could
+  -- change the file either side of this check anyway. What it makes exact is
+  -- the guarantee worth stating: the bytes handed to apply are the bytes that
+  -- were reviewed, or the apply does not happen.
+  --
+  -- Checked here, before the identity lookup and before the confirmation
+  -- prompt: there is no point asking anyone to approve an artefact that is
+  -- already invalid.
+  local digest, digest_err = file_sha256(saved.path)
+  if not digest then
+    discard_plan(dir)
+    vim.notify(
+      ("Refusing to apply: the reviewed plan could not be read (%s).\nRun :TerraformPlan again."):format(digest_err),
+      vim.log.levels.ERROR
+    )
+    return
+  end
+
+  if digest ~= saved.sha256 then
+    discard_plan(dir)
+    vim.notify(
+      "Refusing to apply: the reviewed plan file has changed on disk since it was read.\nRun :TerraformPlan again.",
+      vim.log.levels.ERROR
+    )
     return
   end
 

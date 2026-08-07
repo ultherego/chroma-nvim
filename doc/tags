@@ -26,6 +26,7 @@ devops-nvim-terraform-arguments	devops-nvim.txt	/*devops-nvim-terraform-argument
 devops-nvim-terraform-concurrency	devops-nvim.txt	/*devops-nvim-terraform-concurrency*
 devops-nvim-terraform-credentials	devops-nvim.txt	/*devops-nvim-terraform-credentials*
 devops-nvim-terraform-executable	devops-nvim.txt	/*devops-nvim-terraform-executable*
+devops-nvim-terraform-integrity	devops-nvim.txt	/*devops-nvim-terraform-integrity*
 devops-nvim-terraform-plans	devops-nvim.txt	/*devops-nvim-terraform-plans*
 devops-nvim-terraform-review	devops-nvim.txt	/*devops-nvim-terraform-review*
 devops-nvim-terraform-safety	devops-nvim.txt	/*devops-nvim-terraform-safety*

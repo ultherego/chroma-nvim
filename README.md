@@ -251,6 +251,15 @@ way of being told which credentials were in effect earlier, which is the thing
 being guarded against. It is off by default because it costs a network round
 trip on every plan and every apply.
 
+**The reviewed plan is bound to its contents.** A SHA-256 is taken after the
+plan file is protected and again after the review window has been shown; they
+must match, or the plan is discarded. Before an apply the file is hashed once
+more and compared, ahead of the identity lookup and the confirmation prompt. A
+difference refuses the apply. That makes "the bytes applied are the bytes
+reviewed" exact and catches accidental replacement — it is not protection
+against a hostile process running as you, which could rewrite this plugin just
+as easily.
+
 **A plan counts as reviewed only once the review window has actually opened.**
 If rendering it fails, the new plan file is deleted and any previously reviewed
 plan for that directory is invalidated, so there is nothing left to apply.

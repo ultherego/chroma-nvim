@@ -1064,6 +1064,29 @@ has created them. Terraform writes them under the ambient umask; they came out
 0644 in testing, which is why this is done explicitly. They are removed after
 apply, when a review cannot be shown, and on exiting Neovim.
 
+If that chmod fails the plan is deleted rather than saved: a plan the runner
+could not protect is not one it will offer to apply.
+
+The reviewed plan is bound to its contents *devops-nvim-terraform-integrity*
+
+A SHA-256 of the plan file is taken after it is protected and again after the
+review window has been shown. The two must match, or the plan is discarded —
+so the digest that gets recorded is one that survived the review step. Before
+an apply the file is hashed once more and compared against the recorded digest.
+A difference refuses the apply and discards the plan; so does a file that can
+no longer be read.
+
+This is checked before the identity lookup and before the confirmation prompt,
+because there is nothing to approve if the artefact is already invalid.
+
+What this is: an exact statement that the bytes handed to apply are the bytes
+that were reviewed, and detection of accidental replacement or corruption.
+
+What it is not: protection against a hostile process running as you. The
+runtime directory is 0700, so other users are already out; a process with your
+own uid could change the file between the check and the apply, and no hash here
+would stop it. Such a process could also rewrite this plugin.
+
 $XDG_RUNTIME_DIR is validated rather than trusted; see
 |devops-nvim-runtime-dir|. If it fails that check the plugin refuses to plan
 rather than writing a plan to persistent storage.
