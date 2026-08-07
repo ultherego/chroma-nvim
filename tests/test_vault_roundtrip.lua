@@ -105,6 +105,227 @@ T["encrypting a whole buffer produces a decryptable file"] = function()
   eq(decrypt_externally(dir, vault):find("plain%-value") ~= nil, true)
 end
 
+-- ---------------------------------------------------------------------------
+-- Converting an existing plaintext file into a vault
+-- ---------------------------------------------------------------------------
+--
+-- :VaultEncryptFile used to replace the buffer's contents and stop there. On a
+-- file that had never been a vault that left three things undone, and all three
+-- are the same problem: the plaintext this command exists to remove was still
+-- reachable afterwards.
+
+--- A project whose ansible.cfg has a password file, holding a plaintext file
+--- that has never been encrypted — the case :VaultEncryptFile is for.
+---@param contents string
+---@return string dir, string file
+local function plaintext_project(contents)
+  local dir = vim.fn.tempname()
+  vim.fn.mkdir(dir, "p")
+
+  vim.fn.writefile({ PASSWORD }, dir .. "/.vault_pass")
+  vim.uv.fs_chmod(dir .. "/.vault_pass", tonumber("600", 8))
+  vim.fn.writefile({ "[defaults]", "vault_password_file = ./.vault_pass" }, dir .. "/ansible.cfg")
+
+  local file = dir .. "/secrets.yml"
+  vim.fn.writefile(vim.split(contents, "\n"), file)
+
+  return dir, file
+end
+
+---Opens a plaintext file the way the configuration would: undo files on.
+---@param path string
+---@return integer buf
+local function open_plaintext(path)
+  require("ansible-vault").setup({ transparent = true })
+  require("ansible-vault").reload()
+  vim.cmd.edit({ args = { path } })
+  local buf = vim.api.nvim_get_current_buf()
+  -- What lua/config/options.lua sets globally. The plugin has to turn this off
+  -- itself rather than rely on it being off.
+  vim.bo[buf].undofile = true
+  return buf
+end
+
+---@param buf integer
+---@return integer
+local function writers_for(buf)
+  local ok, cmds = pcall(vim.api.nvim_get_autocmds, {
+    group = "ansible_vault_writer",
+    event = "BufWriteCmd",
+    buffer = buf,
+  })
+  return ok and #cmds or 0
+end
+
+---@param buf integer
+local function wait_for_ciphertext(buf)
+  vim.wait(15000, function()
+    local first = vim.api.nvim_buf_get_lines(buf, 0, 1, false)[1]
+    return first ~= nil and first:match("^%$ANSIBLE_VAULT") ~= nil
+  end, 100)
+end
+
+T["conversion"] = new_set()
+
+T["conversion"]["hardens the buffer and installs one writer"] = function()
+  local _, file = plaintext_project("---\nsecret: plain-value\n")
+  local buf = open_plaintext(file)
+
+  vim.cmd("VaultEncryptFile")
+  wait_for_ciphertext(buf)
+
+  eq(vim.bo[buf].undofile, false)
+  eq(vim.bo[buf].swapfile, false)
+  eq(vim.bo[buf].modeline, false)
+  eq(writers_for(buf), 1)
+  -- The buffer holds ciphertext now, so the writer must write it verbatim
+  -- rather than encrypting it a second time.
+  eq(vim.b[buf].ansible_vault_plain, nil)
+end
+
+-- The undo file is the reason this command needed reworking. 'undofile' is
+-- consulted when the undo file is written, so switching it off stops new ones
+-- appearing — it does not remove the one already on disk, and that one holds
+-- every earlier state of the buffer.
+T["conversion"]["removes the persistent undo file holding the plaintext"] = function()
+  local _, file = plaintext_project("---\nsecret: undo-marker-value\n")
+  local buf = open_plaintext(file)
+
+  -- Produce an undo file the way an ordinary editing session would.
+  vim.api.nvim_buf_set_lines(buf, -1, -1, false, { "another: line" })
+  vim.cmd("silent write")
+  vim.wait(2000)
+
+  local undo = vim.fn.undofile(file)
+  eq(vim.uv.fs_stat(undo) ~= nil, true)
+
+  vim.cmd("VaultEncryptFile")
+  wait_for_ciphertext(buf)
+
+  eq(vim.uv.fs_stat(undo), nil)
+end
+
+-- Fail closed. Completing the conversion would mean announcing a vault while a
+-- plaintext copy of it stays on disk, which is the failure this command is
+-- supposed to prevent rather than one it may cause.
+T["conversion"]["refuses when the undo file cannot be removed"] = function()
+  local _, file = plaintext_project("---\nsecret: stays-plain\n")
+
+  -- An undo directory of our own, so it can be made unwritable without
+  -- touching the real one.
+  local undodir = vim.fn.tempname()
+  vim.fn.mkdir(undodir, "p")
+  local saved_undodir = vim.o.undodir
+  vim.o.undodir = undodir
+
+  local buf = open_plaintext(file)
+  vim.api.nvim_buf_set_lines(buf, -1, -1, false, { "another: line" })
+  vim.cmd("silent write")
+  vim.wait(2000)
+
+  local undo = vim.fn.undofile(file)
+  eq(vim.uv.fs_stat(undo) ~= nil, true)
+
+  -- Unlink needs write permission on the directory, not on the file.
+  vim.fn.setfperm(undodir, "r-x------")
+
+  local notices = {}
+  local notify = vim.notify
+  vim.notify = function(message, _)
+    table.insert(notices, tostring(message))
+  end
+
+  vim.cmd("VaultEncryptFile")
+  vim.wait(5000)
+
+  vim.notify = notify
+  vim.fn.setfperm(undodir, "rwx------")
+  vim.o.undodir = saved_undodir
+
+  local said = table.concat(notices, " ")
+  eq(said:find("Conversion aborted") ~= nil, true)
+
+  -- The buffer is untouched, so nothing was half-converted.
+  eq(vim.api.nvim_buf_get_lines(buf, 0, 1, false)[1], "---")
+  eq(is_ciphertext(file), false)
+  -- And persistent undo stays off: the intent to convert has been stated, so
+  -- resuming plaintext undo files would be the worse of the two outcomes.
+  eq(vim.bo[buf].undofile, false)
+end
+
+-- Proves the write actually goes through persist() rather than Neovim's own
+-- write path — which is also what keeps Neovim from making a backup copy of
+-- the plaintext file it is replacing. 'backup' and 'writebackup' are global
+-- options and cannot be turned off per buffer; taking the write over is what
+-- replaces them.
+T["conversion"]["the first write goes through the guarded path"] = function()
+  local dir, file = plaintext_project("---\nsecret: plain-value\n")
+  local buf = open_plaintext(file)
+
+  vim.cmd("VaultEncryptFile")
+  wait_for_ciphertext(buf)
+
+  eq(writers_for(buf), 1)
+
+  -- 'backup' is kept rather than deleted after the write, so the copy is
+  -- visible afterwards instead of only existing for the duration of the write.
+  -- 'backupskip' has to go too: it covers /tmp/* by default, and these fixtures
+  -- live in a temporary directory, so leaving it would make the assertion below
+  -- pass for a reason that has nothing to do with this plugin. Checked — with
+  -- the writer removed and backupskip left alone, no backup appears either.
+  local saved_backup, saved_skip = vim.o.backup, vim.o.backupskip
+  vim.o.backup = true
+  vim.o.backupskip = ""
+
+  vim.cmd("silent write")
+  vim.wait(5000)
+
+  vim.o.backup = saved_backup
+  vim.o.backupskip = saved_skip
+
+  eq(is_ciphertext(file), true)
+  eq(decrypt_externally(dir, file):find("plain%-value") ~= nil, true)
+  -- Neovim's write machinery never ran, so it made no backup of the plaintext.
+  eq(vim.uv.fs_stat(file .. "~"), nil)
+end
+
+T["conversion"]["a file changed underneath refuses the write"] = function()
+  local _, file = plaintext_project("---\nsecret: plain-value\n")
+  local buf = open_plaintext(file)
+
+  vim.cmd("VaultEncryptFile")
+  wait_for_ciphertext(buf)
+
+  -- Asserted before the write, not after, and deliberately. Without the writer
+  -- the `:write` below goes back to Neovim's own path, which asks "the file has
+  -- changed since reading it, write anyway?" — and in a headless run that
+  -- question blocks forever. Checking here turns that regression into a failing
+  -- expectation instead of a CI job that times out.
+  eq(writers_for(buf), 1)
+
+  -- Another writer lands between the conversion and the write. The fingerprint
+  -- was taken of the plaintext file during the conversion, so this differs from
+  -- it in size as well as in mtime.
+  vim.fn.writefile({ "---", "secret: someone-else" }, file)
+
+  local notices = {}
+  local notify = vim.notify
+  vim.notify = function(message, _)
+    table.insert(notices, tostring(message))
+  end
+
+  vim.cmd("silent write")
+  vim.wait(3000)
+  vim.notify = notify
+
+  local said = table.concat(notices, " ")
+  eq(said:find("changed on disk") ~= nil, true)
+  -- The other writer's content survives rather than being overwritten, and the
+  -- buffer stays modified: the work is still only in memory.
+  eq(vim.fn.readfile(file)[2], "secret: someone-else")
+  eq(vim.bo[buf].modified, true)
+end
+
 -- Regression: :VaultDecryptFile hardened the buffer and filled it with
 -- plaintext but never attached the write hook, so :w wrote the secret out.
 T["decrypting then writing re-encrypts rather than leaking"] = function()

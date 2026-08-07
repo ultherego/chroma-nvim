@@ -795,6 +795,30 @@ then unlinks it. Through a hard link that destroys what the other name holds
 rather than leaving it stale. Measured against ansible-core 2.21.2 — after
 rekeying one of two names, the other was random data that no longer decrypted.
 
+Converting a plaintext file             *devops-nvim-vault-conversion*
+
+`:VaultEncryptFile` turns the current buffer into a vault. On a file that has
+never been encrypted this does more than replace the buffer's contents, and it
+has to.
+
+'undofile' is switched off for the buffer, along with 'swapfile' and
+'modeline'. That stops new undo files appearing but does not remove one that
+already exists, and an existing undo file holds every earlier state of the
+buffer — the secret, in the clear, under `stdpath("state")`, surviving reboots.
+So the conversion deletes it.
+
+That is deliberate data loss: converting a plaintext file to a Vault discards
+its persistent undo history. If the undo file cannot be deleted the conversion
+does not happen at all, and persistent undo stays off for the buffer; finishing
+would mean reporting a vault while a plaintext copy of it stayed behind.
+
+The safe writer is attached before the buffer changes, so the first `:write`
+after the conversion goes through the same path as every other Vault write —
+conflict detection and atomic replacement. It also means Neovim's own write
+never runs for this buffer, and so never makes its usual backup copy of the
+file it is replacing. 'backup' and 'writebackup' are global options and cannot
+be turned off for one buffer; taking the write over is what replaces them.
+
 Writing                                          *devops-nvim-vault-writing*
 
 A vault is replaced by writing a sibling file and renaming over the target, so

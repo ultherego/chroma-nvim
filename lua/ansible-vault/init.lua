@@ -588,25 +588,92 @@ local function write_atomically(path, contents)
   return true
 end
 
---- Keeps a decrypted document from being written anywhere except back into the
---- vault. The buffer stays a real file buffer so `:w` still means what it
+--- Stops a buffer from persisting its contents anywhere Neovim would normally
+--- put them. The buffer stays a real file buffer so `:w` still means what it
 --- normally means; what changes is that nothing persists in clear.
+---
+--- Deliberately says nothing about what the buffer currently holds. It is
+--- applied to a decrypted vault, where the plaintext is the thing to contain,
+--- and to a buffer that has just been converted from plaintext to ciphertext,
+--- where the plaintext is already in the undo history and must not be written
+--- out with it.
 ---@param buf integer
-local function harden_file_buffer(buf)
+local function harden_sensitive_buffer(buf)
   vim.bo[buf].undofile = false
   vim.bo[buf].swapfile = false
   vim.bo[buf].modeline = false
-  vim.b[buf].ansible_vault_plain = true
 
-  -- 'backup' and 'writebackup' are NOT touched here: both are global options,
-  -- and `vim.bo[buf].backup = false` raises "'buf' cannot be passed for global
-  -- option". They do not need touching either — M.attach_writer takes over the
-  -- write through BufWriteCmd, so Neovim's backup machinery never runs for
-  -- this buffer. That makes attaching the writer a security requirement, not a
-  -- convenience; see M.decrypt_file.
+  -- 'backup' and 'writebackup' are NOT set here, and cannot be: both are
+  -- global options. Re-verified — `vim.bo[buf].backup = false` raises "'buf'
+  -- cannot be passed for global option 'backup'", and nvim_get_option_info2
+  -- reports scope=global for both. Turning them off globally is not this
+  -- plugin's business; it would change how every other file in the editor is
+  -- written.
+  --
+  -- What replaces them is M.attach_writer. A BufWriteCmd takes the write over
+  -- completely, so Neovim's backup machinery never runs for this buffer and no
+  -- copy of the old file is made. That makes attaching the writer a security
+  -- requirement rather than a convenience, and it is why every path that
+  -- hardens a buffer with a file behind it attaches one in the same breath.
 end
 
----Encrypts the whole current buffer and writes the ciphertext to its file.
+--- A buffer holding a decrypted vault: hardened, and marked so the writer
+--- knows to re-encrypt it rather than write it out as it stands.
+---@param buf integer
+local function mark_plain_vault_buffer(buf)
+  harden_sensitive_buffer(buf)
+  vim.b[buf].ansible_vault_plain = true
+end
+
+--- Removes the persistent undo file for a path, if there is one.
+---
+--- 'undofile' is consulted when the undo file is written, so turning it off
+--- stops new ones appearing — it does not remove one that already exists, and
+--- the existing one holds every earlier state of the buffer.
+---@param path string
+---@return boolean ok, string|nil err
+local function remove_persistent_undo(path)
+  local undo = vim.fn.undofile(path)
+  if undo == "" or not vim.uv.fs_stat(undo) then
+    return true
+  end
+
+  local ok, err = vim.uv.fs_unlink(undo)
+  if not ok then
+    return false, err or "could not remove the persistent undo file"
+  end
+
+  return true
+end
+
+---Converts a plaintext buffer into a vault, in place.
+---
+---The order below is the whole of this function, and it is ordered so that no
+---step can leave the buffer half-converted.
+---
+---Encryption comes first, because everything after it is destructive and there
+---is no reason to destroy anything on behalf of an operation that then fails.
+---Hardening comes next, and only then the existing undo file: 'undofile' being
+---switched off stops new undo files appearing, but it does not remove the one
+---already on disk, and that one holds every earlier state of this buffer —
+---which is to say the secret, in the clear, in stdpath("state"), surviving
+---reboots. Verified before this was written: `:VaultEncryptFile` followed by
+---`:w` left the plaintext readable in the undo file.
+---
+---Removing it is deliberate data loss and the point of the command justifies
+---it, but only fails closed: if the undo file cannot be removed the conversion
+---does not happen, because completing it would mean announcing a vault while a
+---plaintext copy of it stays behind.
+---
+---'undofile' stays off for the buffer even then. Once the intent to convert
+---has been stated, letting Neovim resume writing plaintext undo files would be
+---the worse of the two outcomes.
+---
+---The file state is remembered and the writer attached before the buffer
+---changes, so the first `:w` after this goes through the same guarded path as
+---every other vault write — conflict detection and atomic replacement — rather
+---than through Neovim's ordinary write, which would also make a backup copy of
+---the plaintext file it is replacing.
 function M.encrypt_file()
   local buf = vim.api.nvim_get_current_buf()
 
@@ -632,6 +699,43 @@ function M.encrypt_file()
     vim.notify(encrypt_err, vim.log.levels.ERROR)
     return
   end
+
+  -- Nothing above this line has changed anything. Everything below it has to
+  -- either complete or leave the buffer as it was.
+  local path = vim.api.nvim_buf_get_name(buf)
+
+  harden_sensitive_buffer(buf)
+
+  if path ~= "" then
+    local removed, undo_err = remove_persistent_undo(path)
+    if not removed then
+      vim.notify(
+        ("Conversion aborted: the existing persistent undo file could not be removed: %s\n"):format(undo_err)
+          .. "It holds this file's plaintext. Persistent undo stays disabled for this buffer.",
+        vim.log.levels.ERROR
+      )
+      return
+    end
+
+    remember_file_state(buf)
+
+    -- Guarded rather than assumed: a buffer holding ciphertext with no safe
+    -- way to write it is a worse state than a plaintext buffer that was never
+    -- converted.
+    local attached, writer_err = pcall(M.attach_writer, buf)
+    if not attached then
+      vim.notify(
+        ("Conversion aborted: the safe writer could not be installed: %s"):format(writer_err),
+        vim.log.levels.ERROR
+      )
+      return
+    end
+  end
+
+  -- An unnamed buffer has no file, so there is no undo file to remove, no file
+  -- state to remember and nothing for the writer to take over. It is still
+  -- hardened above, which is what matters: whatever name it is eventually
+  -- saved under, the plaintext in its undo history is not written out with it.
 
   vim.api.nvim_buf_set_lines(buf, 0, -1, false, vim.split(ciphertext:gsub("\n$", ""), "\n"))
   vim.b[buf].ansible_vault_plain = nil
@@ -661,7 +765,7 @@ function M.decrypt_file()
     return
   end
 
-  harden_file_buffer(buf)
+  mark_plain_vault_buffer(buf)
   vim.api.nvim_buf_set_lines(buf, 0, -1, false, vim.split(plaintext:gsub("\n$", ""), "\n"))
 
   -- Not optional. Without this the buffer holds plaintext, `:w` performs an
@@ -948,7 +1052,7 @@ local function enable_transparent_editing()
       -- Harden before the plaintext exists, not after: 'undofile' is consulted
       -- when the undo file is written, but there is no reason to leave a window
       -- in which it is still true.
-      harden_file_buffer(ev.buf)
+      mark_plain_vault_buffer(ev.buf)
 
       local auth, err = auth_for(ev.buf)
       if not auth then

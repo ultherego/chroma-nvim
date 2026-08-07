@@ -300,6 +300,14 @@ instead of leaving it stale.
 once cannot be found again by ansible, which would leave a file nothing can
 open; with no identity configured the command refuses and says what to set up.
 
+**Converting a plaintext file discards its undo history.** `:VaultEncryptFile`
+turns off `'undofile'` and deletes the existing undo file, which would otherwise
+keep every earlier state of the buffer — the secret in the clear, under
+`stdpath("state")`. If it cannot be deleted the conversion is refused rather
+than completed. The safe writer is attached before the buffer changes, so the
+first write goes through conflict detection and atomic replacement, and Neovim's
+own write — which would back up the plaintext file it replaces — never runs.
+
 **Secrets never reach persistent storage.** A prompted password is staged in
 `$XDG_RUNTIME_DIR`, which is validated first — absolute, a directory, owned by
 you, mode 0700 — with a private subdirectory inside it. If that check fails the
