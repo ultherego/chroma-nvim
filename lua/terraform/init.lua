@@ -49,9 +49,13 @@ local M = {}
 --- `-upgrade` only exists on init, `-refresh=false` only on plan and apply.
 --- Whatever was put in the shared list was wrong for at least one command.
 ---
---- `global_args` is for the few options every command does accept, such as
---- `-chdir` style flags or `-no-color` overrides. Per-command lists come after
---- it, so the more specific one wins where terraform lets a later flag win.
+--- `global_args` is for terraform's global options, which the CLI documents as
+--- coming before the subcommand: `terraform [global options] <subcommand>
+--- [args]`. They are placed there. Per-command lists come after our own flags,
+--- so the more specific one wins where terraform lets a later flag win.
+---
+--- `-chdir` is the one global option this runner will not pass on; see
+--- sanitize_global_args.
 local defaults = {
   keymaps = false,
   --- Ask STS which account and principal the credentials resolve to, record it
@@ -362,9 +366,13 @@ end
 
 ---Assembles the argument list for one subcommand.
 ---
----Order is the point of this function. Our own flags come first, then the
----user's global arguments, then the user's arguments for this command, and
----positional arguments last. `terraform apply` takes the plan file as a
+---Order is the point of this function, and terraform's own grammar fixes most
+---of it: `terraform [global options] <subcommand> [args]`. Global arguments
+---therefore come first, before the subcommand — they used to be placed after
+---it, which is not where terraform looks for them. Then our own flags, then the
+---user's arguments for this command, then positional arguments.
+---
+---Positional last is the other half. `terraform apply` takes the plan file as a
 ---positional argument and expects options ahead of it, so anything appended
 ---blindly to the end of an apply lands in the wrong place.
 ---@param command string the subcommand, which also names its option list
@@ -372,9 +380,10 @@ end
 ---@param positional? string[] arguments that must come last
 ---@return string[]
 local function argv(command, flags, positional)
-  local out = { command }
-  vim.list_extend(out, flags)
+  local out = {}
   vim.list_extend(out, M.options.global_args or {})
+  table.insert(out, command)
+  vim.list_extend(out, flags)
   -- init_args, validate_args, plan_args, apply_args — named after the
   -- subcommand so this stays a lookup rather than a branch per command.
   vim.list_extend(out, M.options[command .. "_args"] or {})
@@ -382,12 +391,104 @@ local function argv(command, flags, positional)
   return out
 end
 
+---The option a token sets: `-out=x` and `-out` both name `-out`.
+---@param arg string
+---@return string
+local function option_name(arg)
+  return arg:match("^([^=]+)") or arg
+end
+
+--- Options the runner sets itself and then depends on the value of.
+---
+--- Extra arguments are a legitimate escape hatch, but not for these four. Each
+--- one, set by hand, makes the runner describe something other than what it
+--- did:
+---
+---   -out                the plan lands somewhere else, and the path this
+---                       module saved, chmods, applies and cleans up is a file
+---                       that was never written
+---   -destroy            the plan destroys while `saved.destroy` stays false,
+---                       so the confirmation asks for "yes" rather than
+---                       "destroy" and the review window is not marked. This is
+---                       the runner's headline promise, undone by one word in a
+---                       config file
+---   -detailed-exitcode  the exit code stops meaning 0/1/2, and "changes
+---                       present" is read as "no changes" — the plan is deleted
+---                       instead of saved
+---   -input              re-enables prompting on a subprocess with no terminal,
+---                       which does not fail, it hangs
+---
+--- Not a general blacklist. Options that terraform itself rejects when handed a
+--- saved plan — `-target`, `-var`, `-refresh-only` and the rest — are left
+--- alone: terraform's own error says it better than a second check here would,
+--- and this list is meant to stay short enough to justify line by line.
+local reserved = {
+  init = { ["-input"] = true },
+  plan = { ["-out"] = true, ["-destroy"] = true, ["-detailed-exitcode"] = true, ["-input"] = true },
+  apply = { ["-input"] = true },
+}
+
+---Drops `-chdir` from the global arguments.
+---
+---The runner decides which directory each command runs in, and everything it
+---remembers hangs off that decision: the saved plan, the generation counter,
+---the planning and applying claims, the discard. `-chdir` would move terraform
+---somewhere else while all of that kept pointing at the directory the buffer is
+---in, so the plan on screen would belong to one project and the bookkeeping to
+---another.
+---
+---Dropped with an error rather than raised, following what `args` already does
+---here: a bad option in a plugin spec should not stop the editor loading, and
+---silently honouring it would be worse than either.
+---@param args string[]|nil
+---@return string[]
+local function sanitize_global_args(args)
+  local kept = {}
+  for _, arg in ipairs(args or {}) do
+    if option_name(arg) == "-chdir" then
+      vim.notify(
+        "terraform.nvim: -chdir was ignored in global_args. The runner owns the working directory — "
+          .. "terraform running elsewhere would leave the saved plan and its lifecycle pointing at a directory nothing ran in.",
+        vim.log.levels.ERROR
+      )
+    else
+      table.insert(kept, arg)
+    end
+  end
+  return kept
+end
+
+---Drops the options this runner owns from a per-command list.
+---@param command string
+---@param args string[]|nil
+---@return string[]
+local function sanitize_command_args(command, args)
+  local owned = reserved[command] or {}
+  local kept = {}
+  for _, arg in ipairs(args or {}) do
+    local name = option_name(arg)
+    if owned[name] then
+      vim.notify(
+        ("terraform.nvim: %s was ignored in %s_args — the runner sets it and relies on its value."):format(
+          name,
+          command
+        ),
+        vim.log.levels.ERROR
+      )
+    else
+      table.insert(kept, arg)
+    end
+  end
+  return kept
+end
+
+---@param command string the subcommand being run, for the message only
 ---@param args string[]
 ---@param dir string
 ---@param on_done fun(code: integer, lines: string[])
 ---@param binary? string an executable resolved earlier; re-resolved from dir when absent
 ---@return vim.SystemObj|nil handle nil when nothing was started
-local function run(args, dir, on_done, binary)
+local function run(command, args, dir, on_done, binary)
   local name = binary or binary_for(dir)
   -- exepath() is idempotent for a path that is already absolute, so this
   -- accepts both a bare name and a path pinned at plan time. Verified.
@@ -401,7 +502,9 @@ local function run(args, dir, on_done, binary)
   local cmd = { bin }
   vim.list_extend(cmd, args)
 
-  vim.notify(("Running %s %s…"):format(vim.fs.basename(bin), args[1]), vim.log.levels.INFO)
+  -- Named rather than read out of `args`: the subcommand is no longer the
+  -- first element, because terraform's global options come before it.
+  vim.notify(("Running %s %s…"):format(vim.fs.basename(bin), command), vim.log.levels.INFO)
 
   return vim.system(cmd, { cwd = dir, text = true }, function(result)
     local out = (result.stdout or "") .. (result.stderr or "")
@@ -498,7 +601,7 @@ local function plan(destroy)
 
     local context = aws_context(identity)
 
-    local process = run(args, dir, function(code, lines)
+    local process = run("plan", args, dir, function(code, lines)
       if generation[dir] ~= mine then
         -- A newer plan was started while this one was running. Its output would
         -- be misleading and its file must not become the plan that apply uses.
@@ -679,23 +782,29 @@ function M.apply()
       return release()
     end
 
-    local process = run(argv("apply", { "-no-color", "-input=false" }, { saved.path }), dir, function(code, lines)
-      release()
+    local process = run(
+      "apply",
+      argv("apply", { "-no-color", "-input=false" }, { saved.path }),
+      dir,
+      function(code, lines)
+        release()
 
-      -- Spent, whatever happened: terraform refuses to reuse a plan file, and
-      -- keeping it would only invite applying a stale one.
-      discard_plan(dir)
+        -- Spent, whatever happened: terraform refuses to reuse a plan file, and
+        -- keeping it would only invite applying a stale one.
+        discard_plan(dir)
 
-      -- No state hangs off this one — the lock is already released and the plan
-      -- already discarded above — but the outcome of an operation that changed
-      -- infrastructure must still be reported if the window cannot open.
-      try_show(lines, (" %s apply "):format(vim.fs.basename(dir)))
-      if code == 0 then
-        vim.notify("Applied", vim.log.levels.INFO)
-      else
-        vim.notify("Apply failed", vim.log.levels.ERROR)
-      end
-    end, saved.binary)
+        -- No state hangs off this one — the lock is already released and the plan
+        -- already discarded above — but the outcome of an operation that changed
+        -- infrastructure must still be reported if the window cannot open.
+        try_show(lines, (" %s apply "):format(vim.fs.basename(dir)))
+        if code == 0 then
+          vim.notify("Applied", vim.log.levels.INFO)
+        else
+          vim.notify("Apply failed", vim.log.levels.ERROR)
+        end
+      end,
+      saved.binary
+    )
 
     -- Nothing started, so nothing will arrive to clear the flag. Without this
     -- the directory stays locked against plan, apply, init and discard for the
@@ -742,7 +851,7 @@ function M.init()
   -- describes is the one from before.
   discard_plan(dir)
 
-  local process = run(argv("init", { "-no-color", "-input=false" }), dir, function(code, lines)
+  local process = run("init", argv("init", { "-no-color", "-input=false" }), dir, function(code, lines)
     -- First, before anything that reports: nothing below this line is allowed
     -- to decide whether the directory stays claimed.
     release()
@@ -773,7 +882,7 @@ function M.validate()
     return
   end
 
-  run(argv("validate", { "-no-color" }), dir, function(code, lines)
+  run("validate", argv("validate", { "-no-color" }), dir, function(code, lines)
     if code == 0 then
       vim.notify("Configuration is valid", vim.log.levels.INFO)
     else
@@ -826,6 +935,15 @@ function M.setup(opts)
   end
 
   M.options = vim.tbl_deep_extend("force", vim.deepcopy(defaults), opts)
+
+  -- Filtered once, here, rather than on every command. The user hears about a
+  -- rejected option when they configure it, not four times during their next
+  -- plan.
+  M.options.global_args = sanitize_global_args(M.options.global_args)
+  for _, command in ipairs({ "init", "validate", "plan", "apply" }) do
+    local key = command .. "_args"
+    M.options[key] = sanitize_command_args(command, M.options[key])
+  end
 
   local commands = {
     TerraformInit = M.init,

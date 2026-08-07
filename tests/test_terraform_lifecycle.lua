@@ -208,6 +208,14 @@ local function start(h, opts)
   notices = {}
 end
 
+---Configures the plugin without clearing what it said, which `start` does.
+---Option validation happens at configuration time, so its messages are the
+---thing under test.
+---@param opts table
+local function configure(opts)
+  terraform.setup(opts)
+end
+
 -- ---------------------------------------------------------------------------
 -- Which executable runs
 -- ---------------------------------------------------------------------------
@@ -534,6 +542,141 @@ T["superseding"]["the claim is released when the process cannot start"] = functi
   eq(said("still running"), false)
   eq(said("No reviewed plan"), true)
   eq(applied_marker(h), nil)
+end
+
+-- ---------------------------------------------------------------------------
+-- Who owns which command-line arguments
+-- ---------------------------------------------------------------------------
+
+T["arguments"] = new_set()
+
+---The argument list a command was actually invoked with.
+---@param h table
+---@param verb string
+---@return string|nil
+local function invocation(h, verb)
+  return h.calls(verb)[1] and h.calls(verb)[1]:match("^%S+%s+(.*)$") or nil
+end
+
+-- terraform documents `terraform [global options] <subcommand> [args]`, and
+-- -chdir has to precede the subcommand. These were appended after it, which is
+-- not where terraform looks — so the one option the name was chosen for could
+-- not have worked.
+T["arguments"]["global arguments come before the subcommand"] = function()
+  local h = harness()
+  fake_terraform_by_mode(h)
+  start(h, { global_args = { "-no-color" } })
+
+  next_plan(h, "changes", "first")
+  terraform.plan()
+  settle("Plan saved", "Plan failed")
+
+  local args = h.invocations()[1]:match("^%S+%s+(.*)$")
+  eq(args:sub(1, #"-no-color plan"), "-no-color plan")
+end
+
+T["arguments"]["-chdir is dropped from global arguments"] = function()
+  local h = harness()
+  fake_terraform_by_mode(h)
+  start(h)
+  configure({ global_args = { "-chdir=/somewhere/else", "-no-color" } })
+
+  eq(said("-chdir was ignored"), true)
+  notices = {}
+
+  next_plan(h, "changes", "first")
+  terraform.plan()
+  settle("Plan saved", "Plan failed")
+
+  local args = invocation(h, "-no-color")
+  eq(args ~= nil, true)
+  eq(args:find("-chdir", 1, true), nil)
+end
+
+-- The runner's headline promise is that a destroy is visible: the review window
+-- is marked and the confirmation has to be typed out as "destroy". A -destroy
+-- in plan_args produced a destroy plan while the runner went on believing it
+-- was an ordinary one.
+T["arguments"]["-destroy in plan_args is dropped"] = function()
+  local h = harness()
+  fake_terraform_by_mode(h)
+  start(h)
+  configure({ plan_args = { "-destroy" } })
+
+  eq(said("-destroy was ignored"), true)
+  notices = {}
+
+  next_plan(h, "changes", "first")
+  terraform.plan()
+  settle("Plan saved", "Plan failed")
+
+  local args = invocation(h, "plan")
+  eq(args:find("-destroy", 1, true), nil)
+  -- And the plan is still an ordinary one, which is the point: the runner's
+  -- record and the command it ran agree.
+  eq(said("this plan DESTROYS"), false)
+end
+
+T["arguments"]["-out in plan_args is dropped"] = function()
+  local h = harness()
+  fake_terraform_by_mode(h)
+  start(h)
+  configure({ plan_args = { "-out=/tmp/somewhere-else.tfplan" } })
+
+  eq(said("-out was ignored"), true)
+  notices = {}
+
+  next_plan(h, "changes", "first")
+  terraform.plan()
+  settle("Plan saved", "Plan failed")
+
+  eq(said("Plan saved"), true)
+  -- Exactly one -out, and it is the runtime directory's.
+  local args = invocation(h, "plan")
+  eq(select(2, args:gsub("%-out=", "")), 1)
+  eq(args:find("somewhere%-else"), nil)
+  eq(#h.plan_files(), 1)
+end
+
+T["arguments"]["-input is dropped wherever the runner sets it"] = function()
+  local h = harness()
+  fake_terraform_by_mode(h)
+  start(h)
+  configure({ plan_args = { "-input=true" }, apply_args = { "-input=true" }, init_args = { "-input=true" } })
+
+  -- Once per list, at configuration time, rather than on every command.
+  local count = 0
+  for _, message in ipairs(notices) do
+    if message:match("%-input was ignored") then
+      count = count + 1
+    end
+  end
+  eq(count, 3)
+  notices = {}
+
+  next_plan(h, "changes", "first")
+  terraform.plan()
+  settle("Plan saved", "Plan failed")
+  eq(invocation(h, "plan"):find("-input=true", 1, true), nil)
+end
+
+-- Arguments terraform itself rejects are deliberately left alone, and so is
+-- everything else: this is not a general blacklist.
+T["arguments"]["other arguments are passed through untouched"] = function()
+  local h = harness()
+  fake_terraform_by_mode(h)
+  start(h)
+  configure({ plan_args = { "-refresh=false", "-lock-timeout=30s" } })
+
+  eq(said("was ignored"), false)
+
+  next_plan(h, "changes", "first")
+  terraform.plan()
+  settle("Plan saved", "Plan failed")
+
+  local args = invocation(h, "plan")
+  eq(args:find("-refresh=false", 1, true) ~= nil, true)
+  eq(args:find("-lock-timeout=30s", 1, true) ~= nil, true)
 end
 
 -- ---------------------------------------------------------------------------

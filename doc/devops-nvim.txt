@@ -1068,6 +1068,54 @@ $XDG_RUNTIME_DIR is validated rather than trusted; see
 |devops-nvim-runtime-dir|. If it fails that check the plugin refuses to plan
 rather than writing a plan to persistent storage.
 
+Extra arguments                              *devops-nvim-terraform-arguments*
+
+Five lists, all empty by default: >
+
+    require("terraform").setup({
+      global_args   = {},   -- before the subcommand
+      init_args     = {},
+      validate_args = {},
+      plan_args     = {},
+      apply_args    = {},
+    })
+<
+`global_args` goes where terraform's grammar says global options go — before
+the subcommand, as in `terraform [global options] <subcommand> [args]`. The
+per-command lists go after the runner's own flags, so a later flag wins where
+terraform lets it. Positional arguments stay last, because `terraform apply`
+expects its options before the plan file.
+
+One global option is not passed on. `-chdir` is dropped with an error, because
+the runner decides which directory each command runs in and everything it
+remembers hangs off that decision — the saved plan, the generation counter, the
+concurrency claims. terraform running elsewhere would leave all of it pointing
+at a directory nothing ran in.
+
+Four per-command options are dropped for the same kind of reason — the runner
+sets them and relies on their values:
+
+    plan   -out                the plan would land somewhere else, and the file
+                               this plugin saves, protects and applies would
+                               never have been written
+    plan   -destroy            the plan would destroy while the runner recorded
+                               an ordinary one, so the confirmation would ask
+                               for "yes" instead of "destroy" and the review
+                               window would not be marked
+    plan   -detailed-exitcode  the 0/1/2 codes would stop meaning what the
+                               runner reads them as
+    plan,  -input              prompting would be re-enabled on a subprocess
+    apply,                     with no terminal, which does not fail, it hangs
+    init
+
+Anything else is passed through untouched. This is not a general blacklist:
+options terraform itself rejects with a saved plan, such as `-target` or
+`-var`, are left to terraform, whose error says it better.
+
+A rejected option is reported and ignored rather than raised, so a mistake in a
+plugin spec does not stop the editor loading. The report happens once, when the
+plugin is configured.
+
 ==============================================================================
 16. AWS AND SESSIONS                                          *devops-nvim-aws*
 

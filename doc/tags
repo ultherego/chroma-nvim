@@ -22,6 +22,7 @@ devops-nvim-rules	devops-nvim.txt	/*devops-nvim-rules*
 devops-nvim-runtime-dir	devops-nvim.txt	/*devops-nvim-runtime-dir*
 devops-nvim-sessions	devops-nvim.txt	/*devops-nvim-sessions*
 devops-nvim-terraform	devops-nvim.txt	/*devops-nvim-terraform*
+devops-nvim-terraform-arguments	devops-nvim.txt	/*devops-nvim-terraform-arguments*
 devops-nvim-terraform-concurrency	devops-nvim.txt	/*devops-nvim-terraform-concurrency*
 devops-nvim-terraform-credentials	devops-nvim.txt	/*devops-nvim-terraform-credentials*
 devops-nvim-terraform-executable	devops-nvim.txt	/*devops-nvim-terraform-executable*
