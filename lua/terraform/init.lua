@@ -106,6 +106,21 @@ local generation = {}
 ---@type table<string, integer>
 local planning = {}
 
+--- Directories with an `init` in flight.
+---
+--- init is the third operation that changes something outside this process, and
+--- until now the only one nothing was serialised against. It rewrites
+--- `.terraform/` — providers, modules, backend configuration — which plan reads
+--- and apply depends on. Two inits in the same directory rewrite it at once.
+--- Verified against the module: an init started while a plan was running ran
+--- concurrently with it, with no complaint from either.
+---
+--- A boolean is enough here, unlike `planning`. Only one init can be in flight
+--- per directory, because the second is refused, so there is no older claim for
+--- a late callback to release by mistake.
+---@type table<string, boolean>
+local initializing = {}
+
 --- Directories with an apply in flight.
 ---
 --- An apply cannot be taken back and it is the one operation here that changes
@@ -116,12 +131,14 @@ local planning = {}
 ---
 --- `validate` is deliberately not refused: it reads configuration and provider
 --- schemas, and does not touch state or the backend, so it cannot collide with
---- an apply. Refusing it would only be theatre.
+--- an apply. Refusing it would only be theatre. It is refused during an init,
+--- which replaces the schemas it reads.
 ---
---- The audit sketched a full state machine over planning/reviewed/applying.
---- This is the smaller half of it, and the half that carries the risk: the
---- planning states are already ordered by `generation`, and only apply mutates
---- anything outside this process.
+--- Together with `planning` and `initializing` this makes one invariant, held
+--- by three small tables rather than a state machine: at most one of planning,
+--- applying and initializing is true for a directory at a time. Each is claimed
+--- before the first await on its path and released on every exit from it,
+--- including the ones where no process was ever started.
 ---@type table<string, boolean>
 local applying = {}
 
@@ -411,6 +428,13 @@ local function plan(destroy)
     return
   end
 
+  -- Planning against a half-rebuilt `.terraform` produces a plan computed from
+  -- providers and modules that are in the middle of being replaced.
+  if initializing[dir] then
+    vim.notify("An init is running in this directory — wait for it before planning", vim.log.levels.WARN)
+    return
+  end
+
   local path, err = plan_path()
   if not path then
     vim.notify(err, vim.log.levels.ERROR)
@@ -579,6 +603,16 @@ function M.apply()
     return
   end
 
+  -- Unreachable in practice, because starting an init discards the reviewed
+  -- plan and there would be nothing left to apply. Kept because the refusal
+  -- states the reason, where the "no reviewed plan" below would only state the
+  -- symptom — and because the invariant should not depend on the order two
+  -- checks happen to be written in.
+  if initializing[dir] then
+    vim.notify("An init is running in this directory — it discarded the reviewed plan", vim.log.levels.WARN)
+    return
+  end
+
   local saved = plans[dir]
   if not saved or not vim.uv.fs_stat(saved.path) then
     plans[dir] = nil
@@ -686,16 +720,56 @@ function M.init()
     return
   end
 
-  run(argv("init", { "-no-color", "-input=false" }), dir, function(code, lines)
+  if planning[dir] then
+    vim.notify("A plan is running in this directory — init would rewrite .terraform under it", vim.log.levels.WARN)
+    return
+  end
+
+  if initializing[dir] then
+    vim.notify("An init is already running in this directory", vim.log.levels.WARN)
+    return
+  end
+
+  initializing[dir] = true
+  local function release()
+    initializing[dir] = nil
+  end
+
+  -- A plan reviewed before this init is not a plan of what will happen after
+  -- it. init can bring in a new provider version, a changed module source or a
+  -- different backend, and the saved plan was computed against none of them.
+  -- Discarded for the same reason a new plan discards it: the picture it
+  -- describes is the one from before.
+  discard_plan(dir)
+
+  local process = run(argv("init", { "-no-color", "-input=false" }), dir, function(code, lines)
+    -- First, before anything that reports: nothing below this line is allowed
+    -- to decide whether the directory stays claimed.
+    release()
+
     try_show(lines, (" %s init "):format(vim.fs.basename(dir)))
     vim.notify(code == 0 and "Initialised" or "Init failed", code == 0 and vim.log.levels.INFO or vim.log.levels.ERROR)
   end)
+
+  -- Nothing started, so no callback will arrive to release the claim.
+  if not process then
+    release()
+  end
 end
 
 function M.validate()
   local dir = root_dir()
   if not dir then
     vim.notify("No .tf or terragrunt.hcl found above this buffer", vim.log.levels.WARN)
+    return
+  end
+
+  -- The one operation validate is refused against. It reads the provider
+  -- schemas out of `.terraform`, which is what init is in the middle of
+  -- replacing, so the answer would be about a state that no longer exists. It
+  -- stays free to run during a plan or an apply: those do not touch it.
+  if initializing[dir] then
+    vim.notify("An init is running in this directory — wait for it before validating", vim.log.levels.WARN)
     return
   end
 

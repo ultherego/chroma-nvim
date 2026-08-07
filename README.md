@@ -255,9 +255,15 @@ trip on every plan and every apply.
 If rendering it fails, the new plan file is deleted and any previously reviewed
 plan for that directory is invalidated, so there is nothing left to apply.
 
-**Concurrency.** One apply per directory; a second is refused, as are a new
-plan, an `init` and a `discard` while one runs. Two overlapping plans are
-ordered by when they were requested, not by which finished first.
+**Concurrency.** At most one of planning, applying and initializing per
+directory. A running apply refuses a second apply, a new plan, an `init` and a
+`discard`; a running `init` refuses a plan, an apply, a second init and a
+`validate`; a running plan refuses an `init`. Two overlapping plans are ordered
+by when they were requested, not by which finished first.
+
+**`:TerraformInit` discards the reviewed plan.** It can bring in a new provider
+version, a changed module source or a different backend, and the saved plan was
+computed against none of them.
 
 **Asking for a plan invalidates the one you already reviewed** — when you ask,
 not when the new plan succeeds. While it runs, an apply is refused; if it ends

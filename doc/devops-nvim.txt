@@ -948,11 +948,27 @@ works again immediately; only the unread plan is lost.
 
 One operation at a time                     *devops-nvim-terraform-concurrency*
 
+At most one of planning, applying and initializing is true for a directory at a
+time.
+
 An apply cannot be taken back, so while one runs in a directory the plugin
 refuses a second apply, a new plan, an `init` and a `discard` there. The first
 two would hand the running apply's plan file to another process or delete it;
-init would rewrite `.terraform` underneath it. `validate` is deliberately not
-refused: it reads configuration and provider schemas, not state.
+init would rewrite `.terraform` underneath it.
+
+`init` is serialised the same way. While one runs, a plan, an apply, a second
+init and a `validate` are all refused; and while a plan runs, an init is
+refused in turn. It rewrites `.terraform/` — providers, modules, backend
+configuration — which a plan reads and which supplies the schemas `validate`
+checks against. Verified before this was added: an init started during a plan
+ran concurrently with it, and two inits could rewrite the directory at once.
+
+Starting an `init` also discards the reviewed plan. It can bring in a new
+provider version, a changed module source or a different backend, and a plan
+computed before it describes none of them.
+
+`validate` is otherwise not refused: outside an init it reads configuration and
+provider schemas, not state, so it cannot collide with a plan or an apply.
 
 Two plans started in the same directory are ordered by when they were
 requested, not by which process finished first. The older one discards its own

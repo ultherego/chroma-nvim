@@ -384,6 +384,11 @@ local function fake_terraform_by_mode(h)
     ),
     "  exit 0",
     "fi",
+    'if [ "$1" = "init" ]; then',
+    '  [ "$mode" = "slow-init" ] && sleep 2',
+    '  if [ "$mode" = "init-fail" ]; then exit 1; fi',
+    "  exit 0",
+    "fi",
     'if [ "$1" = "plan" ]; then',
     '  [ "$mode" = "slow" ] && sleep 2',
     '  if [ "$mode" = "none" ]; then exit 0; fi',
@@ -529,6 +534,187 @@ T["superseding"]["the claim is released when the process cannot start"] = functi
   eq(said("still running"), false)
   eq(said("No reviewed plan"), true)
   eq(applied_marker(h), nil)
+end
+
+-- ---------------------------------------------------------------------------
+-- init against the rest of the lifecycle
+-- ---------------------------------------------------------------------------
+
+-- init was serialised against apply and nothing else, so it could run beside a
+-- plan, and two inits could run at once. Verified against the module before the
+-- fix: an init started during a plan ran concurrently, both reporting success.
+--
+-- What it rewrites is `.terraform/` — providers, modules, backend config —
+-- which is what plan reads and what validate takes its schemas from.
+T["init"] = new_set()
+
+T["init"]["is refused while a plan is running"] = function()
+  local h = harness()
+  fake_terraform_by_mode(h)
+  start(h)
+
+  next_plan(h, "slow", "first")
+  terraform.plan()
+  vim.wait(400, function()
+    return false
+  end)
+  notices = {}
+
+  terraform.init()
+  eq(said("init would rewrite"), true)
+  eq(#h.calls("init"), 0)
+
+  settle("Plan saved", "Plan failed")
+end
+
+T["init"]["is refused while an apply is running"] = function()
+  local h = harness()
+  fake_terraform(h, { 'if [ "$1" = "apply" ]; then sleep 1; exit 0; fi' })
+  start(h)
+
+  terraform.plan()
+  settle("Plan saved")
+  notices = {}
+
+  terraform.apply()
+  vim.wait(300, function()
+    return false
+  end)
+  terraform.init()
+
+  eq(said("init would rewrite"), true)
+  eq(#h.calls("init"), 0)
+  settle("Applied", "Apply failed")
+end
+
+T["init"]["a second init is refused while one runs"] = function()
+  local h = harness()
+  fake_terraform_by_mode(h)
+  start(h)
+
+  next_plan(h, "slow-init")
+  terraform.init()
+  vim.wait(400, function()
+    return false
+  end)
+  notices = {}
+
+  terraform.init()
+  eq(said("already running"), true)
+
+  settle("Initialised", "Init failed")
+  eq(#h.calls("init"), 1)
+end
+
+T["init"]["planning and applying are refused while it runs"] = function()
+  local h = harness()
+  fake_terraform_by_mode(h)
+  start(h)
+
+  next_plan(h, "slow-init")
+  terraform.init()
+  vim.wait(400, function()
+    return false
+  end)
+  notices = {}
+
+  terraform.plan()
+  eq(said("wait for it before planning"), true)
+  eq(#h.calls("plan"), 0)
+
+  notices = {}
+  terraform.apply()
+  eq(said("An init is running"), true)
+
+  notices = {}
+  terraform.validate()
+  eq(said("wait for it before validating"), true)
+  eq(#h.calls("validate"), 0)
+
+  settle("Initialised", "Init failed")
+end
+
+-- init can bring in a new provider version, a changed module source or a
+-- different backend. A plan computed before it describes none of them.
+T["init"]["discards the reviewed plan"] = function()
+  local h = harness()
+  fake_terraform_by_mode(h)
+  start(h)
+
+  next_plan(h, "changes", "first")
+  terraform.plan()
+  settle("Plan saved")
+  eq(#h.plan_files(), 1)
+  notices = {}
+
+  next_plan(h, "ok")
+  terraform.init()
+  settle("Initialised", "Init failed")
+  eq(said("Initialised"), true)
+  notices = {}
+
+  terraform.apply()
+  settle("No reviewed plan", "Applied", "Apply failed")
+  eq(said("No reviewed plan"), true)
+  eq(applied_marker(h), nil)
+  eq(#h.plan_files(), 0)
+end
+
+T["init"]["a failed init releases the directory"] = function()
+  local h = harness()
+  fake_terraform_by_mode(h)
+  start(h)
+
+  next_plan(h, "init-fail")
+  terraform.init()
+  settle("Init failed", "Initialised")
+  eq(said("Init failed"), true)
+  notices = {}
+
+  -- Not "an init is running": it finished, badly.
+  next_plan(h, "changes", "after")
+  terraform.plan()
+  settle("Plan saved", "Plan failed", "wait for it before planning")
+  eq(said("Plan saved"), true)
+end
+
+-- The claim is taken before the process starts, so the path where nothing
+-- starts has to release it too. Here the binary is simply gone, which `run`
+-- discovers after the directory has already been claimed.
+T["init"]["the claim is released when the process cannot start"] = function()
+  local h = harness()
+  fake_terraform_by_mode(h)
+  start(h)
+
+  vim.fn.delete(h.bin .. "/terraform")
+  terraform.init()
+  eq(said("not found on PATH"), true)
+  eq(#h.calls("init"), 0)
+  notices = {}
+
+  -- Restored, and the directory must not still be claimed by an init that
+  -- never ran.
+  fake_terraform_by_mode(h)
+  next_plan(h, "changes", "after")
+  terraform.plan()
+  settle("Plan saved", "Plan failed", "wait for it before planning")
+  eq(said("Plan saved"), true)
+end
+
+T["init"]["a plan can start once it has finished"] = function()
+  local h = harness()
+  fake_terraform_by_mode(h)
+  start(h)
+
+  next_plan(h, "ok")
+  terraform.init()
+  settle("Initialised", "Init failed")
+  notices = {}
+
+  next_plan(h, "changes", "after")
+  terraform.plan()
+  settle("Plan saved", "Plan failed", "wait for it before planning")
+  eq(said("Plan saved"), true)
 end
 
 -- ---------------------------------------------------------------------------
