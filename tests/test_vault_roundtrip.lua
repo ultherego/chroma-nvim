@@ -224,4 +224,155 @@ T["repeated writes keep working"] = function()
   eq(vim.bo.modified, false)
 end
 
+-- ---------------------------------------------------------------------------
+-- Rekey
+-- ---------------------------------------------------------------------------
+
+--- A project whose ansible.cfg knows two vault ids, with the file encrypted
+--- under the first. This is the shape rekey needs: the new password has to come
+--- from somewhere that outlives the command.
+---@return string dir, string vault
+local function two_identity_project()
+  local dir = vim.fn.tempname()
+  vim.fn.mkdir(dir, "p")
+
+  for _, id in ipairs({ "old", "new" }) do
+    vim.fn.writefile({ id .. "-password" }, ("%s/.%s_pass"):format(dir, id))
+    vim.uv.fs_chmod(("%s/.%s_pass"):format(dir, id), tonumber("600", 8))
+  end
+  vim.fn.writefile({
+    "[defaults]",
+    ("vault_identity_list = old@%s/.old_pass,new@%s/.new_pass"):format(dir, dir),
+  }, dir .. "/ansible.cfg")
+
+  local vault = dir .. "/secrets.yml"
+  vim.fn.writefile({ "key: value" }, vault)
+  local result = vim
+    .system({ "ansible-vault", "encrypt", "--encrypt-vault-id", "old", vault }, { cwd = dir, text = true })
+    :wait()
+  assert(result.code == 0, "could not encrypt the fixture: " .. (result.stderr or ""))
+
+  return dir, vault
+end
+
+---@param path string
+---@return string|nil
+local function header_label(path)
+  local first = vim.fn.readfile(path, "", 1)[1] or ""
+  return first:match("^%$ANSIBLE_VAULT;[^;]+;[^;]+;(.+)$")
+end
+
+-- Regression: rekey gated on is_encrypted(buf), which inspects buffer contents.
+-- Under transparent editing the buffer holds plaintext, so the command refused
+-- on precisely the files it exists for.
+T["rekey works on a transparently decrypted buffer"] = function()
+  local dir, vault = two_identity_project()
+  eq(header_label(vault), "old")
+
+  open_with(vault, { transparent = true })
+  vim.wait(15000, function()
+    return vim.api.nvim_buf_get_lines(0, 0, 1, false)[1] == "key: value"
+  end, 100)
+  -- The buffer holds plaintext; the file on disk is still a vault.
+  eq(vim.api.nvim_buf_get_lines(0, 0, 1, false)[1], "key: value")
+
+  local input = vim.fn.inputlist
+  vim.fn.inputlist = function()
+    return 2 -- the `new` identity
+  end
+  local notices = {}
+  local notify = vim.notify
+  vim.notify = function(message, _)
+    table.insert(notices, tostring(message))
+  end
+
+  require("ansible-vault").rekey_file()
+
+  vim.fn.inputlist = input
+  vim.notify = notify
+
+  local said = table.concat(notices, " ")
+  eq(said:find("not vault%-encrypted"), nil)
+  eq(said:find("Rekeyed") ~= nil, true)
+  eq(header_label(vault), "new")
+
+  -- Still readable, and readable as plaintext in the buffer after the reload
+  -- that follows — which is only possible because the new id is one ansible
+  -- resolves for itself.
+  eq(decrypt_externally(dir, vault):find("key: value") ~= nil, true)
+  eq(vim.api.nvim_buf_get_lines(0, 0, 1, false)[1], "key: value")
+end
+
+T["rekey leaves the old password unable to open the file"] = function()
+  local dir, vault = two_identity_project()
+
+  open_with(vault, { transparent = true })
+  vim.wait(15000, function()
+    return vim.api.nvim_buf_get_lines(0, 0, 1, false)[1] == "key: value"
+  end, 100)
+
+  local input = vim.fn.inputlist
+  vim.fn.inputlist = function()
+    return 2
+  end
+  require("ansible-vault").rekey_file()
+  vim.fn.inputlist = input
+
+  eq(header_label(vault), "new")
+
+  -- Asked away from the project, so ansible.cfg cannot quietly supply the new
+  -- secret: --vault-id adds to the configured list rather than replacing it,
+  -- which makes an in-project check meaningless here.
+  local elsewhere = vim.fn.tempname()
+  vim.fn.mkdir(elsewhere, "p")
+  vim.fn.writefile(vim.fn.readfile(vault), elsewhere .. "/f.yml")
+
+  local with_old = vim
+    .system({
+      "ansible-vault",
+      "view",
+      "--vault-password-file",
+      dir .. "/.old_pass",
+      "f.yml",
+    }, { cwd = elsewhere, text = true })
+    :wait()
+  eq(with_old.code ~= 0, true)
+
+  local with_new = vim
+    .system({
+      "ansible-vault",
+      "view",
+      "--vault-password-file",
+      dir .. "/.new_pass",
+      "f.yml",
+    }, { cwd = elsewhere, text = true })
+    :wait()
+  eq(with_new.code, 0)
+end
+
+-- Rekeying to a password typed once would leave a file that nothing can open
+-- again, so with no persistent source configured the command refuses instead.
+T["rekey refuses when no vault identity is configured"] = function()
+  local _, vault = project("key: value\n")
+
+  open_with(vault, { transparent = true })
+  vim.wait(15000, function()
+    return vim.api.nvim_buf_get_lines(0, 0, 1, false)[1] == "key: value"
+  end, 100)
+
+  local notices = {}
+  local notify = vim.notify
+  vim.notify = function(message, _)
+    table.insert(notices, tostring(message))
+  end
+
+  require("ansible-vault").rekey_file()
+  vim.notify = notify
+
+  local said = table.concat(notices, " ")
+  eq(said:find("outlives this command") ~= nil, true)
+  eq(said:find("vault_identity_list") ~= nil, true)
+  eq(is_ciphertext(vault), true)
+end
+
 return T

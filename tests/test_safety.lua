@@ -305,6 +305,97 @@ T["file_changed_since_read"]["says nothing when no state was remembered"] = func
   eq(r, nil)
 end
 
+-- The fingerprint was whole seconds and size, and this is what that missed: a
+-- second writer landing inside the same second with a file of the same length.
+-- Both fields compare equal, the conflict check passes, and the other writer's
+-- change is overwritten in silence.
+T["file_changed_since_read"]["notices a same-second change of the same size"] = function()
+  local r = with_file("aaaa", function(buf, path)
+    vault().remember_file_state(buf)
+    local before = vim.uv.fs_stat(path)
+    vim.fn.writefile({ "bbbb" }, path)
+    local after = vim.uv.fs_stat(path)
+
+    -- If the filesystem did not actually reproduce the conditions, the case
+    -- proves nothing and says so rather than passing for the wrong reason.
+    if before.mtime.sec ~= after.mtime.sec or before.size ~= after.size then
+      MiniTest.skip("the filesystem separated two immediate writes by second or size")
+    end
+
+    return vault().file_changed_since_read(buf)
+  end)
+  eq(type(r), "string")
+end
+
+-- A careful writer replaces a file rather than rewriting it, which produces a
+-- new inode and can carry any timestamp it likes afterwards. Nanoseconds alone
+-- would not see this.
+T["file_changed_since_read"]["notices an atomic replacement with the timestamp restored"] = function()
+  local r = with_file("one", function(buf, path)
+    vault().remember_file_state(buf)
+    local before = vim.uv.fs_stat(path)
+
+    vim.fn.writefile({ "one" }, path .. ".new")
+    vim.uv.fs_rename(path .. ".new", path)
+    vim.uv.fs_utime(path, before.atime.sec, before.mtime.sec)
+
+    return vault().file_changed_since_read(buf)
+  end)
+  eq(r, "the file has been replaced on disk since it was read")
+end
+
+-- ---------------------------------------------------------------------------
+-- Atomic replacement refuses to break hard links
+-- ---------------------------------------------------------------------------
+
+T["write_atomically"] = new_set()
+
+T["write_atomically"]["writes a file with one link"] = function()
+  local path = vim.fn.tempname()
+  vim.fn.writefile({ "before" }, path)
+
+  local ok, err = vault().write_atomically(path, "after\n")
+
+  eq(ok, true)
+  eq(err, nil)
+  eq(vim.fn.readfile(path)[1], "after")
+  os.remove(path)
+end
+
+-- rename() replaces one name. Every other name for that inode keeps the old
+-- contents, so saving through one of them leaves the others quietly stale.
+-- Writing in place instead would keep the links and give up the protection
+-- against a truncated vault, so this refuses rather than choosing for the user.
+T["write_atomically"]["refuses a file with more than one link"] = function()
+  local dir = vim.fn.tempname()
+  vim.fn.mkdir(dir, "p")
+  local first, second = dir .. "/a", dir .. "/b"
+  vim.fn.writefile({ "shared" }, first)
+  vim.uv.fs_link(first, second)
+
+  local ok, err = vault().write_atomically(first, "replaced\n")
+
+  eq(ok, false)
+  eq(err:match("2 hard links") ~= nil, true)
+  eq(err:match("saveas") ~= nil, true)
+  -- Neither name may have moved.
+  eq(vim.fn.readfile(first)[1], "shared")
+  eq(vim.fn.readfile(second)[1], "shared")
+  vim.fn.delete(dir, "rf")
+end
+
+T["write_atomically"]["leaves no temporary file behind when it refuses"] = function()
+  local dir = vim.fn.tempname()
+  vim.fn.mkdir(dir, "p")
+  vim.fn.writefile({ "shared" }, dir .. "/a")
+  vim.uv.fs_link(dir .. "/a", dir .. "/b")
+
+  vault().write_atomically(dir .. "/a", "replaced\n")
+
+  eq(#vim.fn.glob(dir .. "/*.tmp", false, true), 0)
+  vim.fn.delete(dir, "rf")
+end
+
 -- ---------------------------------------------------------------------------
 -- Encrypting a range, not whatever was selected last
 -- ---------------------------------------------------------------------------
