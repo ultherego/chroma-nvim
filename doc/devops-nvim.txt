@@ -787,6 +787,14 @@ The check is made against the file on disk, not the buffer: with transparent
 editing the buffer holds plaintext, and an earlier version inspected it and
 therefore refused on exactly the files this command is for.
 
+A file with more than one hard link is refused before anything else happens,
+including the question about which identity to use. This is the same policy the
+writer applies (|devops-nvim-vault-writing|), but the consequence here is worse:
+ansible-vault does not replace the file, it overwrites the inode in place and
+then unlinks it. Through a hard link that destroys what the other name holds
+rather than leaving it stale. Measured against ansible-core 2.21.2 — after
+rekeying one of two names, the other was random data that no longer decrypted.
+
 Writing                                          *devops-nvim-vault-writing*
 
 A vault is replaced by writing a sibling file and renaming over the target, so
@@ -798,6 +806,11 @@ Hard links are refused. rename() replaces one name, and every other name for
 that inode would keep the old contents — so instead of letting two names
 silently diverge, the write stops and says how many links there are. Writing in
 place would keep them and give up the protection against a truncated vault.
+
+The same refusal guards `:VaultRekey` (|devops-nvim-vault-rekey|), which is the
+other operation that replaces a Vault file. One policy, asked in one place: an
+operation that mutates a Vault does not get to decide for itself whether the
+other names for that file matter.
 
 Vault buffers carry 'noswapfile' and take over `:write`, which removes both of
 Neovim's protections against two editors clobbering each other. The replacement

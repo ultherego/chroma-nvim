@@ -477,6 +477,32 @@ local function file_changed_since_read(buf)
   return nil
 end
 
+--- Resolves a path and refuses it when another name points at the same inode.
+---
+--- Every operation in this plugin that replaces a vault has to ask this,
+--- because every one of them breaks the other names — differently, and one of
+--- them destructively. Keeping the question in one place is what makes the
+--- guarantee in README a property of the plugin rather than of whichever code
+--- path happened to remember it; rekey did not, and rekey is the destructive
+--- one.
+---
+--- Symlinks are resolved rather than refused: replacing what the link points at
+--- is what the user meant, and both callers handle it correctly once the link
+--- is followed.
+---@param path string
+---@return string|nil target the resolved path, nil when the file has other names
+---@return string|nil err
+local function check_hardlinks(path)
+  local target = vim.uv.fs_realpath(path) or path
+  local stat = vim.uv.fs_stat(target)
+
+  if stat and (stat.nlink or 1) > 1 then
+    return nil, ("%s has %d hard links"):format(target, stat.nlink)
+  end
+
+  return target
+end
+
 --- Replaces a file's contents without ever leaving it truncated.
 ---
 --- Opening the target with "w" truncates it before the first byte is written,
@@ -492,38 +518,31 @@ end
 ---@param contents string
 ---@return boolean ok, string|nil err
 local function write_atomically(path, contents)
-  -- Follow the symlink first.
+  -- Both halves of what check_hardlinks does matter here, for the same reason:
+  -- rename() replaces exactly the name it is given.
   --
-  -- rename() replaces whatever name it is given. Handed a symlink, it deletes
-  -- the link and leaves a regular file in its place, while the file the link
-  -- pointed at keeps its old contents — so the write appears to succeed and
-  -- the real vault silently stays stale. Verified: a link to real/vars.yml
-  -- became a regular file and real/vars.yml never saw the change.
+  -- Handed a symlink it deletes the link and leaves a regular file in its
+  -- place, while the file the link pointed at keeps its old contents — so the
+  -- write appears to succeed and the real vault silently stays stale. Verified:
+  -- a link to real/vars.yml became a regular file and real/vars.yml never saw
+  -- the change. Resolving the link first is therefore the fix, not a nicety;
+  -- shared secrets are routinely linked into group_vars.
   --
-  -- That layout is not exotic; shared secrets are routinely linked into
-  -- group_vars.
-  --
-  local target = vim.uv.fs_realpath(path) or path
-
-  -- Hard links get a refusal rather than a silent break.
-  --
-  -- rename() replaces one name. The other names for that inode keep pointing at
-  -- the old content, so `a` gets the new vault and `b`, which was the same
-  -- file a moment ago, quietly keeps the old one. Verified: after replacing a
-  -- linked file this way the second name still held the previous contents and
-  -- had the previous inode.
+  -- Handed one of several hard links it updates that name alone. The others
+  -- keep pointing at the old content, so `a` gets the new vault and `b`, which
+  -- was the same file a moment ago, quietly keeps the old one. Verified: after
+  -- replacing a linked file this way the second name still held the previous
+  -- contents and had the previous inode.
   --
   -- Writing in place instead would preserve the links and give up the
   -- protection this whole function exists for — a truncated vault on a crash
   -- or a full disk. Between silently diverging copies and a refusal that says
   -- what to do, the refusal is the honest one.
-  local target_stat = vim.uv.fs_stat(target)
-  if target_stat and (target_stat.nlink or 1) > 1 then
+  local target, link_err = check_hardlinks(path)
+  if not target then
     return false,
-      ("%s has %d hard links, and replacing it atomically would update only this name. "):format(
-        target,
-        target_stat.nlink
-      ) .. "Remove the other links, or use :saveas to write somewhere else."
+      ("%s, and replacing it atomically would update only this name. "):format(link_err)
+        .. "Remove the other links, or use :saveas to write somewhere else."
   end
 
   local tmp = ("%s.ansible-vault.nvim.%d.tmp"):format(target, vim.uv.os_getpid())
@@ -735,6 +754,26 @@ function M.rekey_file()
   -- plaintext and a buffer check would refuse every file this command is for.
   if not file_is_vault(path) then
     vim.notify("The file on disk is not vault-encrypted", vim.log.levels.WARN)
+    return
+  end
+
+  -- The same policy as every other write, and this is the path that needed it
+  -- most. ansible-vault does not replace the file, it shreds it: the inode is
+  -- overwritten in place before being unlinked. Through a hard link that
+  -- destroys the data behind the other name rather than merely diverging from
+  -- it. Measured against ansible-core 2.21.2 — after rekeying one of two names,
+  -- the other was 4096 bytes of random data, `file` called it `data`, and
+  -- `ansible-vault view` answered "Input is not vault encrypted data". There is
+  -- nothing to recover from that, so the refusal comes before the command does
+  -- anything at all, including asking which identity to rekey to.
+  local _, link_err = check_hardlinks(path)
+  if link_err then
+    vim.notify(
+      ("Refusing to rekey: %s. ansible-vault overwrites a file's contents before replacing it, "):format(link_err)
+        .. "which would destroy what the other names hold rather than leave them stale. "
+        .. "Remove the other links first.",
+      vim.log.levels.ERROR
+    )
     return
   end
 

@@ -350,6 +350,74 @@ T["rekey leaves the old password unable to open the file"] = function()
   eq(with_new.code, 0)
 end
 
+-- Regression: rekey went straight to the CLI and so was the one mutating path
+-- that skipped the hard-link policy the writer enforces.
+--
+-- This is not the writer's failure mode repeated. Writing renames over one
+-- name and leaves the others stale, which is recoverable. ansible-vault shreds
+-- the inode before unlinking it, so the data behind the other name is
+-- overwritten with random bytes. Measured against ansible-core 2.21.2: the
+-- second name came back 4096 bytes long and no longer vault data at all.
+--
+-- The assertions below are therefore about the untouched name as much as about
+-- the refusal.
+T["rekey refuses a file with hard links, leaving both names intact"] = function()
+  local dir, vault = two_identity_project()
+
+  local other = dir .. "/linked.yml"
+  assert(vim.uv.fs_link(vault, other), "could not create the hard link")
+
+  local before = vim.fn.readfile(vault, "b")
+  eq(vim.fn.readfile(other, "b"), before)
+  eq(vim.uv.fs_stat(vault).nlink, 2)
+
+  open_with(vault, { transparent = true })
+  vim.wait(15000, function()
+    return vim.api.nvim_buf_get_lines(0, 0, 1, false)[1] == "key: value"
+  end, 100)
+
+  -- Answers the identity prompt for real rather than cancelling it. That is
+  -- what gives the assertions below their force: with the guard removed this
+  -- case does not merely reach a question it should not have reached, it goes
+  -- on to perform the rekey — and a rekey through a hard link is what leaves
+  -- the other name unrecoverable. Removing the guard was tried: the case fails
+  -- at the missing refusal, which is the first expectation it reaches.
+  local asked = false
+  local input = vim.fn.inputlist
+  vim.fn.inputlist = function()
+    asked = true
+    return 2 -- the `new` identity
+  end
+  local notices = {}
+  local notify = vim.notify
+  vim.notify = function(message, _)
+    table.insert(notices, tostring(message))
+  end
+
+  require("ansible-vault").rekey_file()
+
+  vim.fn.inputlist = input
+  vim.notify = notify
+
+  local said = table.concat(notices, " ")
+  eq(said:find("Refusing to rekey") ~= nil, true)
+  eq(said:find("hard links") ~= nil, true)
+  -- The refusal comes before the question, because by the time the question is
+  -- answered the damage is one CLI call away.
+  eq(asked, false)
+
+  -- Both names still hold exactly what they held, byte for byte, and still
+  -- share the inode.
+  eq(vim.fn.readfile(vault, "b"), before)
+  eq(vim.fn.readfile(other, "b"), before)
+  eq(vim.uv.fs_stat(vault).ino, vim.uv.fs_stat(other).ino)
+  eq(header_label(vault), "old")
+
+  -- And the untouched name is still a vault the old identity opens, which is
+  -- the property the shred destroys.
+  eq(decrypt_externally(dir, other):find("key: value") ~= nil, true)
+end
+
 -- Rekeying to a password typed once would leave a file that nothing can open
 -- again, so with no persistent source configured the command refuses instead.
 T["rekey refuses when no vault identity is configured"] = function()

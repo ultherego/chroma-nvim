@@ -279,7 +279,10 @@ buffer refuses the write instead of overwriting it.
 
 **Hard links are refused, not broken.** Renaming over one name leaves every
 other name for that inode pointing at the old contents. Rather than silently
-diverge, the write is refused and says so.
+diverge, the write is refused and says so. `:VaultRekey` is held to the same
+policy, where the stakes are higher: `ansible-vault` overwrites the inode before
+unlinking it, so through a hard link it destroys what the other name holds
+instead of leaving it stale.
 
 **`:VaultRekey` re-encrypts to a configured Vault identity** from
 `vault_identity_list`, not to an arbitrary one-off password. A password typed
