@@ -412,12 +412,41 @@ end
 --- clobbering each other were therefore absent — verified by having a second
 --- writer land between read and write: its change vanished with no warning.
 ---
---- Recording mtime and size at read, and comparing before write, restores that
+--- Recording a fingerprint at read, and comparing before write, restores that
 --- protection without a swap file full of plaintext.
+---
+--- Whole seconds and size were not enough. A second writer that lands within
+--- the same second and produces a file of the same length — a password
+--- rotated in place, a value edited to the same width, an automated
+--- rewrite — left both fields identical and the change went through
+--- unannounced. Measured on this repository's own filesystem: two writes in
+--- the same second with equal size compare equal on (sec, size) and differ on
+--- mtime.nsec.
+---
+--- So the fingerprint also carries nanoseconds, inode and device. The inode
+--- catches the case nanoseconds cannot: another process replacing the file
+--- atomically, which is what careful writers do, gives a new inode and can
+--- otherwise carry any timestamp it likes.
+---@param path string
+---@return table|nil
+local function file_fingerprint(path)
+  local stat = vim.uv.fs_stat(path)
+  if not stat then
+    return nil
+  end
+
+  return {
+    mtime_sec = stat.mtime.sec,
+    mtime_nsec = stat.mtime.nsec,
+    size = stat.size,
+    ino = stat.ino,
+    dev = stat.dev,
+  }
+end
+
 ---@param buf integer
 local function remember_file_state(buf)
-  local stat = vim.uv.fs_stat(vim.api.nvim_buf_get_name(buf))
-  vim.b[buf].ansible_vault_stat = stat and { mtime = stat.mtime.sec, size = stat.size } or nil
+  vim.b[buf].ansible_vault_stat = file_fingerprint(vim.api.nvim_buf_get_name(buf))
 end
 
 ---@param buf integer
@@ -428,12 +457,20 @@ local function file_changed_since_read(buf)
     return nil
   end
 
-  local stat = vim.uv.fs_stat(vim.api.nvim_buf_get_name(buf))
-  if not stat then
+  local current = file_fingerprint(vim.api.nvim_buf_get_name(buf))
+  if not current then
     return "the file has been removed"
   end
 
-  if stat.mtime.sec ~= remembered.mtime or stat.size ~= remembered.size then
+  if current.ino ~= remembered.ino or current.dev ~= remembered.dev then
+    return "the file has been replaced on disk since it was read"
+  end
+
+  if
+    current.mtime_sec ~= remembered.mtime_sec
+    or current.mtime_nsec ~= remembered.mtime_nsec
+    or current.size ~= remembered.size
+  then
     return "the file has changed on disk since it was read"
   end
 
@@ -466,9 +503,29 @@ local function write_atomically(path, contents)
   -- That layout is not exotic; shared secrets are routinely linked into
   -- group_vars.
   --
-  -- Hard links are not covered: rename breaks those too, and detecting them
-  -- would mean writing in place, which is what this function exists to avoid.
   local target = vim.uv.fs_realpath(path) or path
+
+  -- Hard links get a refusal rather than a silent break.
+  --
+  -- rename() replaces one name. The other names for that inode keep pointing at
+  -- the old content, so `a` gets the new vault and `b`, which was the same
+  -- file a moment ago, quietly keeps the old one. Verified: after replacing a
+  -- linked file this way the second name still held the previous contents and
+  -- had the previous inode.
+  --
+  -- Writing in place instead would preserve the links and give up the
+  -- protection this whole function exists for — a truncated vault on a crash
+  -- or a full disk. Between silently diverging copies and a refusal that says
+  -- what to do, the refusal is the honest one.
+  local target_stat = vim.uv.fs_stat(target)
+  if target_stat and (target_stat.nlink or 1) > 1 then
+    return false,
+      ("%s has %d hard links, and replacing it atomically would update only this name. "):format(
+        target,
+        target_stat.nlink
+      ) .. "Remove the other links, or use :saveas to write somewhere else."
+  end
+
   local tmp = ("%s.ansible-vault.nvim.%d.tmp"):format(target, vim.uv.os_getpid())
 
   local fd, open_err = vim.uv.fs_open(tmp, "wx", tonumber("600", 8))
@@ -887,6 +944,8 @@ end
 M._test = {
   remember_file_state = remember_file_state,
   file_changed_since_read = file_changed_since_read,
+  file_fingerprint = file_fingerprint,
+  write_atomically = write_atomically,
   block_at = block_at,
   is_encrypted = is_encrypted,
   context_dir = context_dir,

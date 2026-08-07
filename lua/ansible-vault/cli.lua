@@ -84,13 +84,36 @@ local function stage_password(password)
   -- Checked rather than assumed: a short write here hands ansible a truncated
   -- password, which fails as "decryption failed" and sends the user looking
   -- for the wrong problem entirely.
+  --
+  -- The same applies to close. Its return value was thrown away, and close is
+  -- where a deferred write error is reported — the write call can succeed
+  -- while the data never lands. That produced the same misleading "decryption
+  -- failed" from a completely different cause.
   local payload = password .. "\n"
-  local written, write_err = vim.uv.fs_write(fd, payload)
-  vim.uv.fs_close(fd)
 
-  if not written or written < #payload then
+  local function fail(reason)
+    vim.uv.fs_close(fd)
     pcall(vim.uv.fs_unlink, path)
-    return nil, nil, ("could not stage the password: %s"):format(write_err or "short write")
+    return nil, nil, ("could not stage the password: %s"):format(reason)
+  end
+
+  local written, write_err = vim.uv.fs_write(fd, payload)
+  if not written or written < #payload then
+    return fail(write_err or "short write")
+  end
+
+  -- A no-op on the tmpfs this is required to live on, and correct anywhere
+  -- else. It costs nothing and removes a difference between this write path
+  -- and the one that persists vaults.
+  local synced, sync_err = vim.uv.fs_fsync(fd)
+  if synced == nil then
+    return fail(sync_err or "fsync failed")
+  end
+
+  local closed, close_err = vim.uv.fs_close(fd)
+  if not closed then
+    pcall(vim.uv.fs_unlink, path)
+    return nil, nil, ("could not stage the password: %s"):format(close_err or "close failed")
   end
 
   return path, function()
