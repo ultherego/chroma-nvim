@@ -139,6 +139,16 @@ local function check_devops()
     )
   end
 
+  -- Where :TerraformPlan will put the plan it writes. A plan quotes variable
+  -- values, so a runtime directory that is not private is a refusal, not a
+  -- warning at write time — reported here so it is known before a plan is run.
+  local plan_dir, plan_err = require("terraform.runtime").secure_dir("terraform.nvim")
+  if plan_dir then
+    health.ok(("Plan files will be written to %s (tmpfs, 0700)"):format(plan_dir))
+  else
+    health.warn(plan_err, ":TerraformPlan will refuse rather than write a plan to persistent storage")
+  end
+
   if vim.fn.executable("kubectl") == 1 then
     -- KUBECONFIG is a path LIST, not a path. kubectl merges every entry, and
     -- splitting on the platform separator is the difference between reporting

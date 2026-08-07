@@ -62,13 +62,18 @@ function M.check()
 
   health.start("Plaintext handling")
 
-  if vim.env.XDG_RUNTIME_DIR and vim.uv.fs_stat(vim.env.XDG_RUNTIME_DIR) then
-    health.ok(("Prompted passwords will be staged in %s (tmpfs)"):format(vim.env.XDG_RUNTIME_DIR))
+  -- The same call the staging path makes, so this reports what will actually
+  -- happen rather than a weaker approximation of it. It used to check only
+  -- that the variable was set and could be stat'ed, and would have said "ok"
+  -- for a world-readable directory.
+  local runtime_dir, runtime_err = require("ansible-vault.runtime").secure_dir("ansible-vault.nvim")
+  if runtime_dir then
+    health.ok(("Prompted passwords will be staged in %s (tmpfs, 0700)"):format(runtime_dir))
   else
     health.warn(
-      "XDG_RUNTIME_DIR is not set",
-      "prompting for a password will be refused rather than writing it to persistent "
-        .. "storage. Configure vault_password_file in ansible.cfg instead."
+      runtime_err,
+      "prompting for a password will be refused rather than staging it somewhere unsafe. "
+        .. "Configure vault_password_file in ansible.cfg instead."
     )
   end
 

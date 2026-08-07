@@ -165,13 +165,14 @@ end
 ---Somewhere to put a plan that is not persistent storage.
 ---@return string|nil path, string|nil err
 local function plan_path()
-  local dir = vim.env.XDG_RUNTIME_DIR
-  if not dir or not vim.uv.fs_stat(dir) then
+  local dir, err = require("terraform.runtime").secure_dir("terraform.nvim")
+  if not dir then
     return nil,
-      "XDG_RUNTIME_DIR is not set. A plan file can contain sensitive values and "
-        .. "this plugin will not write one to persistent storage."
+      ("%s\nA plan file can quote sensitive values, so this plugin will not fall back to persistent storage."):format(
+        err
+      )
   end
-  return ("%s/terraform.nvim.%d.%d.tfplan"):format(dir, vim.uv.os_getpid(), vim.uv.hrtime())
+  return ("%s/plan.%d.%d.tfplan"):format(dir, vim.uv.os_getpid(), vim.uv.hrtime())
 end
 
 ---Shows command output in a scratch buffer.

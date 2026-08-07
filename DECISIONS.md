@@ -402,6 +402,23 @@ stated goal for `ansible-vault.nvim`.
 `lua/devops/` kept only what is genuinely about this configuration rather than
 about a tool: the health check.
 
+### The runtime-directory check is duplicated on purpose
+
+**Decision.** `lua/ansible-vault/runtime.lua` and `lua/terraform/runtime.lua`
+are the same policy written twice. An external audit asked for one shared
+`lua/devops/runtime.lua` used by both. It was not taken.
+
+**Why.** Both modules write short-lived secrets into `$XDG_RUNTIME_DIR` and
+both must check it is what the XDG specification says it is. A shared helper
+would be correct in any codebase where these files stay together — and would
+end the one property the decision above exists to protect, since neither module
+could then be lifted into its own repository without editing it. Thirty lines
+of duplicated policy is a smaller price than that.
+
+The cost is real and is not pretended away: two copies can drift. The check for
+that is a test that runs every case against both and asserts they agree, which
+is what catches a change made in one and forgotten in the other.
+
 ### External tools are asked, not re-implemented
 
 **Decision.** `ansible-config dump` resolves vault settings;

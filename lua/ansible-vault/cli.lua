@@ -64,17 +64,16 @@ end
 ---@param password string
 ---@return string|nil path, function|nil cleanup, string|nil err
 local function stage_password(password)
-  local dir = vim.env.XDG_RUNTIME_DIR
-  if not dir or not vim.uv.fs_stat(dir) then
-    -- Falling back to the ordinary temp directory would put the password on
-    -- persistent storage. Refuse instead of doing it quietly.
-    return nil,
-      nil,
-      "XDG_RUNTIME_DIR is not set, so there is no in-memory place to put the password. "
-        .. "Configure vault_password_file in ansible.cfg instead."
+  -- Falling back to the ordinary temp directory would put the password on
+  -- persistent storage, and using a runtime directory that turns out not to be
+  -- private would put it somewhere readable. Refuse instead of doing either
+  -- quietly.
+  local dir, dir_err = require("ansible-vault.runtime").secure_dir("ansible-vault.nvim")
+  if not dir then
+    return nil, nil, ("%s\nConfigure vault_password_file in ansible.cfg instead."):format(dir_err)
   end
 
-  local path = ("%s/ansible-vault.nvim.%d.%d"):format(dir, vim.uv.os_getpid(), vim.uv.hrtime())
+  local path = ("%s/password.%d.%d"):format(dir, vim.uv.os_getpid(), vim.uv.hrtime())
 
   local fd, open_err = vim.uv.fs_open(path, "wx", tonumber("600", 8))
   if not fd then
