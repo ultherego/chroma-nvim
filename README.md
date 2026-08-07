@@ -62,7 +62,8 @@ promise for your machine.
 ## Requirements
 
 - **Neovim ≥ 0.12** — uses the native LSP API and the rewritten nvim-treesitter
-- `git ≥ 2.19`, `curl`, `tar`, a C compiler
+- `git ≥ 2.19`, `curl`, `tar`, `unzip`, `gzip`, a C compiler — `unzip` and
+  `gzip` are what Mason unpacks its packages with
 - `tree-sitter-cli ≥ 0.26.1` **from your system package manager**, not npm
 - `ripgrep`, `fd`, `fzf > 0.36`, `bat` (used by fzf-lua's `fzf-native` preview profile)
 - A Nerd Font

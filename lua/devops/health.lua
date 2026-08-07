@@ -53,6 +53,13 @@ local function check_core()
     { cmd = "git", what = "plugin management", advice = "git >= 2.19 is required for partial clones" },
     { cmd = "curl", what = "downloading parsers and prebuilt binaries" },
     { cmd = "tar", what = "unpacking treesitter grammars" },
+    -- Mason's own requirements, which this list did not cover. Without them a
+    -- server installs right up to the point of unpacking and fails there,
+    -- reported as a Mason error about an archive rather than as a missing
+    -- tool. Taken from mason.nvim's Requirements section, which lists git,
+    -- curl or wget, unzip, GNU tar and gzip for Unix.
+    { cmd = "unzip", what = "unpacking Mason packages" },
+    { cmd = "gzip", what = "unpacking Mason packages" },
     {
       cmd = "tree-sitter",
       what = "compiling treesitter parsers",
