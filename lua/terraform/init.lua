@@ -64,22 +64,34 @@ local function aws_identity(callback)
     return
   end
 
-  vim.system({ "aws", "sts", "get-caller-identity", "--output", "json" }, { text = true }, function(result)
-    vim.schedule(function()
-      if result.code ~= 0 then
-        callback(nil, ((result.stderr or "") .. (result.stdout or "")):gsub("%s+$", ""))
-        return
-      end
+  -- Callers claim the directory before asking, so a spawn that raises here would leak
+  -- the claim just as one in `run` would. An unanswerable question is an ordinary
+  -- unknown identity: plan says so and continues, apply refuses on the difference.
+  local started, err = pcall(
+    vim.system,
+    { "aws", "sts", "get-caller-identity", "--output", "json" },
+    { text = true },
+    function(result)
+      vim.schedule(function()
+        if result.code ~= 0 then
+          callback(nil, ((result.stderr or "") .. (result.stdout or "")):gsub("%s+$", ""))
+          return
+        end
 
-      local ok, decoded = pcall(vim.json.decode, result.stdout or "")
-      if not ok or type(decoded) ~= "table" or not decoded.Account then
-        callback(nil, "could not read the STS response")
-        return
-      end
+        local ok, decoded = pcall(vim.json.decode, result.stdout or "")
+        if not ok or type(decoded) ~= "table" or not decoded.Account then
+          callback(nil, "could not read the STS response")
+          return
+        end
 
-      callback({ account = decoded.Account, arn = decoded.Arn })
-    end)
-  end)
+        callback({ account = decoded.Account, arn = decoded.Arn })
+      end)
+    end
+  )
+
+  if not started then
+    callback(nil, ("could not run aws: %s"):format(err))
+  end
 end
 
 ---@param a table
@@ -328,13 +340,26 @@ local function run(command, args, dir, on_done, binary)
 
   vim.notify(("Running %s %s…"):format(vim.fs.basename(bin), command), vim.log.levels.INFO)
 
-  return vim.system(cmd, { cwd = dir, text = true }, function(result)
+  -- vim.system raises before it starts anything when the directory has been removed
+  -- (ENOENT) or is no longer a directory (ENOTDIR). Raising past the caller would skip
+  -- the claim it releases on `nil`, leaving the directory blocked for the session.
+  local started, process = pcall(vim.system, cmd, { cwd = dir, text = true }, function(result)
     local out = (result.stdout or "") .. (result.stderr or "")
     local lines = vim.split(out:gsub("%s+$", ""), "\n", { trimempty = false })
     vim.schedule(function()
       on_done(result.code, lines)
     end)
   end)
+
+  if not started then
+    vim.notify(
+      ("Could not start %s %s in %s: %s"):format(vim.fs.basename(bin), command, dir, process),
+      vim.log.levels.ERROR
+    )
+    return nil
+  end
+
+  return process
 end
 
 ---@param destroy boolean

@@ -518,6 +518,179 @@ T["superseding"]["the claim is released when the process cannot start"] = functi
 end
 
 -- ---------------------------------------------------------------------------
+-- Spawning that raises rather than fails
+
+T["spawn failure"] = new_set()
+
+---Waits out the identity lookup, so what follows lands between it and the spawn.
+local function during_the_lookup()
+  vim.wait(300, function()
+    return false
+  end)
+end
+
+---Puts the project directory back the way `harness` made it.
+---@param h table
+local function restore_project(h)
+  vim.fn.delete(h.work, "rf")
+  vim.fn.mkdir(h.work, "p")
+  vim.fn.writefile({ 'resource "null_resource" "x" {}' }, h.work .. "/main.tf")
+end
+
+-- Measured: vim.system raises ENOENT before starting anything when its cwd has been
+-- removed. It used to raise past plan(), which had already claimed the directory, and
+-- every later init and apply answered "a plan is running" for the rest of the session.
+T["spawn failure"]["a plan whose directory vanished releases it"] = function()
+  local h = harness()
+  fake_terraform_by_mode(h)
+  fake_aws(h, { "sleep 1" })
+  vim.fn.writefile({ "a" }, h.sts)
+  start(h, { strict_aws_identity = true })
+
+  next_plan(h, "changes", "first")
+  terraform.plan()
+  during_the_lookup()
+  vim.fn.delete(h.work, "rf")
+
+  settle("Could not start", "Plan saved", "Plan failed")
+  eq(said("Could not start"), true)
+  eq(#h.calls("plan"), 0)
+
+  restore_project(h)
+  notices = {}
+
+  -- The directory is free: init is the operation a stuck planning claim refused.
+  terraform.init()
+  settle("Initialised", "Init failed", "A plan is running")
+  eq(said("A plan is running"), false)
+  eq(said("Initialised"), true)
+end
+
+-- The other error the same call raises: the path exists but is no longer a directory.
+T["spawn failure"]["a plan whose directory became a file releases it"] = function()
+  local h = harness()
+  fake_terraform_by_mode(h)
+  fake_aws(h, { "sleep 1" })
+  vim.fn.writefile({ "a" }, h.sts)
+  start(h, { strict_aws_identity = true })
+
+  next_plan(h, "changes", "first")
+  terraform.plan()
+  during_the_lookup()
+  vim.fn.delete(h.work, "rf")
+  vim.fn.writefile({ "not a directory" }, h.work)
+
+  settle("Could not start", "Plan saved", "Plan failed")
+  eq(said("Could not start"), true)
+  eq(#h.calls("plan"), 0)
+
+  restore_project(h)
+  notices = {}
+
+  terraform.init()
+  settle("Initialised", "Init failed", "A plan is running")
+  eq(said("A plan is running"), false)
+  eq(said("Initialised"), true)
+end
+
+T["spawn failure"]["an apply whose directory vanished releases it"] = function()
+  local h = harness()
+  fake_terraform_by_mode(h)
+  fake_aws(h, { "sleep 1" })
+  vim.fn.writefile({ "a" }, h.sts)
+  start(h, { strict_aws_identity = true })
+
+  next_plan(h, "changes", "first")
+  terraform.plan()
+  settle("Plan saved")
+  notices = {}
+
+  terraform.apply()
+  during_the_lookup()
+  vim.fn.delete(h.work, "rf")
+
+  settle("Could not start", "Applied", "Apply failed", "Refusing")
+  eq(said("Could not start"), true)
+  eq(applied_marker(h), nil)
+
+  restore_project(h)
+  notices = {}
+
+  -- Not "an apply is already running": nothing is.
+  next_plan(h, "changes", "second")
+  terraform.plan()
+  settle("Plan saved", "Plan failed", "apply is running")
+  eq(said("apply is running"), false)
+  eq(said("Plan saved"), true)
+end
+
+-- init spawns with no await in between, so its directory cannot be removed from a
+-- test at the right moment. The raise is injected instead; the two cases above are
+-- what prove the injected error is the one that really happens.
+T["spawn failure"]["an init that cannot spawn releases the directory"] = function()
+  local h = harness()
+  fake_terraform_by_mode(h)
+  start(h)
+
+  local real = vim.system
+  vim.system = function(cmd, opts, on_exit)
+    if cmd[1]:match("terraform$") then
+      error("ENOENT: no such file or directory (cwd): '" .. tostring(opts.cwd) .. "'")
+    end
+    return real(cmd, opts, on_exit)
+  end
+
+  local ok, err = pcall(terraform.init)
+  vim.system = real
+  eq(ok, true, err)
+
+  eq(said("Could not start"), true)
+  eq(#h.calls("init"), 0)
+  notices = {}
+
+  next_plan(h, "changes", "after")
+  terraform.plan()
+  settle("Plan saved", "Plan failed", "An init is running")
+  eq(said("An init is running"), false)
+  eq(said("Plan saved"), true)
+end
+
+-- The identity lookup is asked after the directory is claimed, so a spawn raising
+-- there strands it just as one in the runner would.
+T["spawn failure"]["an identity lookup that cannot spawn leaves the plan working"] = function()
+  local h = harness()
+  fake_terraform_by_mode(h)
+  -- Written so the executable check ahead of the spawn answers from this fake
+  -- rather than from whatever `aws` the machine running the suite happens to have.
+  fake_aws(h)
+  vim.fn.writefile({ "a" }, h.sts)
+  start(h, { strict_aws_identity = true })
+
+  local real = vim.system
+  vim.system = function(cmd, opts, on_exit)
+    if cmd[1]:match("aws$") then
+      error("ENOENT: no such file or directory")
+    end
+    return real(cmd, opts, on_exit)
+  end
+
+  next_plan(h, "changes", "first")
+  local ok, err = pcall(terraform.plan)
+  vim.system = real
+  eq(ok, true, err)
+  settle("Plan saved", "Plan failed", "Could not start")
+
+  -- An unknown identity is a warning, not a reason to abandon the plan.
+  eq(said("Could not determine the AWS identity"), true)
+  eq(said("Plan saved"), true)
+  notices = {}
+
+  terraform.init()
+  settle("Initialised", "Init failed", "A plan is running")
+  eq(said("A plan is running"), false)
+end
+
+-- ---------------------------------------------------------------------------
 -- Who owns which command-line arguments
 
 T["arguments"] = new_set()

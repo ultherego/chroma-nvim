@@ -1064,6 +1064,17 @@ computed before it describes none of them.
 `validate` is otherwise not refused: outside an init it reads configuration and
 provider schemas, not state, so it cannot collide with a plan or an apply.
 
+A directory is claimed before the process starts, so every path that fails to
+start one releases it again — including the one where starting raises rather
+than returns. `vim.system` raises before it spawns anything if the directory
+has been removed (ENOENT) or replaced by a file (ENOTDIR), which is reachable
+because the directory is claimed before the identity lookup and the process is
+started after it. That exception used to escape the command that took the
+claim, and every later operation there answered "a plan is running" until
+Neovim was restarted. Starting a process is now an ordinary failure the runner
+reports, not an exception; the same applies to the identity lookup, whose
+failure to start is reported as an unknown identity.
+
 Two plans started in the same directory are ordered by when they were
 requested, not by which process finished first. The older one discards its own
 output rather than replacing a newer plan you have already read.
