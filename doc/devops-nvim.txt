@@ -858,7 +858,8 @@ refuses with "The vault-ids default,default are available to encrypt".
 
 With nothing configured, you are prompted; the password is then written to
 $XDG_RUNTIME_DIR with mode 0600 and unlinked as soon as the command returns.
-That directory is tmpfs, so it never reaches persistent storage.
+That directory is tmpfs, so the staged password file itself never reaches
+persistent storage.
 
 The runtime directory                             *devops-nvim-runtime-dir*
 
@@ -894,14 +895,70 @@ The encryption is one subprocess call. The work is in everything around it:
   Ciphertext is treated as public, because it is. That is what frees stdin for
   the plaintext.
 
+  Vault files are replaced by this plugin's own writer, never by Neovim's.
+  That is where the conflict check and the atomic replacement live, and it is
+  also why no backup copy of the file being replaced is made. The replacement
+  creates a new inode with mode 0600: custom ACLs, extended attributes,
+  security labels and group ownership are not guaranteed to survive it. For a
+  secrets file 0600 is the right default, so it is normalised rather than
+  merged.
+
+  Hard links are refused rather than broken, by writes and by `:VaultRekey`
+  alike (|devops-nvim-vault-writing|).
+
+  Converting a plaintext file to a Vault deliberately discards that file's
+  persistent undo history (|devops-nvim-vault-conversion|).
+
+  A prompted password is written only into the validated private runtime
+  directory (|devops-nvim-runtime-dir|), never to /tmp, and is unlinked as soon
+  as the command returns.
+
 Verified by searching for a known secret after a full encrypt/edit/write/reopen
 cycle: nothing under stdpath("state"), nothing in the undo directory, nothing
 beside the file, and no leftover staged password in $XDG_RUNTIME_DIR.
 
-One limit worth stating: registers and marks are outside this plugin's reach.
-Yanking a decrypted value puts it in a register, and 'shada' persists registers
-between sessions. If that matters for your threat model, add `"` to 'shada' 
-exclusions or avoid yanking out of a vault buffer.
+What it does not protect against                     *devops-nvim-vault-limits*
+
+Registers, ShaDa, the system clipboard and external clipboard managers are all
+outside the guarantee above, and the reason is the same for each: they are
+global machinery, not properties of a buffer, so a plugin cannot narrow them to
+Vault buffers without deciding how the rest of the editor behaves.
+
+This configuration sets `clipboard=unnamedplus`, which routes unnamed-register
+operations through the system `+` clipboard. That is not only `yy`: ordinary
+editing — `dd`, `dw`, `cw`, `x` — uses the unnamed register too, so plaintext
+from a decrypted vault can reach the system clipboard without anyone deciding
+to copy it. Neovim's default 'shada' includes `<50`, which persists register
+contents between sessions.
+
+'noundofile' and 'noswapfile' do not address any of this. They are about what
+Neovim writes for a buffer; these are about where the text goes once it is in a
+register.
+
+Stricter workflow                                    *devops-nvim-vault-strict*
+
+For work where that matters, use a separate session rather than a setting: >
+
+    nvim -i NONE secrets.yml
+<
+`-i NONE` disables both reading and writing ShaDa, so register contents do not
+outlive the session. Drop `clipboard=unnamedplus` for that session as well, or
+yanks and deletes still reach the system clipboard.
+
+Two things this does not do, stated so it is not read as more than it is:
+
+  It has no control over a clipboard manager. Anything that already reached the
+  clipboard may have been copied by one, and quitting Neovim does not take it
+  back.
+
+  An explicit `"+y` still copies a secret out. That is the user asking for it,
+  and no session setting turns a deliberate copy into a refused one.
+
+This is a workflow rather than a plugin option on purpose. 'clipboard' and
+ShaDa are global; a mode that changed them per Vault buffer would have to
+handle several vault buffers at once, nested entry and exit, and restoring
+state on every path out — and would be most likely to fail exactly where it was
+trusted most.
 
 `:checkhealth ansible-vault` reports which of this applies to your setup.
 

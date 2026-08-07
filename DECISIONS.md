@@ -548,8 +548,18 @@ keeps its old contents — the write appears to succeed and the real vault
 silently stays stale. Shared secrets linked into `group_vars` are a common
 enough layout for this to matter. Verified before and after.
 
-Hard links are not covered: `rename` breaks those too, and detecting them would
-mean writing in place, which is exactly what the atomic write exists to avoid.
+**What changed it.** Hard links used to be listed here as not covered, on the
+reasoning that detecting them would mean writing in place — exactly what the
+atomic write exists to avoid. That was a false choice: the third option is to
+refuse, which is what happens now. `rename` updates one name and leaves the
+others on the old contents, so the write stops and says how many links there
+are.
+
+`:VaultRekey` is held to the same policy, and there the stakes are higher than
+for a write. Measured against ansible-core 2.21.2: `ansible-vault rekey`
+overwrites the inode before unlinking it, so through a hard link the other name
+is left holding random bytes that no longer decrypt. Not divergence —
+destruction.
 
 ### Concurrent edits are detected, since the usual protections were removed
 
@@ -766,6 +776,34 @@ for undefined variables, shadowing and unreachable code, which this is enough
 for.
 
 ---
+
+### Registers, ShaDa and the clipboard are outside the Vault guarantee
+
+**Decision.** Say so, rather than build a strict mode that narrows them.
+
+**Why.** The plugin can keep plaintext out of swap files, persistent undo, its
+own write paths and password staging, because all four are per buffer or per
+operation. `'clipboard'` and `'shada'` are neither: they are global, and this
+configuration sets `clipboard=unnamedplus`, which routes unnamed-register
+operations through the system clipboard. Not only `yy` — `dd`, `dw`, `cw` and
+`x` use that register too, so plaintext can reach the clipboard without anyone
+deciding to copy it, and the default `'shada'` persists register contents
+between sessions.
+
+A per-buffer strict mode would have to track several vault buffers at once,
+nested entry and exit, and restoring global state on every path out, including
+the ones that error. It would be most likely to fail exactly where it was
+trusted most, and clearing registers on `BufLeave` would not help: a clipboard
+manager may already hold a copy, and `:wshada` may already have written one.
+
+So the documentation states the boundary and offers a workflow — `nvim -i NONE`
+without `clipboard=unnamedplus` — instead of an option that would imply more
+than it delivers. README said "Secrets never reach persistent storage", which
+was not true with this configuration's own clipboard setting.
+
+**What would change it.** Buffer-local control over register routing, or a
+reason strong enough to justify a mode with its own state model and tests. It
+would then be a feature in its own right, not a hardening pass.
 
 ## Deliberate omissions
 

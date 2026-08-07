@@ -318,14 +318,46 @@ than completed. The safe writer is attached before the buffer changes, so the
 first write goes through conflict detection and atomic replacement, and Neovim's
 own write — which would back up the plaintext file it replaces — never runs.
 
-**Secrets never reach persistent storage.** A prompted password is staged in
-`$XDG_RUNTIME_DIR`, which is validated first — absolute, a directory, owned by
-you, mode 0700 — with a private subdirectory inside it. If that check fails the
-operation is refused rather than falling back to `/tmp`. Decrypted buffers get
-`noundofile`, `noswapfile` and `nomodeline`.
+**Atomic replacement makes a new file.** The vault is rewritten as a sibling and
+renamed over the target, so the result is a new inode with mode 0600. Custom
+ACLs, extended attributes, security labels and group ownership are not
+guaranteed to survive that. For a secrets file 0600 is the right default, which
+is why it is not preserved rather than merged.
 
-The same runtime-directory validation guards terraform plan files, which quote
-variable values.
+**What is kept off disk, exactly.** Decrypted Vault contents are prevented from
+being persisted through swap files, persistent undo, the Vault write paths, and
+password staging outside the validated runtime directory. A prompted password is
+staged in `$XDG_RUNTIME_DIR`, which is checked first — absolute, a directory,
+owned by you, mode 0700 — with a private subdirectory inside it; if that check
+fails the operation is refused rather than falling back to `/tmp`. Decrypted
+buffers get `noundofile`, `noswapfile` and `nomodeline`. The same
+runtime-directory validation guards terraform plan files, which quote variable
+values.
+
+**What is outside that guarantee.** Neovim registers, ShaDa, the system
+clipboard and external clipboard managers. This configuration sets
+`clipboard=unnamedplus`, so ordinary editing — `yy`, `dd`, `dw`, `cw`, `x` —
+can put plaintext from a decrypted vault on the system clipboard, and Neovim's
+default `'shada'` persists register contents across sessions. `'clipboard'` and
+ShaDa are global, not per buffer, so a plugin cannot narrow them to Vault
+buffers without deciding how the rest of the editor behaves.
+
+### Stricter workflow
+
+For work where that matters, use a separate session rather than a setting:
+
+```fish
+nvim -i NONE secrets.yml
+```
+
+`-i NONE` disables reading and writing ShaDa, so registers do not outlive the
+session. Drop `clipboard=unnamedplus` for that session too — otherwise yanks and
+deletes still reach the system clipboard.
+
+Two things this does not do. It has no control over a clipboard manager, which
+may already have taken a copy of anything that reached the clipboard. And an
+explicit `"+y` still copies a secret out, because that is the user asking for
+it — no session setting turns a deliberate copy into a refused one.
 
 ## Tests
 
