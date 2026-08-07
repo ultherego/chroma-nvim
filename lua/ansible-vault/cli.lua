@@ -1,26 +1,8 @@
 -- Running ansible-vault without leaking what it is protecting.
 --
--- Three rules shape this module, all of them verified against ansible core
--- 2.21 rather than assumed:
---
--- 1. PLAINTEXT NEVER GOES IN ARGV. `ansible-vault encrypt_string` accepts the
---    string as a positional argument, which would publish the secret in
---    /proc and to anyone running `ps`. With no positional argument it reads
---    stdin instead, which is what this module does. Confirmed by piping a
---    value in and getting a valid `!vault |` block back.
---
--- 2. CIPHERTEXT MAY GO ANYWHERE. It is not secret, so decrypt passes it as a
---    file. That frees stdin for the password.
---
--- 3. THE PASSWORD IS A FILE, BECAUSE ANSIBLE ONLY ACCEPTS A FILE. When one is
---    already configured, it is used directly and nothing is written. When the
---    user is prompted instead, the password is written to $XDG_RUNTIME_DIR —
---    tmpfs, mode 0700, wiped at logout — with mode 0600, and unlinked as soon
---    as the command returns. `--vault-password-file /dev/stdin` also works and
---    is used where stdin is free.
---
---    This is not a compromise ansible itself avoids: a vault password file on
---    disk is the normal, documented setup.
+-- Plaintext goes in on stdin, never in argv, where `ps` would show it.
+-- Ciphertext is not secret and may go anywhere. The password has to be a file
+-- because ansible accepts nothing else; see :help devops-nvim-vault-pass.
 
 local M = {}
 
@@ -36,12 +18,8 @@ local M = {}
 local function auth_args(auth, password_path)
   local args = {}
 
-  -- `identities` is only ever set by a caller that wants these passed
-  -- explicitly. Identities that ansible already reads from ansible.cfg must
-  -- NOT arrive here: repeating them registers each one a second time under the
-  -- same label and ansible then refuses with "The vault-ids default,default
-  -- are available to encrypt". init.lua deliberately calls that field
-  -- `configured_identities` so it cannot reach this function by accident.
+  -- Only for identities a caller wants passed explicitly. Ones ansible already
+  -- reads from ansible.cfg must not arrive here, or it sees each of them twice.
   if auth.identities and #auth.identities > 0 then
     for _, id in ipairs(auth.identities) do
       table.insert(args, "--vault-id")
@@ -59,15 +37,11 @@ local function auth_args(auth, password_path)
   return args
 end
 
----Writes a typed password somewhere ansible can read it, as briefly as
----possible. Returns the path and a function that removes it.
+---Writes a typed password where ansible can read it, and returns a cleanup function.
 ---@param password string
 ---@return string|nil path, function|nil cleanup, string|nil err
 local function stage_password(password)
-  -- Falling back to the ordinary temp directory would put the password on
-  -- persistent storage, and using a runtime directory that turns out not to be
-  -- private would put it somewhere readable. Refuse instead of doing either
-  -- quietly.
+  -- /tmp would put the password on persistent storage, so this refuses instead.
   local dir, dir_err = require("ansible-vault.runtime").secure_dir("ansible-vault.nvim")
   if not dir then
     return nil, nil, ("%s\nConfigure vault_password_file in ansible.cfg instead."):format(dir_err)
@@ -80,14 +54,8 @@ local function stage_password(password)
     return nil, nil, ("could not create %s: %s"):format(path, open_err or "unknown error")
   end
 
-  -- Checked rather than assumed: a short write here hands ansible a truncated
-  -- password, which fails as "decryption failed" and sends the user looking
-  -- for the wrong problem entirely.
-  --
-  -- The same applies to close. Its return value was thrown away, and close is
-  -- where a deferred write error is reported — the write call can succeed
-  -- while the data never lands. That produced the same misleading "decryption
-  -- failed" from a completely different cause.
+  -- A short write, or a deferred error surfacing at close, hands ansible a
+  -- truncated password — which it reports as "decryption failed".
   local payload = password .. "\n"
 
   local function fail(reason)
@@ -101,9 +69,7 @@ local function stage_password(password)
     return fail(write_err or "short write")
   end
 
-  -- A no-op on the tmpfs this is required to live on, and correct anywhere
-  -- else. It costs nothing and removes a difference between this write path
-  -- and the one that persists vaults.
+  -- A no-op on tmpfs, correct anywhere else.
   local synced, sync_err = vim.uv.fs_fsync(fd)
   if synced == nil then
     return fail(sync_err or "fsync failed")
@@ -124,11 +90,7 @@ end
 ---@param opts table              { auth, stdin, cwd }
 ---@return string|nil stdout, string|nil err
 local function run(args, opts)
-  -- Asserted rather than trusted. A buffer number reached this as `cwd` once,
-  -- because a caller was changed to pass a buffer while the function it called
-  -- still took a directory. vim.system rejected it, but the rejection arrived
-  -- as a notification about ansible failing, which sent the search in entirely
-  -- the wrong direction. A contract violation should look like one.
+  -- A buffer number reached this as `cwd` once, and surfaced as ansible failing.
   if opts.cwd ~= nil and type(opts.cwd) ~= "string" then
     error(("ansible-vault.cli: cwd must be a string or nil, got %s"):format(type(opts.cwd)), 2)
   end
@@ -154,10 +116,7 @@ local function run(args, opts)
       cwd = opts.cwd,
       stdin = opts.stdin,
       text = true,
-      -- Ansible reads a controlling terminal for --ask-vault-pass. This module
-      -- never uses that flag, but making the absence explicit means a
-      -- misconfiguration fails fast instead of hanging on a prompt nobody
-      -- can see.
+      -- No terminal for a prompt nobody could see, so a misconfiguration fails fast.
       env = vim.tbl_extend("force", vim.fn.environ(), { ANSIBLE_NOCOLOR = "1" }),
     })
     :wait()
@@ -203,10 +162,7 @@ function M.encrypt_string(plaintext, opts)
   return vim.split(out:gsub("%s+$", ""), "\n", { trimempty = true })
 end
 
----Encrypts a whole document, in memory.
----
----`ansible-vault encrypt` reads stdin and writes to stdout with `--output -`,
----verified, so transparent editing never needs a plaintext file on disk.
+---Encrypts a whole document in memory, so transparent editing needs no plaintext file.
 ---@param plaintext string
 ---@param opts table { auth, cwd, encrypt_identity }
 ---@return string|nil ciphertext, string|nil err
@@ -231,20 +187,10 @@ function M.decrypt_document(ciphertext, opts)
   return run({ "decrypt", "--output", "-" }, { auth = opts.auth, cwd = opts.cwd, stdin = ciphertext })
 end
 
----Re-encrypts a file under a different vault id.
+---Re-encrypts a file in place, which is the only form `rekey` has.
 ---
----Unlike everything else here this works on the file in place, because that is
----what `rekey` does — there is no stdout form. The file only ever holds
----ciphertext, so nothing secret is written that was not already there.
----
----Only `--new-vault-id` is offered, deliberately. The sibling option
----`--new-vault-password-file` writes a 1.1 header, which records no vault id,
----so the resulting file carries nothing that tells ansible which secret opens
----it. Pointed at anything ansible.cfg does not already know, it produces a file
----that cannot be opened again — the failure this module exists to prevent.
----`--new-vault-id label@source` writes a 1.2 header carrying the label, which
----ansible resolves from vault_identity_list on the next open. Both verified
----against ansible core 2.21.
+---Only `--new-vault-id` is offered: `--new-vault-password-file` writes a 1.1
+---header, which records no vault id and so cannot be resolved on the next open.
 ---@param path string
 ---@param opts table { auth, cwd, new_identity }
 ---@return boolean ok, string|nil err
@@ -272,9 +218,6 @@ end
 function M.decrypt_string(ciphertext, opts)
   opts = opts or {}
 
-  -- Ciphertext is not secret, so it can go through stdin while the password
-  -- takes the file argument, or vice versa. Here stdin carries the ciphertext
-  -- and the password keeps its file.
   local out, err = run({ "decrypt", "--output", "-" }, {
     auth = opts.auth,
     cwd = opts.cwd,

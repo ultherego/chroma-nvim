@@ -1,15 +1,5 @@
--- Where the vault password comes from.
---
--- Ansible resolves its own configuration from ANSIBLE_CONFIG, ./ansible.cfg,
--- ~/.ansible.cfg and /etc/ansible/ansible.cfg, with rules that change between
--- releases. Reimplementing that lookup here would be a guess with a long shelf
--- life, so this module asks ansible instead:
---
---   ansible-config dump
---
--- prints the resolved values and, in parentheses, which file each came from.
--- Verified against ansible core 2.21: a project-local ansible.cfg is picked up
--- and the password path comes back absolute.
+-- Where the vault password comes from: `ansible-config dump`, rather than a
+-- reimplementation of ansible's own configuration lookup.
 
 local M = {}
 
@@ -30,8 +20,7 @@ local function dump(cwd)
   local result = vim.system({ "ansible-config", "dump" }, { cwd = cwd, text = true }):wait()
 
   if result.code ~= 0 then
-    -- ansible-config fails loudly on a malformed ansible.cfg, which is worth
-    -- surfacing rather than silently falling back to "no password file".
+    -- A malformed ansible.cfg is worth surfacing, not reading as "no password file".
     return nil, (result.stderr or ""):gsub("%s+$", "")
   end
 
@@ -39,10 +28,7 @@ local function dump(cwd)
 end
 
 ---Turns `ansible-config dump` output into the fields this plugin needs.
----
----Separated from the process call so it can be tested without ansible: the
----shape of these lines is the contract with an external tool, and a change in
----it should fail a test rather than silently produce "no password configured".
+---Separate from the process call so the parsing can be tested without ansible.
 ---@param lines string[]
 ---@return ansible_vault.Resolved
 function M.parse_dump(lines)
@@ -57,9 +43,7 @@ function M.parse_dump(lines)
       resolved.password_file = vim.fs.normalize(value)
       resolved.source = source
     elseif key == "DEFAULT_VAULT_ENCRYPT_IDENTITY" and value ~= "None" then
-      -- Which identity to encrypt with when several are available. Ansible
-      -- refuses to guess: "The vault-ids dev,prod are available to encrypt.
-      -- Specify the vault-id to encrypt with --encrypt-vault-id".
+      -- Which id to encrypt with; ansible refuses to guess between several.
       resolved.encrypt_identity = value
     elseif key == "DEFAULT_VAULT_IDENTITY_LIST" and value ~= "[]" then
       -- Rendered as a Python list literal: ['dev@~/.dev_pass', 'prod@prompt']

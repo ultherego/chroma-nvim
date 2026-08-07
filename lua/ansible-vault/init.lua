@@ -1,17 +1,5 @@
 -- ansible-vault.nvim — Ansible Vault inside the editor.
---
--- Written because the survey of 2026-08-06 found no maintained candidate:
--- every existing plugin is a single-person project of 0–7 stars, the most
--- visible one untouched since 2023. See CONTRACT.md, rule #2.
---
--- Kept free of any dependency on the surrounding configuration so it can move
--- to its own repository unchanged.
---
--- The part these tools usually get wrong is not the encryption — that is one
--- subprocess call — but everything around it. Secrets end up in `ps` output,
--- in the undo file, in the swap file. This module treats those as the actual
--- problem; see lua/ansible-vault/cli.lua for the process side and
--- `harden_buffer` below for the editor side.
+-- What is kept off disk and what is not: :help devops-nvim-vault.
 
 local cli = require("ansible-vault.cli")
 local vault_config = require("ansible-vault.config")
@@ -28,16 +16,11 @@ local defaults = {
 
 M.options = vim.deepcopy(defaults)
 
---- Cached per working directory: ansible-config takes ~200ms to answer and the
---- answer only changes when ansible.cfg does.
+--- Cached per directory: ansible-config takes ~200ms and only changes with ansible.cfg.
 local resolved_cache = {}
 
---- The directory whose ansible.cfg applies to a buffer.
----
---- Neovim's working directory is not it. Open a playbook from another project
---- — through a picker, a session, or `nvim path/to/other/repo/vars.yml` — and
---- getcwd() still points at the first project, so ansible would be asked about
---- the wrong ansible.cfg and hand back the wrong password file entirely.
+--- The directory whose ansible.cfg applies to a buffer — not Neovim's cwd, which
+--- may belong to an entirely different project.
 ---@param buf integer|nil
 ---@return string
 local function context_dir(buf)
@@ -47,20 +30,11 @@ local function context_dir(buf)
   end
 
   local start = vim.fs.dirname(name)
-  -- The nearest ansible.cfg above the file wins, matching how ansible itself
-  -- resolves configuration relative to where it runs.
   local found = vim.fs.find("ansible.cfg", { path = start, upward = true, type = "file" })[1]
   return found and vim.fs.dirname(found) or start
 end
 
---- Takes a BUFFER, not a directory.
----
---- It used to take a directory, and when the callers were changed to pass a
---- buffer the signature was not. Every call then handed a buffer number to
---- vim.system as its cwd, which fails with "cwd option must be string" — and
---- since the failure surfaced as a notification rather than an exception, it
---- looked like an ansible problem rather than a wrong argument. Typed and named
---- so the mistake cannot repeat silently.
+--- Takes a BUFFER, not a directory; passing a directory reaches vim.system as a bad cwd.
 ---@param buf integer|nil
 ---@return ansible_vault.Auth|nil, string|nil err
 local function auth_for(buf)
@@ -77,47 +51,27 @@ local function auth_for(buf)
   local resolved = resolved_cache[cwd]
 
   if resolved.password_file or #resolved.identities > 0 then
-    -- Deliberately passes no credential arguments. ansible already reads these
-    -- from ansible.cfg, and repeating them on the command line registers a
-    -- second identity under the same label, which ansible then refuses:
-    --
-    --   The vault-ids default,default are available to encrypt.
-    --   Specify the vault-id to encrypt with --encrypt-vault-id
-    --
-    -- Found by running it, not by reading about it. All that is needed is to
-    -- run in the directory where that ansible.cfg applies.
+    -- No credential arguments: ansible reads them from ansible.cfg, and repeating
+    -- them registers a second identity under the same label, which ansible refuses.
     return {
       cwd = cwd,
-      -- Deliberately NOT `identities`: cli.auth_args turns that field into
-      -- --vault-id arguments, which is exactly what the paragraph above says
-      -- must not happen. Named differently so the two cannot be confused
-      -- again — it exists only so encrypt_identity_for can offer a choice.
+      -- NOT `identities`, which cli.auth_args would turn into --vault-id arguments.
       configured_identities = resolved.identities,
       encrypt_identity = resolved.encrypt_identity,
     }
   end
 
-  -- Nothing configured: ask. inputsecret keeps the password off the screen and
-  -- out of the command-line history.
   local password = vim.fn.inputsecret("Vault password: ")
   if password == "" then
     return nil, "cancelled"
   end
 
-  -- `cwd` matters just as much on this branch as on the one above, and it was
-  -- missing here. Every caller passes `auth.cwd` to vim.system, so a nil left
-  -- ansible running in Neovim's working directory instead of the project the
-  -- buffer belongs to — the exact confusion context_dir exists to prevent. Open
-  -- a vault from another repository and the wrong ansible.cfg applies: another
-  -- vault_identity_list, other relative password file paths, another set of
-  -- secrets ansible will try.
+  -- cwd matters here too: without it ansible runs in Neovim's directory and the
+  -- wrong ansible.cfg applies.
   return { password = password, cwd = cwd }
 end
 
----Which identity to encrypt with.
----
----With one identity ansible picks it. With several it refuses to guess, so
----either vault_encrypt_identity is configured or the user is asked here.
+---Which identity to encrypt with; ansible refuses to guess when several are configured.
 ---@param auth ansible_vault.Auth
 ---@return string|nil
 local function encrypt_identity_for(auth)
@@ -132,8 +86,7 @@ local function encrypt_identity_for(auth)
 
   local labels = {}
   for i, id in ipairs(ids) do
-    -- vault_identity_list entries look like `dev@~/.dev_pass`; only the label
-    -- goes to --encrypt-vault-id.
+    -- Entries look like `dev@~/.dev_pass`; only the label goes to --encrypt-vault-id.
     table.insert(labels, ("%d. %s"):format(i, id:match("^([^@]+)") or id))
   end
 
@@ -171,13 +124,7 @@ local function first_line(path)
   return lines[1]
 end
 
----True when the FILE ON DISK is a vault, whatever the buffer is showing.
----
----Asking the buffer is wrong for anything that operates on the file. With
----transparent editing — the default — an encrypted file is decrypted into the
----buffer on open, so a content check sees plaintext and concludes the file is
----not encrypted. Rekey used that check and therefore refused to run on
----precisely the files it exists for.
+---True when the FILE ON DISK is a vault; under transparent editing the buffer is not.
 ---@param path string
 ---@return boolean
 local function file_is_vault(path)
@@ -185,11 +132,7 @@ local function file_is_vault(path)
   return first ~= nil and first:match("^%$ANSIBLE_VAULT") ~= nil
 end
 
----The vault id a file is encrypted under, when the header records one.
----
----Format 1.2 appends the label: `$ANSIBLE_VAULT;1.2;AES256;prod`. Format 1.1
----has no label field, so this returns nil for it. Confirmed against ansible
----core 2.21 by encrypting with --encrypt-vault-id and reading the result.
+---The vault id from a 1.2 header (`$ANSIBLE_VAULT;1.2;AES256;prod`); nil for 1.1.
 ---@param path string
 ---@return string|nil
 local function vault_label(path)
@@ -216,12 +159,7 @@ function M.status()
   return ("ansible-vault.nvim: %s"):format(vault_config.describe(resolved))
 end
 
---- Buffer options that keep plaintext from being written anywhere.
----
---- This matters more than it looks. This configuration enables 'undofile'
---- globally, so without these a decrypted secret would be persisted verbatim
---- to stdpath("state")/undo the moment the buffer is edited — a plaintext copy
---- of the vault, surviving reboots, that nobody thinks to look for.
+--- A scratch buffer holding plaintext: nothing about it is written anywhere.
 ---@param buf integer
 local function harden_buffer(buf)
   vim.bo[buf].undofile = false
@@ -231,22 +169,21 @@ local function harden_buffer(buf)
   vim.bo[buf].buflisted = false
 end
 
----Finds the `!vault` block the cursor is in: its `key: !vault |` marker line or
----any line of the indented body below it. Anywhere else returns nil.
+---Finds the `!vault` block the cursor is in: its marker line or the indented body.
 ---@param buf integer
 ---@param lnum integer 1-indexed
 ---@return table|nil { first, last, indent, ciphertext, key }
 local function block_at(buf, lnum)
   local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
 
-  -- Walk up to the `!vault` marker, then down over the indented body.
+  -- Up to the `!vault` marker. The `i < lnum` exception lets the cursor sit on
+  -- that marker line, which is itself unindented.
   local start
   for i = math.min(lnum, #lines), 1, -1 do
     if lines[i]:match("!vault") then
       start = i
       break
     end
-    -- A non-indented, non-empty line means we left the block.
     if i < lnum and lines[i]:match("^%S") and not lines[i]:match("^%s*$") then
       break
     end
@@ -278,21 +215,7 @@ local function block_at(buf, lnum)
     return nil
   end
 
-  -- The cursor has to be in the block that was found.
-  --
-  -- The upward scan stops at a non-indented line, but only for lines above the
-  -- cursor: `i < lnum`. That exception exists so the `key: !vault |` line the
-  -- cursor sits on does not stop the search before it starts — and it also let
-  -- any other top-level line through. On the first line after a block, the scan
-  -- walked past it and returned the block above, so :VaultReveal showed the
-  -- previous secret instead of saying there was none under the cursor.
-  -- Verified: with a block on lines 1..3, line 4 resolved to it and line 5 did
-  -- not, which is the giveaway.
-  --
-  -- `lnum < start` cannot happen, since the scan begins at the cursor and moves
-  -- up. It is written out anyway: the condition this returns on is "the cursor
-  -- is inside first..last", and stating half of it would leave the next reader
-  -- working out why.
+  -- Without this the scan's own exception let the first line after a block match it.
   if lnum < start or lnum > last then
     return nil
   end
@@ -370,22 +293,12 @@ function M.reveal()
 end
 
 ---Encrypts a range of lines in place, as an inline `!vault` value.
----
 ---@param opts table|nil the user-command options; requires a range
 function M.encrypt_selection(opts)
   local buf = vim.api.nvim_get_current_buf()
 
-  -- The range comes from the command, NOT from the '< and '> marks.
-  --
-  -- Those marks outlive the selection that set them. Reading them meant that
-  -- invoking this from normal mode encrypted whatever had last been selected,
-  -- wherever the cursor happened to be — silently encrypting the wrong lines,
-  -- which in a secrets tool leaves the value you meant to protect in the clear
-  -- and hides an unrelated one. Verified: cursor on line 4, an old selection on
-  -- line 2, and line 2 was the one encrypted.
-  --
-  -- Pressing `:` in visual mode inserts the range, so the visual-mode mapping
-  -- still works exactly as before.
+  -- From the command's range, never the '< '> marks: those outlive their selection
+  -- and would encrypt whatever was selected last, somewhere else in the file.
   if not opts or (opts.range or 0) == 0 then
     vim.notify("VaultEncrypt needs a range — select the lines first, or use :N,MVaultEncrypt", vim.log.levels.WARN)
     return
@@ -397,8 +310,7 @@ function M.encrypt_selection(opts)
   local lines = vim.api.nvim_buf_get_lines(buf, first - 1, last, false)
   local plaintext = table.concat(lines, "\n")
 
-  -- A `key: value` selection is encrypted as that key, so the result drops
-  -- straight back in place.
+  -- A `key: value` selection is encrypted as that key, so the result drops back in place.
   local key, value = plaintext:match("^%s*([%w_%-%.]+)%s*:%s*(.*)$")
   local indent = lines[1]:match("^(%s*)") or ""
 
@@ -420,8 +332,7 @@ function M.encrypt_selection(opts)
     return
   end
 
-  -- ansible-vault indents its output for a top-level key; re-indent to wherever
-  -- the value actually sits.
+  -- ansible-vault indents for a top-level key; re-indent to where the value sits.
   local replacement = {}
   for i, line in ipairs(out) do
     table.insert(replacement, i == 1 and (indent .. line) or (indent .. line:gsub("^%s+", "    ")))
@@ -431,29 +342,8 @@ function M.encrypt_selection(opts)
   vim.notify(("Encrypted %s"):format(key or "selection"), vim.log.levels.INFO)
 end
 
---- Remembers what the file looked like when we read it.
----
---- Vault buffers have 'noswapfile', so Neovim's "found a swap file" warning is
---- gone, and taking over the write with BufWriteCmd also bypasses its "file has
---- changed since editing started" check. Both protections against two editors
---- clobbering each other were therefore absent — verified by having a second
---- writer land between read and write: its change vanished with no warning.
----
---- Recording a fingerprint at read, and comparing before write, restores that
---- protection without a swap file full of plaintext.
----
---- Whole seconds and size were not enough. A second writer that lands within
---- the same second and produces a file of the same length — a password
---- rotated in place, a value edited to the same width, an automated
---- rewrite — left both fields identical and the change went through
---- unannounced. Measured on this repository's own filesystem: two writes in
---- the same second with equal size compare equal on (sec, size) and differ on
---- mtime.nsec.
----
---- So the fingerprint also carries nanoseconds, inode and device. The inode
---- catches the case nanoseconds cannot: another process replacing the file
---- atomically, which is what careful writers do, gives a new inode and can
---- otherwise carry any timestamp it likes.
+--- What the file looked like when it was read. Nanoseconds, inode and device as well
+--- as size: same-second writes of equal length are otherwise indistinguishable.
 ---@param path string
 ---@return table|nil
 local function file_fingerprint(path)
@@ -504,18 +394,8 @@ local function file_changed_since_read(buf)
   return nil
 end
 
---- Resolves a path and refuses it when another name points at the same inode.
----
---- Every operation in this plugin that replaces a vault has to ask this,
---- because every one of them breaks the other names — differently, and one of
---- them destructively. Keeping the question in one place is what makes the
---- guarantee in README a property of the plugin rather than of whichever code
---- path happened to remember it; rekey did not, and rekey is the destructive
---- one.
----
---- Symlinks are resolved rather than refused: replacing what the link points at
---- is what the user meant, and both callers handle it correctly once the link
---- is followed.
+--- Resolves symlinks and refuses a file another name also points at. Every operation
+--- that replaces a vault asks this, because each breaks the other names differently.
 ---@param path string
 ---@return string|nil target the resolved path, nil when the file has other names
 ---@return string|nil err
@@ -530,41 +410,13 @@ local function check_hardlinks(path)
   return target
 end
 
---- Replaces a file's contents without ever leaving it truncated.
----
---- Opening the target with "w" truncates it before the first byte is written,
---- so a crash, a full disk or a killed process between those two moments
---- destroys the vault. Writing a sibling temporary file and renaming over the
---- target makes the replacement atomic: on any POSIX filesystem the target is
---- either the old contents or the new ones, never nothing.
----
---- Short writes and close failures are also checked. The previous version
---- ignored both return values and reported success regardless, which is how a
---- half-written vault would have been announced as saved.
+--- Replaces a file without ever leaving it truncated: sibling temp file, then rename.
 ---@param path string
 ---@param contents string
 ---@return boolean ok, string|nil err
 local function write_atomically(path, contents)
-  -- Both halves of what check_hardlinks does matter here, for the same reason:
-  -- rename() replaces exactly the name it is given.
-  --
-  -- Handed a symlink it deletes the link and leaves a regular file in its
-  -- place, while the file the link pointed at keeps its old contents — so the
-  -- write appears to succeed and the real vault silently stays stale. Verified:
-  -- a link to real/vars.yml became a regular file and real/vars.yml never saw
-  -- the change. Resolving the link first is therefore the fix, not a nicety;
-  -- shared secrets are routinely linked into group_vars.
-  --
-  -- Handed one of several hard links it updates that name alone. The others
-  -- keep pointing at the old content, so `a` gets the new vault and `b`, which
-  -- was the same file a moment ago, quietly keeps the old one. Verified: after
-  -- replacing a linked file this way the second name still held the previous
-  -- contents and had the previous inode.
-  --
-  -- Writing in place instead would preserve the links and give up the
-  -- protection this whole function exists for — a truncated vault on a crash
-  -- or a full disk. Between silently diverging copies and a refusal that says
-  -- what to do, the refusal is the honest one.
+  -- rename() replaces exactly the name it is given: a symlink becomes a regular file
+  -- and the real vault stays stale, and other hard links keep the old contents.
   local target, link_err = check_hardlinks(path)
   if not target then
     return false,
@@ -593,8 +445,7 @@ local function write_atomically(path, contents)
     return fail(("short write: %d of %d bytes"):format(written, #contents))
   end
 
-  -- Without this the rename can land before the data does, leaving an empty
-  -- file where a vault used to be.
+  -- Or the rename can land before the data, leaving an empty file where a vault was.
   local synced, sync_err = vim.uv.fs_fsync(fd)
   if synced == nil then
     return fail(sync_err or "fsync failed")
@@ -615,48 +466,25 @@ local function write_atomically(path, contents)
   return true
 end
 
---- Stops a buffer from persisting its contents anywhere Neovim would normally
---- put them. The buffer stays a real file buffer so `:w` still means what it
---- normally means; what changes is that nothing persists in clear.
----
---- Deliberately says nothing about what the buffer currently holds. It is
---- applied to a decrypted vault, where the plaintext is the thing to contain,
---- and to a buffer that has just been converted from plaintext to ciphertext,
---- where the plaintext is already in the undo history and must not be written
---- out with it.
+--- Stops a file buffer persisting its contents, whether it currently holds plaintext
+--- or the ciphertext it was just converted into. 'backup' and 'writebackup' are global
+--- options and cannot be set here; M.attach_writer is what takes their place.
 ---@param buf integer
 local function harden_sensitive_buffer(buf)
   vim.bo[buf].undofile = false
   vim.bo[buf].swapfile = false
   vim.bo[buf].modeline = false
-
-  -- 'backup' and 'writebackup' are NOT set here, and cannot be: both are
-  -- global options. Re-verified — `vim.bo[buf].backup = false` raises "'buf'
-  -- cannot be passed for global option 'backup'", and nvim_get_option_info2
-  -- reports scope=global for both. Turning them off globally is not this
-  -- plugin's business; it would change how every other file in the editor is
-  -- written.
-  --
-  -- What replaces them is M.attach_writer. A BufWriteCmd takes the write over
-  -- completely, so Neovim's backup machinery never runs for this buffer and no
-  -- copy of the old file is made. That makes attaching the writer a security
-  -- requirement rather than a convenience, and it is why every path that
-  -- hardens a buffer with a file behind it attaches one in the same breath.
 end
 
---- A buffer holding a decrypted vault: hardened, and marked so the writer
---- knows to re-encrypt it rather than write it out as it stands.
+--- A buffer holding a decrypted vault: hardened, and marked for re-encryption on write.
 ---@param buf integer
 local function mark_plain_vault_buffer(buf)
   harden_sensitive_buffer(buf)
   vim.b[buf].ansible_vault_plain = true
 end
 
---- Removes the persistent undo file for a path, if there is one.
----
---- 'undofile' is consulted when the undo file is written, so turning it off
---- stops new ones appearing — it does not remove one that already exists, and
---- the existing one holds every earlier state of the buffer.
+--- Removes the undo file for a path. Turning 'undofile' off stops new ones appearing;
+--- it does not remove one already holding every earlier state of the buffer.
 ---@param path string
 ---@return boolean ok, string|nil err
 local function remove_persistent_undo(path)
@@ -675,32 +503,10 @@ end
 
 ---Converts a plaintext buffer into a vault, in place.
 ---
----The order below is the whole of this function, and it is ordered so that no
----step can leave the buffer half-converted.
----
----Encryption comes first, because everything after it is destructive and there
----is no reason to destroy anything on behalf of an operation that then fails.
----Hardening comes next, and only then the existing undo file: 'undofile' being
----switched off stops new undo files appearing, but it does not remove the one
----already on disk, and that one holds every earlier state of this buffer —
----which is to say the secret, in the clear, in stdpath("state"), surviving
----reboots. Verified before this was written: `:VaultEncryptFile` followed by
----`:w` left the plaintext readable in the undo file.
----
----Removing it is deliberate data loss and the point of the command justifies
----it, but only fails closed: if the undo file cannot be removed the conversion
----does not happen, because completing it would mean announcing a vault while a
----plaintext copy of it stays behind.
----
----'undofile' stays off for the buffer even then. Once the intent to convert
----has been stated, letting Neovim resume writing plaintext undo files would be
----the worse of the two outcomes.
----
----The file state is remembered and the writer attached before the buffer
----changes, so the first `:w` after this goes through the same guarded path as
----every other vault write — conflict detection and atomic replacement — rather
----than through Neovim's ordinary write, which would also make a backup copy of
----the plaintext file it is replacing.
+---Ordered so no step leaves the buffer half-converted: encryption first, because
+---everything after it is destructive; then hardening, the undo file, the remembered
+---state and the writer; only then the buffer itself. See
+---:help devops-nvim-vault-conversion.
 function M.encrypt_file()
   local buf = vim.api.nvim_get_current_buf()
 
@@ -727,8 +533,8 @@ function M.encrypt_file()
     return
   end
 
-  -- Nothing above this line has changed anything. Everything below it has to
-  -- either complete or leave the buffer as it was.
+  -- Nothing above has changed anything; everything below completes or leaves the
+  -- buffer as it was.
   local path = vim.api.nvim_buf_get_name(buf)
 
   harden_sensitive_buffer(buf)
@@ -746,9 +552,7 @@ function M.encrypt_file()
 
     remember_file_state(buf)
 
-    -- Guarded rather than assumed: a buffer holding ciphertext with no safe
-    -- way to write it is a worse state than a plaintext buffer that was never
-    -- converted.
+    -- Ciphertext with no safe way to write it is worse than a buffer never converted.
     local attached, writer_err = pcall(M.attach_writer, buf)
     if not attached then
       vim.notify(
@@ -759,11 +563,7 @@ function M.encrypt_file()
     end
   end
 
-  -- An unnamed buffer has no file, so there is no undo file to remove, no file
-  -- state to remember and nothing for the writer to take over. It is still
-  -- hardened above, which is what matters: whatever name it is eventually
-  -- saved under, the plaintext in its undo history is not written out with it.
-
+  -- An unnamed buffer has no file to guard; hardening above is what still applies.
   vim.api.nvim_buf_set_lines(buf, 0, -1, false, vim.split(ciphertext:gsub("\n$", ""), "\n"))
   vim.b[buf].ansible_vault_plain = nil
   vim.notify("Encrypted buffer — write it to persist", vim.log.levels.INFO)
@@ -795,10 +595,7 @@ function M.decrypt_file()
   mark_plain_vault_buffer(buf)
   vim.api.nvim_buf_set_lines(buf, 0, -1, false, vim.split(plaintext:gsub("\n$", ""), "\n"))
 
-  -- Not optional. Without this the buffer holds plaintext, `:w` performs an
-  -- ordinary write, and the vault is replaced by its cleartext — while the
-  -- message below promises the opposite. The writer is what makes that promise
-  -- true, which is why it lives outside the transparent-editing option.
+  -- Not optional: without the writer, `:w` replaces the vault with its cleartext.
   remember_file_state(buf)
   M.attach_writer(buf)
 
@@ -831,12 +628,8 @@ function M.view_file()
   show(plaintext, vim.fn.fnamemodify(vim.api.nvim_buf_get_name(buf), ":t"))
 end
 
----Which configured identity to rekey into.
----
----`--new-vault-id` needs the whole `label@source` entry. A bare label is
----treated as a path to a password file and fails with "The vault password file
----<label> was not found" — verified against ansible core 2.21, which is why
----the entries from vault_identity_list are passed through untouched.
+---Which configured identity to rekey into. `--new-vault-id` needs the whole
+---`label@source` entry; a bare label is read as a password file path.
 ---@param ids string[] entries from vault_identity_list
 ---@param current string|nil the label the file currently uses
 ---@return string|nil entry, string|nil label
@@ -857,16 +650,8 @@ end
 
 ---Re-encrypts the current file under a different configured vault id.
 ---
----The new password has to be one that outlives this command. Rekeying to a
----password typed once leaves a file that nothing can open again: ansible
----resolves credentials from ansible.cfg, the typed password was staged in a
----temporary file and deleted, and the reload that follows then fails. Verified
----— a file rekeyed to a password ansible.cfg does not know comes back
----"Decryption failed (no vault secrets were found that could decrypt)".
----
----So the new password comes from vault_identity_list, and the rekey records
----its label in the file header, which is how ansible finds the right secret on
----the next open.
+---The new password must outlive this command: rekeying to one typed once leaves a
+---file ansible cannot open again. See :help devops-nvim-vault-rekey.
 function M.rekey_file()
   local buf = vim.api.nvim_get_current_buf()
   local path = vim.api.nvim_buf_get_name(buf)
@@ -881,22 +666,14 @@ function M.rekey_file()
     return
   end
 
-  -- The file, not the buffer: under transparent editing the buffer holds
-  -- plaintext and a buffer check would refuse every file this command is for.
+  -- The file, not the buffer: under transparent editing the buffer holds plaintext.
   if not file_is_vault(path) then
     vim.notify("The file on disk is not vault-encrypted", vim.log.levels.WARN)
     return
   end
 
-  -- The same policy as every other write, and this is the path that needed it
-  -- most. ansible-vault does not replace the file, it shreds it: the inode is
-  -- overwritten in place before being unlinked. Through a hard link that
-  -- destroys the data behind the other name rather than merely diverging from
-  -- it. Measured against ansible-core 2.21.2 — after rekeying one of two names,
-  -- the other was 4096 bytes of random data, `file` called it `data`, and
-  -- `ansible-vault view` answered "Input is not vault encrypted data". There is
-  -- nothing to recover from that, so the refusal comes before the command does
-  -- anything at all, including asking which identity to rekey to.
+  -- Before anything else, including the prompt: ansible-vault shreds the inode before
+  -- unlinking it, so through a hard link the other name is destroyed, not just stale.
   local _, link_err = check_hardlinks(path)
   if link_err then
     vim.notify(
@@ -943,24 +720,13 @@ function M.rekey_file()
     return
   end
 
-  -- The ciphertext on disk is different now, so the buffer has to be reloaded
-  -- whatever mode it is in: showing ciphertext, it is stale; holding plaintext,
-  -- its remembered file state no longer matches and the next write would report
-  -- a conflict. With transparent editing the BufReadPost hook decrypts again,
-  -- and it can, because the new id is one ansible resolves for itself.
+  -- The ciphertext changed, so the buffer is stale whichever mode it is in.
   vim.cmd.edit({ bang = true })
   vim.notify(("Rekeyed %s to vault id %s"):format(vim.fn.fnamemodify(path, ":t"), label), vim.log.levels.INFO)
 end
 
---- The one way this plugin writes a file.
----
---- Every path that persists a buffer goes through here, so the conflict check,
---- the atomic replacement, the error handling and the bookkeeping cannot be
---- forgotten by one caller and remembered by another. They were: a second
---- branch in the writer called vim.fn.writefile directly, skipping the change
---- detection, the atomicity, the return value and the remembered state, and
---- marking the buffer saved regardless. That branch ran after
---- :VaultEncryptFile, which is exactly when the buffer holds a vault.
+--- The one way this plugin writes a file: conflict check, atomic replacement,
+--- bookkeeping. A second path that skipped all three is why this exists.
 ---@param buf integer
 ---@param contents string
 ---@return boolean ok, string|nil err
@@ -979,38 +745,24 @@ local function persist(buf, contents)
 
   local ok, err = write_atomically(path, contents)
   if not ok then
-    -- The buffer stays modified on purpose: the work is still only in memory,
-    -- and marking it saved would invite closing Neovim on it.
+    -- Left modified on purpose: the work is still only in memory.
     return false, err
   end
 
   vim.bo[buf].modified = false
-  -- Our own write changes mtime and size, so the remembered state moves with
-  -- it. Without this the conflict check fires on the very next save and the
-  -- buffer becomes unsaveable — a worse failure than the one it prevents.
+  -- Our own write moved mtime and size, so the fingerprint moves with it.
   remember_file_state(buf)
   return true
 end
 
---- The augroup for per-buffer write hooks. Separate from the transparent
---- editing group, because a writer must survive `transparent = false` — a
---- buffer decrypted by :VaultDecryptFile needs re-encrypting on write no
---- matter how the plugin was configured.
+--- Separate from the transparent-editing group: a writer must survive `transparent = false`.
 local writer_group = vim.api.nvim_create_augroup("ansible_vault_writer", { clear = true })
 
--- Registered per buffer, at the moment that buffer is decrypted.
---
--- An earlier version attached this to every buffer and fell back to an
--- ordinary write for the rest. That intercepts every `:write` in the editor,
--- and it broke immediately: writing a scratch buffer produced an error from
--- inside this plugin. A BufWriteCmd is a takeover of the write command; it
--- has no business existing on buffers this plugin does not own.
+--- Attaches the write hook to one buffer. A BufWriteCmd is a takeover of `:write`, so
+--- it has no business on buffers this plugin does not own.
 ---@param buf integer
 function M.attach_writer(buf)
-  -- Cleared first. This is called on every decrypt, and a buffer is decrypted
-  -- again on every `:edit!`, so without this each reload added another
-  -- BufWriteCmd and a single `:write` ran the whole encrypt-and-persist
-  -- sequence once per reload.
+  -- Cleared first: every `:edit!` decrypts again, and each attach would otherwise stack.
   pcall(vim.api.nvim_clear_autocmds, {
     group = writer_group,
     event = "BufWriteCmd",
@@ -1024,9 +776,8 @@ function M.attach_writer(buf)
       local name = vim.fn.fnamemodify(vim.api.nvim_buf_get_name(ev.buf), ":t")
 
       if not vim.b[ev.buf].ansible_vault_plain then
-        -- The buffer was decrypted once but currently holds ciphertext — after
-        -- :VaultEncryptFile, for instance. It is written verbatim, but through
-        -- the same guarded path as everything else.
+        -- Holds ciphertext already, as after :VaultEncryptFile: written verbatim,
+        -- but through the same guarded path.
         local ok, err = persist(ev.buf, buffer_text(ev.buf))
         if not ok then
           vim.notify(("Could not write %s: %s"):format(name, err), vim.log.levels.ERROR)
@@ -1068,17 +819,13 @@ local function enable_transparent_editing()
   vim.api.nvim_create_autocmd("BufReadPost", {
     group = group,
     callback = function(ev)
-      -- The decision is made on what the buffer actually holds, not on a flag
-      -- set earlier. `:edit!` on a decrypted buffer reloads the ciphertext from
-      -- disk while the flag is still set, and keying off the flag left the user
-      -- staring at base64 with no way back. Found by reloading during testing.
+      -- On what the buffer holds, not on a flag: `:edit!` reloads ciphertext with the
+      -- flag still set, which used to leave the user staring at base64.
       if not is_encrypted(ev.buf) then
         return
       end
 
-      -- Harden before the plaintext exists, not after: 'undofile' is consulted
-      -- when the undo file is written, but there is no reason to leave a window
-      -- in which it is still true.
+      -- Hardened before the plaintext exists, not after.
       mark_plain_vault_buffer(ev.buf)
 
       local auth, err = auth_for(ev.buf)
@@ -1102,15 +849,13 @@ local function enable_transparent_editing()
       remember_file_state(ev.buf)
       M.attach_writer(ev.buf)
 
-      -- Filetype was detected against ciphertext, so it is worth another look
-      -- now that the buffer holds YAML.
+      -- Filetype was detected against ciphertext; worth another look now.
       vim.cmd("filetype detect")
     end,
   })
 end
 
---- Internals exposed for the test suite only. Not part of the public API and
---- not covered by any compatibility promise.
+--- Internals exposed for the test suite only.
 M._test = {
   remember_file_state = remember_file_state,
   file_changed_since_read = file_changed_since_read,
@@ -1158,12 +903,8 @@ function M.setup(opts)
     desc = "Re-encrypt this file with a new password",
   })
 
-  -- Both branches act. Creating the augroup with clear = true only happens on
-  -- the enabling path, so calling setup a second time with transparent = false
-  -- used to leave the first call's autocmds in place: the option looked
-  -- respected and was not. Found by asserting on the autocmd count rather than
-  -- on the observed behaviour, which is what made the earlier "transparent is
-  -- off" tests meaningless.
+  -- Both branches act: without the else, `transparent = false` left the first call's
+  -- autocmds in place and the option looked respected.
   if M.options.transparent then
     enable_transparent_editing()
   else

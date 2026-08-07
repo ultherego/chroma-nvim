@@ -538,6 +538,26 @@ module exists to avoid.
 This is not a compromise ansible itself avoids: a vault password file on disk
 is the normal, documented setup.
 
+### libuv failures are return values, not exceptions
+
+**Decision.** Check what `vim.uv.fs_*` returns. `pcall` around one of these calls
+is not error handling.
+
+**Why.** Verified: `vim.uv.fs_chmod` on a file it cannot touch returns `nil` and
+an error string — `EPERM: operation not permitted` — and raises nothing, so
+`pcall` reports success whatever happened. That is exactly how a Terraform plan
+the runner had failed to tighten to 0600 was saved as though it had been. The
+same holds for `fs_write`, `fs_close`, `fs_fsync`, `fs_rename` and `fs_unlink`,
+and it is why several of them are checked one after another rather than run as a
+block.
+
+`pcall` still appears where the failure genuinely does not matter — unlinking a
+file that may already be gone — and there it is doing something else: keeping a
+cleanup path from raising.
+
+**What would change it.** Nothing likely. It is a property of luv's synchronous
+API, checked rather than assumed after it produced one real defect.
+
 ### Writes follow symlinks
 
 **Decision.** The atomic write resolves the path before renaming onto it.

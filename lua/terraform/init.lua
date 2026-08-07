@@ -1,71 +1,13 @@
 -- terraform.nvim — a plan/apply runner for Terraform and Terragrunt.
---
--- Deliberately thin. The survey behind CONTRACT.md found that most of what was
--- originally planned for this plugin already exists elsewhere in this config:
--- formatting is conform's `terraform_fmt`, validation is tflint running as a
--- language server. What was missing was a way to run a plan and apply it
--- without leaving the editor.
---
--- THE SAFETY MODEL, which is the whole point:
---
--- Naive runners call `terraform apply -auto-approve`. That applies a plan
--- nobody read, computed at a moment nobody chose. This one never does that.
---
---   1. `plan` writes the plan to a file and shows it.
---   2. You read it.
---   3. `apply` applies THAT FILE.
---
--- Terraform documents the consequence: "When you pass a saved plan file to
--- terraform apply, Terraform performs the operations in the saved plan without
--- prompting you for confirmation" — the file is the approval. So apply never
--- needs -auto-approve.
---
--- What that fixes, stated exactly: the saved plan fixes the planned action set.
--- The runner additionally pins the executable that carries it out and, when
--- strict_aws_identity is enabled, verifies the AWS account and principal before
--- applying. External infrastructure, credentials and remote state may still
--- change independently in between. This comment used to claim drift between
--- reading and applying was impossible; it is not, and claiming it was the more
--- dangerous of the two errors.
---
--- Destroy is not a separate, scarier command. It is `plan -destroy`, reviewed
--- the same way and applied through the same step. There is no key in this
--- plugin that destroys anything without a plan having been read first.
---
--- Plan files can contain sensitive values, so they are written to
--- $XDG_RUNTIME_DIR (tmpfs, user-only) with mode 0600 and removed on exit.
---
--- Kept free of any dependency on the rest of this configuration.
+-- Safety model, concurrency and options: :help devops-nvim-terraform.
 
 local M = {}
 
---- Extra arguments are per subcommand, not global.
----
---- A single list for all four commands was wrong twice over. It was appended
---- after the whole argument list, which for apply put it after the plan file —
---- terraform parses options before the positional argument, so any non-empty
---- value broke the one command that must not break. And the commands do not
---- share an option set: `-lock-timeout` means nothing to validate,
---- `-upgrade` only exists on init, `-refresh=false` only on plan and apply.
---- Whatever was put in the shared list was wrong for at least one command.
----
---- `global_args` is for terraform's global options, which the CLI documents as
---- coming before the subcommand: `terraform [global options] <subcommand>
---- [args]`. They are placed there. Per-command lists come after our own flags,
---- so the more specific one wins where terraform lets a later flag win.
----
---- `-chdir` is the one global option this runner will not pass on; see
---- sanitize_global_args.
 local defaults = {
   keymaps = false,
-  --- Ask STS which account and principal the credentials resolve to, record it
-  --- with the plan, and refuse an apply that would run as anyone else.
-  ---
-  --- Off by default: it is a network round trip on every plan and every apply,
-  --- and the environment comparison already catches the ordinary mistake of
-  --- switching profile between reading a plan and applying it. On when the
-  --- account matters more than the latency.
+  -- Bind plans to the AWS account and principal STS reports. Off: a round trip per plan and apply.
   strict_aws_identity = false,
+  -- global_args go before the subcommand; the rest after our own flags.
   global_args = {},
   init_args = {},
   validate_args = {},
@@ -75,96 +17,28 @@ local defaults = {
 
 M.options = vim.deepcopy(defaults)
 
---- Saved plans, keyed by the directory they belong to.
+--- Reviewed plans, keyed by the directory they belong to.
 ---@type table<string, table>
 local plans = {}
 
---- Monotonic counter per directory. Two plans can be in flight at once — start
---- one, edit, start another — and vim.system callbacks arrive in whatever order
---- the processes finish. Without this the slower run overwrites the newer plan
---- after you have already read the newer one, and apply then executes something
---- other than what was on screen. That is the exact guarantee this plugin
---- exists to make, so the stale callback is discarded instead.
+--- Orders callbacks from overlapping plans; the older one discards its result.
 ---@type table<string, integer>
 local generation = {}
 
 --- Directories with a plan in flight, holding the generation that claimed them.
----
---- `generation` alone was not enough, and the gap between the two is the whole
---- point of this table. It orders callbacks: it decides which of two plans in
---- flight is allowed to record its result. It says nothing about the plan that
---- was reviewed *before* either of them started, which stayed in `plans[dir]`
---- and stayed appliable for as long as the new plan took to run — and, if the
---- new plan ended in "No changes" or an error, kept staying appliable
---- afterwards, because neither of those paths touched it. Verified against the
---- module with fake binaries: after a plan that reported no changes, apply was
---- still handed the plan from before it.
----
---- Asking for a new plan is a statement that the old one is no longer the
---- picture you want to act on. So the request itself supersedes it, at the
---- moment it is made rather than when it succeeds.
----
---- The generation is stored rather than a boolean so a finishing plan can only
---- clear the state it claimed. An older callback arriving late must not
---- announce that a newer plan has stopped running.
 ---@type table<string, integer>
 local planning = {}
 
 --- Directories with an `init` in flight.
----
---- init is the third operation that changes something outside this process, and
---- until now the only one nothing was serialised against. It rewrites
---- `.terraform/` — providers, modules, backend configuration — which plan reads
---- and apply depends on. Two inits in the same directory rewrite it at once.
---- Verified against the module: an init started while a plan was running ran
---- concurrently with it, with no complaint from either.
----
---- A boolean is enough here, unlike `planning`. Only one init can be in flight
---- per directory, because the second is refused, so there is no older claim for
---- a late callback to release by mistake.
 ---@type table<string, boolean>
 local initializing = {}
 
 --- Directories with an apply in flight.
----
---- An apply cannot be taken back and it is the one operation here that changes
---- real infrastructure, so for as long as one is running this refuses anything
---- that could pull the ground out from under it: a second apply handed the same
---- plan file, a new plan whose bookkeeping unlinks the file being applied, a
---- discard doing the same, an init rewriting `.terraform` mid-run.
----
---- `validate` is deliberately not refused: it reads configuration and provider
---- schemas, and does not touch state or the backend, so it cannot collide with
---- an apply. Refusing it would only be theatre. It is refused during an init,
---- which replaces the schemas it reads.
----
---- Together with `planning` and `initializing` this makes one invariant, held
---- by three small tables rather than a state machine: at most one of planning,
---- applying and initializing is true for a directory at a time. Each is claimed
---- before the first await on its path and released on every exit from it,
---- including the ones where no process was ever started.
+--- At most one of planning, applying and initializing is set for a directory.
 ---@type table<string, boolean>
 local applying = {}
 
---- What the next subprocess will authenticate as.
----
---- Recorded with every plan and compared before apply. The AWS module sets
---- these on the Neovim process, so switching profile between reading a plan and
---- applying it would run the apply against a different account while terraform
---- happily performs the operations the plan described.
----
---- By default this compares environment, not identity: it does not ask STS who
---- the credentials actually resolve to, because that is a network round trip on
---- every plan. `:AwsWhoami` answers that question when it matters, and
---- `strict_aws_identity` folds the answer into this comparison for people who
---- would rather pay the round trip than trust the environment.
----
---- The environment is a weak proxy, and the gap is real. AWS_PROFILE unchanged
---- still covers new static credentials, a refreshed SSO session pointing at
---- another account, an edited ~/.aws/credentials, the same profile name now
---- assuming a different role, and credential environment variables that take
---- precedence over the profile entirely. None of those change the two fields
---- below.
+--- What the next subprocess will authenticate as, recorded with a plan and compared before apply.
 ---@param identity table|nil what STS said, when it was asked
 ---@return table
 local function aws_context(identity)
@@ -176,17 +50,7 @@ local function aws_context(identity)
   }
 end
 
---- Asks STS who the current credentials actually are.
----
---- Off unless `strict_aws_identity` is set, in which case it runs once per plan
---- and once per apply. Not cached: a cache is precisely a way to be told about
---- the credentials that were in effect earlier, which is the thing being
---- guarded against.
----
---- Two kinds of "no answer" are distinguished. No `aws` on PATH means this is
---- most likely not an AWS project, and the check is skipped without comment.
---- An `aws` that is present and refuses is worth saying out loud, because the
---- plan is then recorded without the protection the option was turned on for.
+--- Asks STS who the current credentials are. Never cached — a cache would answer for earlier ones.
 ---@param callback fun(identity: table|nil, err: string|nil)
 local function aws_identity(callback)
   if not M.options.strict_aws_identity then
@@ -194,6 +58,7 @@ local function aws_identity(callback)
     return
   end
 
+  -- No `aws` at all most likely means this is not an AWS project, so it passes without comment.
   if vim.fn.executable("aws") ~= 1 then
     callback(nil)
     return
@@ -230,9 +95,7 @@ local function context_differs(a, b)
   if a.region ~= b.region then
     return ("AWS region changed: %s -> %s"):format(show(a.region), show(b.region))
   end
-  -- Only ever set when strict_aws_identity was on. nil on one side and a value
-  -- on the other is itself a difference, which covers the case the audit asked
-  -- for: STS answered when the plan was made and cannot be reached now.
+  -- Set only under strict_aws_identity, where nil on one side is itself a difference.
   if a.account ~= b.account then
     return ("AWS account changed: %s -> %s"):format(show(a.account), show(b.account))
   end
@@ -261,8 +124,7 @@ local function discard_plan(dir)
   end
 end
 
----Terragrunt owns a directory when terragrunt.hcl sits in it. Running
----`terraform` there would ignore the generated configuration entirely.
+---Terragrunt owns a directory when terragrunt.hcl sits in it; `terraform` there ignores it.
 ---@param dir string
 ---@return string
 local function binary_for(dir)
@@ -274,16 +136,13 @@ local function binary_for(dir)
   return vim.fn.executable("terraform") == 1 and "terraform" or "tofu"
 end
 
----The directory a command should run in: the nearest one holding .tf or
----terragrunt files, starting from the current buffer.
+---The nearest directory above the buffer holding .tf or terragrunt files.
 ---@return string|nil
 local function root_dir()
   local buf = vim.api.nvim_buf_get_name(0)
   local start = buf ~= "" and vim.fs.dirname(buf) or vim.fn.getcwd()
 
-  -- Must stay in step with binary_for, which already knew about
-  -- terragrunt.stack.hcl. A stack-only directory was invisible here, so every
-  -- command reported "nothing found" in a project that plainly had one.
+  -- Must list what binary_for lists, or a stack-only directory looks like no project at all.
   local found = vim.fs.find(function(name)
     return name:match("%.tf$") or name == "terragrunt.hcl" or name == "terragrunt.stack.hcl"
   end, { path = start, upward = true, type = "file" })[1]
@@ -311,8 +170,7 @@ local function show(lines, title)
   local buf = vim.api.nvim_create_buf(false, true)
   vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
 
-  -- A plan can quote variable values, so the same rule as everywhere else
-  -- applies: it does not get persisted.
+  -- A plan can quote variable values, so it is not persisted either.
   vim.bo[buf].undofile = false
   vim.bo[buf].swapfile = false
   vim.bo[buf].bufhidden = "wipe"
@@ -320,14 +178,7 @@ local function show(lines, title)
   vim.bo[buf].modifiable = false
   vim.bo[buf].filetype = "terraform-plan"
 
-  -- Focus is deliberately left where it was.
-  --
-  -- These windows open from an async callback. A plan can take a minute, and
-  -- the natural thing to do meanwhile is edit another file — at which point a
-  -- split that grabs the cursor sends your keystrokes into a non-modifiable
-  -- scratch buffer without warning. Verified: it did exactly that.
-  --
-  -- The output is visible either way; `q` closes it once you move to it.
+  -- Focus stays put: these open from an async callback, into whatever you are editing by then.
   local previous = vim.api.nvim_get_current_win()
 
   vim.cmd("botright split")
@@ -343,16 +194,7 @@ local function show(lines, title)
   vim.keymap.set("n", "q", "<cmd>close<cr>", { buffer = buf, nowait = true, desc = "Close" })
 end
 
----Opens the output window, reporting failure instead of raising it.
----
----`show` opens a split, and a split can fail — E36 when the layout leaves no
----room for one. Every call site is inside an async callback, where raising
----abandons whatever bookkeeping that callback had left to do. For plan that
----meant a plan file terraform had already written was neither cleaned up nor
----recorded, and the traceback was the only sign anything had happened.
----
----Presentation must not be able to decide the outcome of an operation. This
----makes the failure a value the caller handles.
+---Opens the output window, returning failure instead of raising it inside an async callback.
 ---@param lines string[]
 ---@param title string
 ---@return boolean shown
@@ -364,17 +206,7 @@ local function try_show(lines, title)
   return ok
 end
 
----Assembles the argument list for one subcommand.
----
----Order is the point of this function, and terraform's own grammar fixes most
----of it: `terraform [global options] <subcommand> [args]`. Global arguments
----therefore come first, before the subcommand — they used to be placed after
----it, which is not where terraform looks for them. Then our own flags, then the
----user's arguments for this command, then positional arguments.
----
----Positional last is the other half. `terraform apply` takes the plan file as a
----positional argument and expects options ahead of it, so anything appended
----blindly to the end of an apply lands in the wrong place.
+---Assembles the argument list: global options, subcommand, our flags, user flags, positional.
 ---@param command string the subcommand, which also names its option list
 ---@param flags string[] our own flags
 ---@param positional? string[] arguments that must come last
@@ -384,17 +216,12 @@ local function argv(command, flags, positional)
   vim.list_extend(out, M.options.global_args or {})
   table.insert(out, command)
   vim.list_extend(out, flags)
-  -- init_args, validate_args, plan_args, apply_args — named after the
-  -- subcommand so this stays a lookup rather than a branch per command.
   vim.list_extend(out, M.options[command .. "_args"] or {})
   vim.list_extend(out, positional or {})
   return out
 end
 
 ---The SHA-256 of a file's contents.
----
----libuv rather than io.open, to keep every filesystem error in this module
----arriving the same way — as a value, with a message worth showing.
 ---@param path string
 ---@return string|nil digest, string|nil err
 local function file_sha256(path)
@@ -403,14 +230,13 @@ local function file_sha256(path)
     return nil, open_err or "open failed"
   end
 
+  -- fstat on the descriptor, so the size describes the same file the bytes come from.
   local stat, stat_err = vim.uv.fs_fstat(fd)
   if not stat then
     vim.uv.fs_close(fd)
     return nil, stat_err or "fstat failed"
   end
 
-  -- fstat on the open descriptor, not stat on the path: the size read here
-  -- describes the same file the bytes come from.
   local data, read_err = vim.uv.fs_read(fd, stat.size, 0)
   local closed, close_err = vim.uv.fs_close(fd)
 
@@ -431,48 +257,14 @@ local function option_name(arg)
   return arg:match("^([^=]+)") or arg
 end
 
---- Options the runner sets itself and then depends on the value of.
----
---- Extra arguments are a legitimate escape hatch, but not for these four. Each
---- one, set by hand, makes the runner describe something other than what it
---- did:
----
----   -out                the plan lands somewhere else, and the path this
----                       module saved, chmods, applies and cleans up is a file
----                       that was never written
----   -destroy            the plan destroys while `saved.destroy` stays false,
----                       so the confirmation asks for "yes" rather than
----                       "destroy" and the review window is not marked. This is
----                       the runner's headline promise, undone by one word in a
----                       config file
----   -detailed-exitcode  the exit code stops meaning 0/1/2, and "changes
----                       present" is read as "no changes" — the plan is deleted
----                       instead of saved
----   -input              re-enables prompting on a subprocess with no terminal,
----                       which does not fail, it hangs
----
---- Not a general blacklist. Options that terraform itself rejects when handed a
---- saved plan — `-target`, `-var`, `-refresh-only` and the rest — are left
---- alone: terraform's own error says it better than a second check here would,
---- and this list is meant to stay short enough to justify line by line.
+--- Options the runner sets and depends on the value of; see :help devops-nvim-terraform-arguments.
 local reserved = {
   init = { ["-input"] = true },
   plan = { ["-out"] = true, ["-destroy"] = true, ["-detailed-exitcode"] = true, ["-input"] = true },
   apply = { ["-input"] = true },
 }
 
----Drops `-chdir` from the global arguments.
----
----The runner decides which directory each command runs in, and everything it
----remembers hangs off that decision: the saved plan, the generation counter,
----the planning and applying claims, the discard. `-chdir` would move terraform
----somewhere else while all of that kept pointing at the directory the buffer is
----in, so the plan on screen would belong to one project and the bookkeeping to
----another.
----
----Dropped with an error rather than raised, following what `args` already does
----here: a bad option in a plugin spec should not stop the editor loading, and
----silently honouring it would be worse than either.
+---Drops `-chdir`, which would move terraform away from the directory all bookkeeping is keyed by.
 ---@param args string[]|nil
 ---@return string[]
 local function sanitize_global_args(args)
@@ -523,8 +315,7 @@ end
 ---@return vim.SystemObj|nil handle nil when nothing was started
 local function run(command, args, dir, on_done, binary)
   local name = binary or binary_for(dir)
-  -- exepath() is idempotent for a path that is already absolute, so this
-  -- accepts both a bare name and a path pinned at plan time. Verified.
+  -- exepath() is idempotent for an absolute path, so a bare name and a pinned path both work.
   local bin = vim.fn.executable(name) == 1 and vim.fn.exepath(name) or ""
 
   if bin == "" then
@@ -535,8 +326,6 @@ local function run(command, args, dir, on_done, binary)
   local cmd = { bin }
   vim.list_extend(cmd, args)
 
-  -- Named rather than read out of `args`: the subcommand is no longer the
-  -- first element, because terraform's global options come before it.
   vim.notify(("Running %s %s…"):format(vim.fs.basename(bin), command), vim.log.levels.INFO)
 
   return vim.system(cmd, { cwd = dir, text = true }, function(result)
@@ -564,8 +353,6 @@ local function plan(destroy)
     return
   end
 
-  -- Planning against a half-rebuilt `.terraform` produces a plan computed from
-  -- providers and modules that are in the middle of being replaced.
   if initializing[dir] then
     vim.notify("An init is running in this directory — wait for it before planning", vim.log.levels.WARN)
     return
@@ -577,11 +364,7 @@ local function plan(destroy)
     return
   end
 
-  -- Resolve the executable once, here, and record where it resolved to. Saving
-  -- the name would only mean apply looks it up again later, and by then PATH
-  -- may point somewhere else, `terraform` may have been uninstalled leaving
-  -- `tofu` to answer for it, or a terragrunt.hcl may have appeared in the
-  -- directory. None of those three produce the plan that was on screen.
+  -- Resolved once and recorded, so apply cannot pick up a different binary later.
   local binary_name = binary_for(dir)
   local binary = vim.fn.exepath(binary_name)
   if binary == "" then
@@ -595,36 +378,21 @@ local function plan(destroy)
   end
   local args = argv("plan", flags)
 
-  -- Claim this generation before anything asynchronous happens, the STS call
-  -- included. Claiming it after would order plans by how fast their identity
-  -- lookup answered rather than by when they were asked for, and the older one
-  -- could end up counted as the newer.
+  -- Both claimed before the first await, or an apply could slip through it.
   generation[dir] = (generation[dir] or 0) + 1
   local mine = generation[dir]
-
-  -- Claimed in the same breath, and for the same reason: from here on there is
-  -- an await before anything else happens, and apply must not walk through it
-  -- and pick up the plan this one is replacing.
   planning[dir] = mine
 
-  -- The old plan stops being appliable now, not when this one succeeds.
-  -- Asking for a new plan says the old picture is out of date; if this plan
-  -- then fails, or reports no changes, the honest state is "nothing reviewed",
-  -- not "the previous answer still stands".
+  -- Asking for a new plan supersedes the reviewed one now, not when this one succeeds.
   discard_plan(dir)
 
   aws_identity(function(identity, identity_err)
     if generation[dir] ~= mine then
-      -- Superseded while the identity lookup was in flight. Nothing has been
-      -- started yet, so there is nothing to clean up but the reservation —
-      -- which the newer plan has already taken over, making this a no-op.
       finish_planning(dir, mine)
       return
     end
 
-    -- Said out loud rather than degraded quietly: with the option on, a plan
-    -- recorded without an identity is not carrying the protection it was
-    -- turned on for.
+    -- Said out loud: with the option on, a plan without an identity lacks the protection asked for.
     if identity_err then
       vim.notify(
         ("Could not determine the AWS identity, so this plan will not be bound to one:\n%s"):format(identity_err),
@@ -636,17 +404,13 @@ local function plan(destroy)
 
     local process = run("plan", args, dir, function(code, lines)
       if generation[dir] ~= mine then
-        -- A newer plan was started while this one was running. Its output would
-        -- be misleading and its file must not become the plan that apply uses.
+        -- Superseded, so this file must not become the plan apply uses.
         pcall(vim.uv.fs_unlink, path)
         finish_planning(dir, mine)
         return
       end
 
-      -- Past the generation check this callback is the end of this plan's life,
-      -- whichever branch below it takes. Released here rather than on each exit
-      -- so a branch added later cannot forget to, and leave the directory
-      -- refusing every apply for the rest of the session.
+      -- Released here, not per branch, so a branch added later cannot leave the directory claimed.
       finish_planning(dir, mine)
 
       ---Removes the plan file and says why nothing was kept.
@@ -656,22 +420,10 @@ local function plan(destroy)
         vim.notify(message, vim.log.levels.ERROR)
       end
 
-      -- -detailed-exitcode: 0 no changes, 1 error, 2 changes present. Only 2
-      -- leaves a file worth keeping, and only that path protects and
-      -- fingerprints it — before the review rather than after, so the digest
-      -- recorded belongs to the file that existed when the plan was read.
+      -- -detailed-exitcode: 0 no changes, 1 error, 2 changes present.
       local before
       if code == 2 then
-        -- terraform creates the plan file itself, under the ambient umask — it
-        -- came out 0644 in testing, which is world-readable and a plan can quote
-        -- variable values. Tightened as soon as it exists. It cannot be
-        -- pre-created with the right mode because terraform replaces it.
-        --
-        -- Checked rather than attempted. This used to be wrapped in pcall, which
-        -- catches nothing here: verified that fs_chmod reports failure by
-        -- returning nil and an error, and raises nothing, so pcall reported
-        -- success whatever happened. A plan the runner could not protect was
-        -- then saved as though it had been.
+        -- terraform writes the plan under the ambient umask; measured 0644, and a plan quotes values.
         local protected, chmod_err = vim.uv.fs_chmod(path, tonumber("600", 8))
         if not protected then
           return abandon(
@@ -690,12 +442,7 @@ local function plan(destroy)
         end
       end
 
-      -- Showing the plan is not decoration, it is the review step, and a plan
-      -- becomes appliable only because it was reviewed. If the window could not
-      -- be opened then nothing was read, so this fails closed: the file
-      -- terraform wrote is removed and no plan is recorded. The plan this one
-      -- replaced is already gone, discarded when this run was asked for, so
-      -- nothing is left that :TerraformApply could run.
+      -- Showing the plan is the review step, so a window that will not open fails closed.
       if not try_show(lines, (" %s plan%s "):format(vim.fs.basename(dir), destroy and " -destroy" or "")) then
         return abandon(
           "The plan ran, but it could not be shown, so it was discarded unread.\nNothing to apply — run :TerraformPlan again."
@@ -706,12 +453,7 @@ local function plan(destroy)
         pcall(vim.uv.fs_unlink, path)
         vim.notify("No changes — infrastructure matches the configuration", vim.log.levels.INFO)
       elseif code == 2 then
-        -- The pair of digests brackets the review. The window between them is
-        -- short — the review renders terraform's captured output, it does not
-        -- read the file — so this is not a defence against a determined process
-        -- of the same user. What it does buy is an exact statement: the digest
-        -- recorded is one that survived the review step, so a file that changed
-        -- during it cannot become the reviewed plan.
+        -- The digest recorded has to be one that survived the review.
         local after, digest_err = file_sha256(path)
         if not after then
           return abandon(
@@ -726,10 +468,6 @@ local function plan(destroy)
           )
         end
 
-        -- Nothing to discard first: the plan this one replaces was dropped, and
-        -- its file unlinked, when this run was asked for. That is also what
-        -- keeps superseded plans from leaking files into XDG_RUNTIME_DIR until
-        -- logout.
         plans[dir] = { path = path, destroy = destroy, context = context, binary = binary, sha256 = after }
         vim.notify(
           ("Plan saved%s. Review it, then :TerraformApply%s"):format(
@@ -744,9 +482,7 @@ local function plan(destroy)
       end
     end, binary)
 
-    -- Nothing started, so no callback will arrive to release the claim. Without
-    -- this the directory would refuse every apply for the rest of the session,
-    -- waiting for a plan that is not running. `run` has already said why.
+    -- No process means no callback to release the claim.
     if not process then
       finish_planning(dir, mine)
     end
@@ -769,19 +505,12 @@ function M.apply()
     return
   end
 
-  -- The plan survives in `plans[dir]` until the apply callback clears it, so
-  -- without this a second :TerraformApply during a long apply finds it, prompts,
-  -- and hands the same plan file to a second process.
+  -- Without this a second apply finds the same plan file and hands it to a second process.
   if applying[dir] then
     vim.notify("An apply is already running for this directory", vim.log.levels.WARN)
     return
   end
 
-  -- A plan is being computed for this directory, so there is by definition no
-  -- current reviewed plan: the one that was there has been discarded and the
-  -- replacement has not been read yet. Saying so is better than the bare "no
-  -- reviewed plan" below, which would be true but would read as though the plan
-  -- had gone missing.
   if planning[dir] then
     vim.notify(
       "A new plan is still running for this directory — wait for it, read it, then apply",
@@ -790,11 +519,7 @@ function M.apply()
     return
   end
 
-  -- Unreachable in practice, because starting an init discards the reviewed
-  -- plan and there would be nothing left to apply. Kept because the refusal
-  -- states the reason, where the "no reviewed plan" below would only state the
-  -- symptom — and because the invariant should not depend on the order two
-  -- checks happen to be written in.
+  -- Unreachable while init discards the plan first, but the refusal names the reason.
   if initializing[dir] then
     vim.notify("An init is running in this directory — it discarded the reviewed plan", vim.log.levels.WARN)
     return
@@ -807,17 +532,7 @@ function M.apply()
     return
   end
 
-  -- The file, not just its name. `plans[dir]` records where the plan is; it is
-  -- the bytes that were reviewed, and until now nothing checked that the two
-  -- still went together. The runtime directory is 0700, so this is not a
-  -- defence against other users, and a process running as this one could
-  -- change the file either side of this check anyway. What it makes exact is
-  -- the guarantee worth stating: the bytes handed to apply are the bytes that
-  -- were reviewed, or the apply does not happen.
-  --
-  -- Checked here, before the identity lookup and before the confirmation
-  -- prompt: there is no point asking anyone to approve an artefact that is
-  -- already invalid.
+  -- Before the identity lookup and the prompt: nothing to approve if the artefact is already invalid.
   local digest, digest_err = file_sha256(saved.path)
   if not digest then
     discard_plan(dir)
@@ -837,9 +552,7 @@ function M.apply()
     return
   end
 
-  -- Pinned when the plan was made. If it has since been removed or replaced by
-  -- something non-executable, there is no safe substitute: applying a terraform
-  -- plan with tofu, or bypassing terragrunt, is not the reviewed operation.
+  -- Applying a terraform plan with tofu, or bypassing terragrunt, is not the reviewed operation.
   if vim.fn.executable(saved.binary or "") ~= 1 then
     vim.notify(
       ("The executable that created this plan is no longer available (%s).\nRun :TerraformPlan again."):format(
@@ -850,28 +563,18 @@ function M.apply()
     return
   end
 
-  -- Claimed here, before the identity lookup, not after the prompt. With
-  -- strict_aws_identity on there is now an await between the guard above and
-  -- the start of the process, and leaving the directory unclaimed across it
-  -- would let a second :TerraformApply walk straight through — the race the
-  -- guard exists to close. Every path out from here releases it.
+  -- Claimed before the identity lookup: leaving the directory free across that await reopens the race.
   applying[dir] = true
   local function release()
     applying[dir] = nil
   end
 
   aws_identity(function(identity, identity_err)
-    -- With the option on, an identity that cannot be read is not "no identity":
-    -- the plan recorded one, and nil compares as a difference below. This only
-    -- makes the reason legible.
     if identity_err then
       vim.notify(("Could not determine the AWS identity:\n%s"):format(identity_err), vim.log.levels.WARN)
     end
 
-    -- The plan file fixes what terraform will do. It does not fix who it will
-    -- do it as: credentials come from the environment, which the AWS module can
-    -- change between reading a plan and applying it. Terraform would carry out
-    -- the reviewed operations against whatever account is configured now.
+    -- The plan fixes what terraform does, not who it does it as.
     local drift = context_differs(saved.context or {}, aws_context(identity))
     if drift then
       vim.notify(
@@ -883,9 +586,7 @@ function M.apply()
       return release()
     end
 
-    -- The plan file is the approval as far as terraform is concerned. This
-    -- prompt is for the human: applying is the point of no return, and a
-    -- destroy plan deserves to be typed out rather than confirmed by reflex.
+    -- The file is terraform's approval; this prompt is the human's, and destroy is typed out.
     local want = saved.destroy and "destroy" or "yes"
     local answer = vim.fn.input({
       prompt = ("Apply this plan to %s? Type %q to confirm: "):format(vim.fs.basename(dir), want),
@@ -903,13 +604,9 @@ function M.apply()
       function(code, lines)
         release()
 
-        -- Spent, whatever happened: terraform refuses to reuse a plan file, and
-        -- keeping it would only invite applying a stale one.
+        -- Spent whatever happened: terraform refuses to reuse a plan file.
         discard_plan(dir)
 
-        -- No state hangs off this one — the lock is already released and the plan
-        -- already discarded above — but the outcome of an operation that changed
-        -- infrastructure must still be reported if the window cannot open.
         try_show(lines, (" %s apply "):format(vim.fs.basename(dir)))
         if code == 0 then
           vim.notify("Applied", vim.log.levels.INFO)
@@ -920,9 +617,6 @@ function M.apply()
       saved.binary
     )
 
-    -- Nothing started, so nothing will arrive to clear the flag. Without this
-    -- the directory stays locked against plan, apply, init and discard for the
-    -- rest of the session.
     if not process then
       release()
     end
@@ -936,8 +630,7 @@ function M.init()
     return
   end
 
-  -- init rewrites `.terraform/` — providers, modules, backend config — under a
-  -- process that is currently reading it.
+  -- init rewrites `.terraform/` — providers, modules, backend — under whatever is reading it.
   if applying[dir] then
     vim.notify("An apply is running in this directory — init would rewrite .terraform under it", vim.log.levels.WARN)
     return
@@ -958,23 +651,17 @@ function M.init()
     initializing[dir] = nil
   end
 
-  -- A plan reviewed before this init is not a plan of what will happen after
-  -- it. init can bring in a new provider version, a changed module source or a
-  -- different backend, and the saved plan was computed against none of them.
-  -- Discarded for the same reason a new plan discards it: the picture it
-  -- describes is the one from before.
+  -- A plan computed before this init describes providers and modules it may replace.
   discard_plan(dir)
 
   local process = run("init", argv("init", { "-no-color", "-input=false" }), dir, function(code, lines)
-    -- First, before anything that reports: nothing below this line is allowed
-    -- to decide whether the directory stays claimed.
+    -- First: nothing below decides whether the directory stays claimed.
     release()
 
     try_show(lines, (" %s init "):format(vim.fs.basename(dir)))
     vim.notify(code == 0 and "Initialised" or "Init failed", code == 0 and vim.log.levels.INFO or vim.log.levels.ERROR)
   end)
 
-  -- Nothing started, so no callback will arrive to release the claim.
   if not process then
     release()
   end
@@ -987,10 +674,7 @@ function M.validate()
     return
   end
 
-  -- The one operation validate is refused against. It reads the provider
-  -- schemas out of `.terraform`, which is what init is in the middle of
-  -- replacing, so the answer would be about a state that no longer exists. It
-  -- stays free to run during a plan or an apply: those do not touch it.
+  -- The only refusal validate gets: init replaces the provider schemas it reads.
   if initializing[dir] then
     vim.notify("An init is running in this directory — wait for it before validating", vim.log.levels.WARN)
     return
@@ -1005,12 +689,11 @@ function M.validate()
   end)
 end
 
----Discards any reviewed plan without applying it.
+---Discards every reviewed plan, except where an apply is using one.
 function M.discard()
   local count, held = 0, 0
   for dir, _ in pairs(vim.deepcopy(plans)) do
     if applying[dir] then
-      -- Unlinking it now would delete the file out from under a running apply.
       held = held + 1
     else
       discard_plan(dir)
@@ -1034,9 +717,7 @@ M._test = {
 function M.setup(opts)
   opts = opts or {}
 
-  -- `args` was a single list appended to every command, which put it after the
-  -- plan file on apply. Dropping it silently would leave flags the user
-  -- believes are in effect quietly doing nothing.
+  -- Removed rather than silently ignored: `args` broke apply by landing after the plan file.
   if opts.args ~= nil then
     vim.notify(
       "terraform.nvim: `args` is gone — it broke apply and meant different things per command. "
@@ -1050,9 +731,7 @@ function M.setup(opts)
 
   M.options = vim.tbl_deep_extend("force", vim.deepcopy(defaults), opts)
 
-  -- Filtered once, here, rather than on every command. The user hears about a
-  -- rejected option when they configure it, not four times during their next
-  -- plan.
+  -- Filtered at configuration time, so a rejected option is reported once rather than per command.
   M.options.global_args = sanitize_global_args(M.options.global_args)
   for _, command in ipairs({ "init", "validate", "plan", "apply" }) do
     local key = command .. "_args"
@@ -1072,8 +751,7 @@ function M.setup(opts)
     vim.api.nvim_create_user_command(name, fn, { desc = name })
   end
 
-  -- Plan files outlive the command that made them but must not outlive the
-  -- session; they are on tmpfs, but a stale plan is its own hazard.
+  -- Plan files may outlive the command that made them, never the session.
   vim.api.nvim_create_autocmd("VimLeavePre", {
     group = vim.api.nvim_create_augroup("terraform_nvim_cleanup", { clear = true }),
     callback = function()
@@ -1089,8 +767,7 @@ function M.setup(opts)
     vim.keymap.set("n", "<leader>tp", M.plan, { desc = "Terraform plan" })
     vim.keymap.set("n", "<leader>ta", M.apply, { desc = "Apply the reviewed plan" })
     vim.keymap.set("n", "<leader>td", M.discard, { desc = "Discard the reviewed plan" })
-    -- Destroy has no single-key mapping on purpose. It is reached by typing
-    -- the command, and even then it only produces a plan to read.
+    -- Destroy has no mapping on purpose; it is typed out, and still only produces a plan.
   end
 end
 
