@@ -118,13 +118,19 @@ return {
       {
         "<leader>xF",
         function()
-          -- Reflects the state that actually applies to this buffer, which is
-          -- the local flag when one is set and the global one otherwise.
-          local off = vim.b.disable_autoformat
-          if off == nil then
-            off = vim.g.disable_autoformat
-          end
-          vim.cmd(off and "FormatEnable" or "FormatDisable")
+          -- Reads the global flag only, because that is the only one it sets.
+          --
+          -- It used to consult the buffer-local flag first, on the reasoning
+          -- that this reflects the state actually in effect here. But the two
+          -- commands it runs are global, so with formatting disabled in this
+          -- buffer and nothing set globally, the toggle ran :FormatEnable —
+          -- clearing a global flag that was already clear, while the local one
+          -- stayed set. Formatting remained off in the buffer and the key
+          -- appeared to do nothing at all.
+          --
+          -- Each toggle now owns exactly one flag: this one the global,
+          -- <leader>xb the buffer's.
+          vim.cmd(vim.g.disable_autoformat and "FormatEnable" or "FormatDisable")
         end,
         desc = "Toggle format on save (global)",
       },
