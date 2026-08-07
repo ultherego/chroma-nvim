@@ -614,12 +614,28 @@ changes on the Neovim process. Planning against production, switching profile,
 then applying would carry out the reviewed operations against the other
 account.
 
-This compares environment, not identity: it does not ask STS who the
+By default this compares environment, not identity: it does not ask STS who the
 credentials resolve to, because that is a network round trip on every plan.
 `:AwsWhoami` answers that when it matters.
 
-**What would change it.** Making the STS call cheap enough — cached per
-profile, perhaps — to include in the comparison.
+The environment is a weak proxy and the gap is not small. With AWS_PROFILE
+unchanged, all of these still change who the apply runs as: new static
+credentials, an SSO session refreshed against another account, an edited
+`~/.aws/credentials`, the same profile name now assuming a different role, and
+credential environment variables, which take precedence over the profile
+entirely.
+
+**What changed it.** `strict_aws_identity`, off by default. With it on, the
+account and principal ARN come from `aws sts get-caller-identity`, are recorded
+with the plan, and are compared before the apply — a different account or a
+different principal refuses, and so does losing the ability to ask after a plan
+was bound to an answer.
+
+It is opt-in rather than default because the cost is a network round trip on
+every plan and every apply, and the environment comparison already catches the
+ordinary mistake of switching profile between reading and applying. It is not
+cached: a cache is a way of being told which credentials were in effect
+earlier, which is the thing being guarded against.
 
 ### Concurrent plans cannot overwrite each other
 

@@ -47,6 +47,14 @@ local M = {}
 --- it, so the more specific one wins where terraform lets a later flag win.
 local defaults = {
   keymaps = false,
+  --- Ask STS which account and principal the credentials resolve to, record it
+  --- with the plan, and refuse an apply that would run as anyone else.
+  ---
+  --- Off by default: it is a network round trip on every plan and every apply,
+  --- and the environment comparison already catches the ordinary mistake of
+  --- switching profile between reading a plan and applying it. On when the
+  --- account matters more than the latency.
+  strict_aws_identity = false,
   global_args = {},
   init_args = {},
   validate_args = {},
@@ -95,15 +103,68 @@ local applying = {}
 --- applying it would run the apply against a different account while terraform
 --- happily performs the operations the plan described.
 ---
---- This compares environment, not identity: it does not ask STS who the
---- credentials actually resolve to, because that is a network round trip on
---- every plan. `:AwsWhoami` answers that question when it matters.
+--- By default this compares environment, not identity: it does not ask STS who
+--- the credentials actually resolve to, because that is a network round trip on
+--- every plan. `:AwsWhoami` answers that question when it matters, and
+--- `strict_aws_identity` folds the answer into this comparison for people who
+--- would rather pay the round trip than trust the environment.
+---
+--- The environment is a weak proxy, and the gap is real. AWS_PROFILE unchanged
+--- still covers new static credentials, a refreshed SSO session pointing at
+--- another account, an edited ~/.aws/credentials, the same profile name now
+--- assuming a different role, and credential environment variables that take
+--- precedence over the profile entirely. None of those change the two fields
+--- below.
+---@param identity table|nil what STS said, when it was asked
 ---@return table
-local function aws_context()
+local function aws_context(identity)
   return {
     profile = vim.env.AWS_PROFILE,
     region = vim.env.AWS_REGION or vim.env.AWS_DEFAULT_REGION,
+    account = identity and identity.account,
+    arn = identity and identity.arn,
   }
+end
+
+--- Asks STS who the current credentials actually are.
+---
+--- Off unless `strict_aws_identity` is set, in which case it runs once per plan
+--- and once per apply. Not cached: a cache is precisely a way to be told about
+--- the credentials that were in effect earlier, which is the thing being
+--- guarded against.
+---
+--- Two kinds of "no answer" are distinguished. No `aws` on PATH means this is
+--- most likely not an AWS project, and the check is skipped without comment.
+--- An `aws` that is present and refuses is worth saying out loud, because the
+--- plan is then recorded without the protection the option was turned on for.
+---@param callback fun(identity: table|nil, err: string|nil)
+local function aws_identity(callback)
+  if not M.options.strict_aws_identity then
+    callback(nil)
+    return
+  end
+
+  if vim.fn.executable("aws") ~= 1 then
+    callback(nil)
+    return
+  end
+
+  vim.system({ "aws", "sts", "get-caller-identity", "--output", "json" }, { text = true }, function(result)
+    vim.schedule(function()
+      if result.code ~= 0 then
+        callback(nil, ((result.stderr or "") .. (result.stdout or "")):gsub("%s+$", ""))
+        return
+      end
+
+      local ok, decoded = pcall(vim.json.decode, result.stdout or "")
+      if not ok or type(decoded) ~= "table" or not decoded.Account then
+        callback(nil, "could not read the STS response")
+        return
+      end
+
+      callback({ account = decoded.Account, arn = decoded.Arn })
+    end)
+  end)
 end
 
 ---@param a table
@@ -118,6 +179,15 @@ local function context_differs(a, b)
   end
   if a.region ~= b.region then
     return ("AWS region changed: %s -> %s"):format(show(a.region), show(b.region))
+  end
+  -- Only ever set when strict_aws_identity was on. nil on one side and a value
+  -- on the other is itself a difference, which covers the case the audit asked
+  -- for: STS answered when the plan was made and cannot be reached now.
+  if a.account ~= b.account then
+    return ("AWS account changed: %s -> %s"):format(show(a.account), show(b.account))
+  end
+  if a.arn ~= b.arn then
+    return ("AWS identity changed: %s -> %s"):format(show(a.arn), show(b.arn))
   end
   return nil
 end
@@ -306,47 +376,71 @@ local function plan(destroy)
   end
   local args = argv("plan", flags)
 
-  -- Claim this generation before starting. Any plan already running for this
-  -- directory becomes stale the moment a newer one is asked for.
+  -- Claim this generation before anything asynchronous happens, the STS call
+  -- included. Claiming it after would order plans by how fast their identity
+  -- lookup answered rather than by when they were asked for, and the older one
+  -- could end up counted as the newer.
   generation[dir] = (generation[dir] or 0) + 1
   local mine = generation[dir]
-  local context = aws_context()
 
-  run(args, dir, function(code, lines)
+  aws_identity(function(identity, identity_err)
     if generation[dir] ~= mine then
-      -- A newer plan was started while this one was running. Its output would
-      -- be misleading and its file must not become the plan that apply uses.
-      pcall(vim.uv.fs_unlink, path)
+      -- Superseded while the identity lookup was in flight. Nothing has been
+      -- started yet, so there is nothing to clean up but the reservation.
       return
     end
 
-    show(lines, (" %s plan%s "):format(vim.fs.basename(dir), destroy and " -destroy" or ""))
-
-    -- -detailed-exitcode: 0 no changes, 1 error, 2 changes present.
-    if code == 0 then
-      pcall(vim.uv.fs_unlink, path)
-      vim.notify("No changes — infrastructure matches the configuration", vim.log.levels.INFO)
-    elseif code == 2 then
-      -- terraform creates the plan file itself, under the ambient umask — it
-      -- came out 0644 in testing, which is world-readable and a plan can quote
-      -- variable values. Tightened as soon as it exists. It cannot be
-      -- pre-created with the right mode because terraform replaces it.
-      pcall(vim.uv.fs_chmod, path, tonumber("600", 8))
-
-      -- Removes the file of the plan being replaced. Without this each
-      -- superseded plan leaked a file into XDG_RUNTIME_DIR until logout.
-      discard_plan(dir)
-
-      plans[dir] = { path = path, destroy = destroy, context = context, binary = binary }
+    -- Said out loud rather than degraded quietly: with the option on, a plan
+    -- recorded without an identity is not carrying the protection it was
+    -- turned on for.
+    if identity_err then
       vim.notify(
-        ("Plan saved. Review it, then :TerraformApply%s"):format(destroy and "  (this plan DESTROYS)" or ""),
-        destroy and vim.log.levels.WARN or vim.log.levels.INFO
+        ("Could not determine the AWS identity, so this plan will not be bound to one:\n%s"):format(identity_err),
+        vim.log.levels.WARN
       )
-    else
-      pcall(vim.uv.fs_unlink, path)
-      vim.notify("Plan failed", vim.log.levels.ERROR)
     end
-  end, binary)
+
+    local context = aws_context(identity)
+
+    run(args, dir, function(code, lines)
+      if generation[dir] ~= mine then
+        -- A newer plan was started while this one was running. Its output would
+        -- be misleading and its file must not become the plan that apply uses.
+        pcall(vim.uv.fs_unlink, path)
+        return
+      end
+
+      show(lines, (" %s plan%s "):format(vim.fs.basename(dir), destroy and " -destroy" or ""))
+
+      -- -detailed-exitcode: 0 no changes, 1 error, 2 changes present.
+      if code == 0 then
+        pcall(vim.uv.fs_unlink, path)
+        vim.notify("No changes — infrastructure matches the configuration", vim.log.levels.INFO)
+      elseif code == 2 then
+        -- terraform creates the plan file itself, under the ambient umask — it
+        -- came out 0644 in testing, which is world-readable and a plan can quote
+        -- variable values. Tightened as soon as it exists. It cannot be
+        -- pre-created with the right mode because terraform replaces it.
+        pcall(vim.uv.fs_chmod, path, tonumber("600", 8))
+
+        -- Removes the file of the plan being replaced. Without this each
+        -- superseded plan leaked a file into XDG_RUNTIME_DIR until logout.
+        discard_plan(dir)
+
+        plans[dir] = { path = path, destroy = destroy, context = context, binary = binary }
+        vim.notify(
+          ("Plan saved%s. Review it, then :TerraformApply%s"):format(
+            identity and (" as " .. (identity.arn or identity.account)) or "",
+            destroy and "  (this plan DESTROYS)" or ""
+          ),
+          destroy and vim.log.levels.WARN or vim.log.levels.INFO
+        )
+      else
+        pcall(vim.uv.fs_unlink, path)
+        vim.notify("Plan failed", vim.log.levels.ERROR)
+      end
+    end, binary)
+  end)
 end
 
 function M.plan()
@@ -393,57 +487,74 @@ function M.apply()
     return
   end
 
-  -- The plan file fixes what terraform will do. It does not fix who it will
-  -- do it as: credentials come from the environment, which the AWS module can
-  -- change between reading a plan and applying it. Terraform would carry out
-  -- the reviewed operations against whatever account is configured now.
-  local drift = context_differs(saved.context or {}, aws_context())
-  if drift then
-    vim.notify(
-      ("Refusing to apply: %s since this plan was made.\nRun :TerraformPlan again under the current credentials."):format(
-        drift
-      ),
-      vim.log.levels.ERROR
-    )
-    return
-  end
-
-  -- The plan file is the approval as far as terraform is concerned. This
-  -- prompt is for the human: applying is the point of no return, and a
-  -- destroy plan deserves to be typed out rather than confirmed by reflex.
-  local want = saved.destroy and "destroy" or "yes"
-  local answer = vim.fn.input({
-    prompt = ("Apply this plan to %s? Type %q to confirm: "):format(vim.fs.basename(dir), want),
-  })
-
-  if answer ~= want then
-    vim.notify("Cancelled", vim.log.levels.INFO)
-    return
-  end
-
+  -- Claimed here, before the identity lookup, not after the prompt. With
+  -- strict_aws_identity on there is now an await between the guard above and
+  -- the start of the process, and leaving the directory unclaimed across it
+  -- would let a second :TerraformApply walk straight through — the race the
+  -- guard exists to close. Every path out from here releases it.
   applying[dir] = true
-
-  local process = run(argv("apply", { "-no-color", "-input=false" }, { saved.path }), dir, function(code, lines)
-    applying[dir] = nil
-
-    -- Spent, whatever happened: terraform refuses to reuse a plan file, and
-    -- keeping it would only invite applying a stale one.
-    discard_plan(dir)
-
-    show(lines, (" %s apply "):format(vim.fs.basename(dir)))
-    if code == 0 then
-      vim.notify("Applied", vim.log.levels.INFO)
-    else
-      vim.notify("Apply failed", vim.log.levels.ERROR)
-    end
-  end, saved.binary)
-
-  -- Nothing started, so nothing will arrive to clear the flag. Without this the
-  -- directory stays locked against plan, apply, init and discard for the rest of
-  -- the session.
-  if not process then
+  local function release()
     applying[dir] = nil
   end
+
+  aws_identity(function(identity, identity_err)
+    -- With the option on, an identity that cannot be read is not "no identity":
+    -- the plan recorded one, and nil compares as a difference below. This only
+    -- makes the reason legible.
+    if identity_err then
+      vim.notify(("Could not determine the AWS identity:\n%s"):format(identity_err), vim.log.levels.WARN)
+    end
+
+    -- The plan file fixes what terraform will do. It does not fix who it will
+    -- do it as: credentials come from the environment, which the AWS module can
+    -- change between reading a plan and applying it. Terraform would carry out
+    -- the reviewed operations against whatever account is configured now.
+    local drift = context_differs(saved.context or {}, aws_context(identity))
+    if drift then
+      vim.notify(
+        ("Refusing to apply: %s since this plan was made.\nRun :TerraformPlan again under the current credentials."):format(
+          drift
+        ),
+        vim.log.levels.ERROR
+      )
+      return release()
+    end
+
+    -- The plan file is the approval as far as terraform is concerned. This
+    -- prompt is for the human: applying is the point of no return, and a
+    -- destroy plan deserves to be typed out rather than confirmed by reflex.
+    local want = saved.destroy and "destroy" or "yes"
+    local answer = vim.fn.input({
+      prompt = ("Apply this plan to %s? Type %q to confirm: "):format(vim.fs.basename(dir), want),
+    })
+
+    if answer ~= want then
+      vim.notify("Cancelled", vim.log.levels.INFO)
+      return release()
+    end
+
+    local process = run(argv("apply", { "-no-color", "-input=false" }, { saved.path }), dir, function(code, lines)
+      release()
+
+      -- Spent, whatever happened: terraform refuses to reuse a plan file, and
+      -- keeping it would only invite applying a stale one.
+      discard_plan(dir)
+
+      show(lines, (" %s apply "):format(vim.fs.basename(dir)))
+      if code == 0 then
+        vim.notify("Applied", vim.log.levels.INFO)
+      else
+        vim.notify("Apply failed", vim.log.levels.ERROR)
+      end
+    end, saved.binary)
+
+    -- Nothing started, so nothing will arrive to clear the flag. Without this
+    -- the directory stays locked against plan, apply, init and discard for the
+    -- rest of the session.
+    if not process then
+      release()
+    end
+  end)
 end
 
 function M.init()
