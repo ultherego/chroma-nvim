@@ -26,8 +26,43 @@
 --   "Terraform (CLI) is required. Please install Terraform or make it
 --    available in $PATH"
 --
--- So Terraform files stay unformatted until the terraform binary is on PATH.
--- That is a machine prerequisite, not something configuration can paper over.
+-- So Terraform files stay unformatted until either the terraform or the tofu
+-- binary is on PATH. That is a machine prerequisite, not something
+-- configuration can paper over — see terraform_formatter below for which of
+-- the two gets used.
+
+--- Whichever of the two CLIs is actually installed.
+---
+--- terraform first, always, so nothing changes for anyone who has it. tofu_fmt
+--- is the fallback rather than an equal: OpenTofu is a fork, and picking it for
+--- someone who has both would be this configuration making a decision that is
+--- not its to make.
+---
+--- Written as a function because the answer is a property of the machine, not
+--- of the configuration, and can change while Neovim is running — a `tofu`
+--- installed mid-session is picked up on the next format rather than at the
+--- next restart. conform documents both the function form of formatters_by_ft
+--- and get_formatter_info().available, which is what makes this a supported
+--- shape rather than a trick.
+---
+--- Returning an empty list is the honest answer when neither is present:
+--- conform then falls through to the language server, and terraform-ls does not
+--- format either, so the file stays unformatted. That is a machine
+--- prerequisite, and `:checkhealth devops` reports it.
+---@param bufnr integer
+---@return string[]
+local function terraform_formatter(bufnr)
+  local conform = require("conform")
+
+  for _, formatter in ipairs({ "terraform_fmt", "tofu_fmt" }) do
+    local info = conform.get_formatter_info(formatter, bufnr)
+    if info.available then
+      return { formatter }
+    end
+  end
+
+  return {}
+end
 
 return {
   {
@@ -38,11 +73,12 @@ return {
       formatters_by_ft = {
         lua = { "stylua" },
 
-        -- Terraform's own canonical formatter. There is no fallback: without
-        -- the terraform CLI nothing formats these files, for the reason set
-        -- out at the top of this file.
-        terraform = { "terraform_fmt" },
-        ["terraform-vars"] = { "terraform_fmt" },
+        -- terraform_fmt when the terraform CLI is there, tofu_fmt when only
+        -- OpenTofu is. `:checkhealth devops` has always accepted either as
+        -- meaning ".tf files can be formatted"; until this it was only true of
+        -- the first.
+        terraform = terraform_formatter,
+        ["terraform-vars"] = terraform_formatter,
 
         -- `hcl` is not a synonym for Terragrunt: Packer, Nomad, Vault and
         -- Consul all use the same filetype, and running terragrunt's

@@ -99,6 +99,80 @@ T["global toggle"]["enables globally even when this buffer is explicitly on"] = 
 end
 
 -- ---------------------------------------------------------------------------
+-- Which Terraform formatter gets picked
+-- ---------------------------------------------------------------------------
+
+T["terraform formatter"] = new_set({
+  hooks = {
+    post_case = function()
+      package.loaded.conform = nil
+    end,
+  },
+})
+
+---Replaces conform with one that reports exactly these formatters as available.
+---@param available string[]
+local function conform_with(available)
+  local set = {}
+  for _, name in ipairs(available) do
+    set[name] = true
+  end
+
+  package.loaded.conform = {
+    get_formatter_info = function(name)
+      return { available = set[name] == true }
+    end,
+  }
+end
+
+---@return function
+local function chooser()
+  return require("plugins.formatting")[1].opts.formatters_by_ft.terraform
+end
+
+T["terraform formatter"]["prefers terraform_fmt when both are installed"] = function()
+  conform_with({ "terraform_fmt", "tofu_fmt" })
+  eq(chooser()(0), { "terraform_fmt" })
+end
+
+T["terraform formatter"]["uses terraform_fmt when it is the only one"] = function()
+  conform_with({ "terraform_fmt" })
+  eq(chooser()(0), { "terraform_fmt" })
+end
+
+-- The case this exists for. `:checkhealth devops` has always accepted `tofu`
+-- alone as meaning ".tf files can be formatted"; until now that was only true
+-- if terraform was installed.
+T["terraform formatter"]["falls back to tofu_fmt when terraform is missing"] = function()
+  conform_with({ "tofu_fmt" })
+  eq(chooser()(0), { "tofu_fmt" })
+end
+
+T["terraform formatter"]["formats with nothing when neither is installed"] = function()
+  conform_with({})
+  eq(chooser()(0), {})
+end
+
+T["terraform formatter"]["applies to terraform-vars as well"] = function()
+  local by_ft = require("plugins.formatting")[1].opts.formatters_by_ft
+  eq(by_ft["terraform-vars"], by_ft.terraform)
+end
+
+-- The names above are strings, and a typo in one would make this whole layer
+-- quietly format nothing while every case with a stubbed conform still passed.
+-- So they are checked against the conform that is actually installed.
+T["terraform formatter"]["names formatters conform actually ships"] = function()
+  local root = vim.fs.joinpath(vim.fn.stdpath("data"), "lazy", "conform.nvim")
+  if not vim.uv.fs_stat(root) then
+    MiniTest.skip("conform.nvim is not installed")
+  end
+
+  for _, name in ipairs({ "terraform_fmt", "tofu_fmt" }) do
+    eq(vim.uv.fs_stat(vim.fs.joinpath(root, "lua", "conform", "formatters", name .. ".lua")) ~= nil, true)
+  end
+end
+
+-- ---------------------------------------------------------------------------
 -- The buffer toggle owns the buffer's flag, and only it
 -- ---------------------------------------------------------------------------
 
