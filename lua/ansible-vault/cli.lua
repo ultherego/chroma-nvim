@@ -98,13 +98,6 @@ local function stage_password(password)
   end
 end
 
----Exposed for rekey, which needs a second password staged the same way.
----@param password string
----@return string|nil path, function|nil cleanup, string|nil err
-function M.stage_password_for_rekey(password)
-  return stage_password(password)
-end
-
 ---@param args string[]           arguments after `ansible-vault`
 ---@param opts table              { auth, stdin, cwd }
 ---@return string|nil stdout, string|nil err
@@ -216,13 +209,22 @@ function M.decrypt_document(ciphertext, opts)
   return run({ "decrypt", "--output", "-" }, { auth = opts.auth, cwd = opts.cwd, stdin = ciphertext })
 end
 
----Re-encrypts a file with a different password.
+---Re-encrypts a file under a different vault id.
 ---
 ---Unlike everything else here this works on the file in place, because that is
 ---what `rekey` does — there is no stdout form. The file only ever holds
 ---ciphertext, so nothing secret is written that was not already there.
+---
+---Only `--new-vault-id` is offered, deliberately. The sibling option
+---`--new-vault-password-file` writes a 1.1 header, which records no vault id,
+---so the resulting file carries nothing that tells ansible which secret opens
+---it. Pointed at anything ansible.cfg does not already know, it produces a file
+---that cannot be opened again — the failure this module exists to prevent.
+---`--new-vault-id label@source` writes a 1.2 header carrying the label, which
+---ansible resolves from vault_identity_list on the next open. Both verified
+---against ansible core 2.21.
 ---@param path string
----@param opts table { auth, cwd, new_password_file, new_identity }
+---@param opts table { auth, cwd, new_identity }
 ---@return boolean ok, string|nil err
 function M.rekey(path, opts)
   opts = opts or {}
@@ -231,9 +233,6 @@ function M.rekey(path, opts)
   if opts.new_identity then
     table.insert(args, "--new-vault-id")
     table.insert(args, opts.new_identity)
-  elseif opts.new_password_file then
-    table.insert(args, "--new-vault-password-file")
-    table.insert(args, opts.new_password_file)
   end
   table.insert(args, path)
 

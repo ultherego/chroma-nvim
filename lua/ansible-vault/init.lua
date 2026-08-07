@@ -153,6 +153,46 @@ local function is_encrypted(buf)
   return first ~= nil and first:match("^%$ANSIBLE_VAULT") ~= nil
 end
 
+---The first line of a file, or nil if it cannot be read.
+---@param path string
+---@return string|nil
+local function first_line(path)
+  local ok, lines = pcall(vim.fn.readfile, path, "", 1)
+  if not ok or type(lines) ~= "table" then
+    return nil
+  end
+  return lines[1]
+end
+
+---True when the FILE ON DISK is a vault, whatever the buffer is showing.
+---
+---Asking the buffer is wrong for anything that operates on the file. With
+---transparent editing — the default — an encrypted file is decrypted into the
+---buffer on open, so a content check sees plaintext and concludes the file is
+---not encrypted. Rekey used that check and therefore refused to run on
+---precisely the files it exists for.
+---@param path string
+---@return boolean
+local function file_is_vault(path)
+  local first = first_line(path)
+  return first ~= nil and first:match("^%$ANSIBLE_VAULT") ~= nil
+end
+
+---The vault id a file is encrypted under, when the header records one.
+---
+---Format 1.2 appends the label: `$ANSIBLE_VAULT;1.2;AES256;prod`. Format 1.1
+---has no label field, so this returns nil for it. Confirmed against ansible
+---core 2.21 by encrypting with --encrypt-vault-id and reading the result.
+---@param path string
+---@return string|nil
+local function vault_label(path)
+  local first = first_line(path)
+  if not first then
+    return nil
+  end
+  return first:match("^%$ANSIBLE_VAULT;[^;]+;[^;]+;(.+)$")
+end
+
 ---Forgets what ansible-config said, for when ansible.cfg changes mid-session.
 function M.reload()
   resolved_cache = {}
@@ -584,18 +624,60 @@ function M.view_file()
   show(plaintext, vim.fn.fnamemodify(vim.api.nvim_buf_get_name(buf), ":t"))
 end
 
----Re-encrypts the current file with a different password.
+---Which configured identity to rekey into.
+---
+---`--new-vault-id` needs the whole `label@source` entry. A bare label is
+---treated as a path to a password file and fails with "The vault password file
+---<label> was not found" — verified against ansible core 2.21, which is why
+---the entries from vault_identity_list are passed through untouched.
+---@param ids string[] entries from vault_identity_list
+---@param current string|nil the label the file currently uses
+---@return string|nil entry, string|nil label
+local function choose_new_identity(ids, current)
+  local labels = {}
+  for i, id in ipairs(ids) do
+    local label = id:match("^([^@]+)") or id
+    table.insert(labels, ("%d. %s%s"):format(i, label, label == current and "  (current)" or ""))
+  end
+
+  local choice = vim.fn.inputlist(vim.list_extend({ "Rekey to which vault id?" }, labels))
+  if choice < 1 or choice > #ids then
+    return nil, nil
+  end
+
+  return ids[choice], ids[choice]:match("^([^@]+)") or ids[choice]
+end
+
+---Re-encrypts the current file under a different configured vault id.
+---
+---The new password has to be one that outlives this command. Rekeying to a
+---password typed once leaves a file that nothing can open again: ansible
+---resolves credentials from ansible.cfg, the typed password was staged in a
+---temporary file and deleted, and the reload that follows then fails. Verified
+---— a file rekeyed to a password ansible.cfg does not know comes back
+---"Decryption failed (no vault secrets were found that could decrypt)".
+---
+---So the new password comes from vault_identity_list, and the rekey records
+---its label in the file header, which is how ansible finds the right secret on
+---the next open.
 function M.rekey_file()
   local buf = vim.api.nvim_get_current_buf()
   local path = vim.api.nvim_buf_get_name(buf)
 
-  if path == "" or not is_encrypted(buf) then
-    vim.notify("Current buffer is not a saved, vault-encrypted file", vim.log.levels.WARN)
+  if path == "" then
+    vim.notify("Rekey works on a saved file — this buffer has no name", vim.log.levels.WARN)
     return
   end
 
   if vim.bo[buf].modified then
     vim.notify("Save the buffer first — rekey works on the file", vim.log.levels.WARN)
+    return
+  end
+
+  -- The file, not the buffer: under transparent editing the buffer holds
+  -- plaintext and a buffer check would refuse every file this command is for.
+  if not file_is_vault(path) then
+    vim.notify("The file on disk is not vault-encrypted", vim.log.levels.WARN)
     return
   end
 
@@ -607,33 +689,40 @@ function M.rekey_file()
     return
   end
 
-  local new_password = vim.fn.inputsecret("New vault password: ")
-  if new_password == "" then
+  local ids = auth.configured_identities or {}
+  if #ids == 0 then
+    vim.notify(
+      "Rekey needs a new password that outlives this command.\n"
+        .. "Configure vault_identity_list in ansible.cfg and choose the new id here — "
+        .. "rekeying to a password typed once would leave this file unopenable.",
+      vim.log.levels.ERROR
+    )
     return
   end
 
-  -- The new password needs a file of its own, staged the same way as a typed
-  -- password: tmpfs, 0600, removed immediately.
-  local staged, cleanup, stage_err = require("ansible-vault.cli").stage_password_for_rekey(new_password)
-  if not staged then
-    vim.notify(stage_err, vim.log.levels.ERROR)
+  local entry, label = choose_new_identity(ids, vault_label(path))
+  if not entry then
     return
   end
 
   local ok, rekey_err = cli.rekey(path, {
     auth = auth,
     cwd = auth.cwd,
-    new_password_file = staged,
+    new_identity = entry,
   })
-  cleanup()
 
   if not ok then
     vim.notify(rekey_err, vim.log.levels.ERROR)
     return
   end
 
+  -- The ciphertext on disk is different now, so the buffer has to be reloaded
+  -- whatever mode it is in: showing ciphertext, it is stale; holding plaintext,
+  -- its remembered file state no longer matches and the next write would report
+  -- a conflict. With transparent editing the BufReadPost hook decrypts again,
+  -- and it can, because the new id is one ansible resolves for itself.
   vim.cmd.edit({ bang = true })
-  vim.notify("Rekeyed " .. vim.fn.fnamemodify(path, ":t"), vim.log.levels.INFO)
+  vim.notify(("Rekeyed %s to vault id %s"):format(vim.fn.fnamemodify(path, ":t"), label), vim.log.levels.INFO)
 end
 
 --- The one way this plugin writes a file.
