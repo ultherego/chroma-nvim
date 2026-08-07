@@ -53,6 +53,25 @@ local plans = {}
 ---@type table<string, integer>
 local generation = {}
 
+--- Directories with an apply in flight.
+---
+--- An apply cannot be taken back and it is the one operation here that changes
+--- real infrastructure, so for as long as one is running this refuses anything
+--- that could pull the ground out from under it: a second apply handed the same
+--- plan file, a new plan whose bookkeeping unlinks the file being applied, a
+--- discard doing the same, an init rewriting `.terraform` mid-run.
+---
+--- `validate` is deliberately not refused: it reads configuration and provider
+--- schemas, and does not touch state or the backend, so it cannot collide with
+--- an apply. Refusing it would only be theatre.
+---
+--- The audit sketched a full state machine over planning/reviewed/applying.
+--- This is the smaller half of it, and the half that carries the risk: the
+--- planning states are already ordered by `generation`, and only apply mutates
+--- anything outside this process.
+---@type table<string, boolean>
+local applying = {}
+
 --- What the next subprocess will authenticate as.
 ---
 --- Recorded with every plan and compared before apply. The AWS module sets
@@ -181,21 +200,26 @@ end
 ---@param args string[]
 ---@param dir string
 ---@param on_done fun(code: integer, lines: string[])
-local function run(args, dir, on_done)
-  local bin = binary_for(dir)
+---@param binary? string an executable resolved earlier; re-resolved from dir when absent
+---@return vim.SystemObj|nil handle nil when nothing was started
+local function run(args, dir, on_done, binary)
+  local name = binary or binary_for(dir)
+  -- exepath() is idempotent for a path that is already absolute, so this
+  -- accepts both a bare name and a path pinned at plan time. Verified.
+  local bin = vim.fn.executable(name) == 1 and vim.fn.exepath(name) or ""
 
-  if vim.fn.executable(bin) ~= 1 then
-    vim.notify(("`%s` not found on PATH"):format(bin), vim.log.levels.ERROR)
-    return
+  if bin == "" then
+    vim.notify(("`%s` not found on PATH"):format(name), vim.log.levels.ERROR)
+    return nil
   end
 
   local cmd = { bin }
   vim.list_extend(cmd, args)
   vim.list_extend(cmd, M.options.args)
 
-  vim.notify(("Running %s %s…"):format(bin, args[1]), vim.log.levels.INFO)
+  vim.notify(("Running %s %s…"):format(vim.fs.basename(bin), args[1]), vim.log.levels.INFO)
 
-  vim.system(cmd, { cwd = dir, text = true }, function(result)
+  return vim.system(cmd, { cwd = dir, text = true }, function(result)
     local out = (result.stdout or "") .. (result.stderr or "")
     local lines = vim.split(out:gsub("%s+$", ""), "\n", { trimempty = false })
     vim.schedule(function()
@@ -212,9 +236,29 @@ local function plan(destroy)
     return
   end
 
+  if applying[dir] then
+    vim.notify(
+      "An apply is running in this directory — planning now would delete the plan it is applying",
+      vim.log.levels.WARN
+    )
+    return
+  end
+
   local path, err = plan_path()
   if not path then
     vim.notify(err, vim.log.levels.ERROR)
+    return
+  end
+
+  -- Resolve the executable once, here, and record where it resolved to. Saving
+  -- the name would only mean apply looks it up again later, and by then PATH
+  -- may point somewhere else, `terraform` may have been uninstalled leaving
+  -- `tofu` to answer for it, or a terragrunt.hcl may have appeared in the
+  -- directory. None of those three produce the plan that was on screen.
+  local binary_name = binary_for(dir)
+  local binary = vim.fn.exepath(binary_name)
+  if binary == "" then
+    vim.notify(("`%s` not found on PATH"):format(binary_name), vim.log.levels.ERROR)
     return
   end
 
@@ -228,7 +272,6 @@ local function plan(destroy)
   generation[dir] = (generation[dir] or 0) + 1
   local mine = generation[dir]
   local context = aws_context()
-  local binary = binary_for(dir)
 
   run(args, dir, function(code, lines)
     if generation[dir] ~= mine then
@@ -264,7 +307,7 @@ local function plan(destroy)
       pcall(vim.uv.fs_unlink, path)
       vim.notify("Plan failed", vim.log.levels.ERROR)
     end
-  end)
+  end, binary)
 end
 
 function M.plan()
@@ -283,10 +326,31 @@ function M.apply()
     return
   end
 
+  -- The plan survives in `plans[dir]` until the apply callback clears it, so
+  -- without this a second :TerraformApply during a long apply finds it, prompts,
+  -- and hands the same plan file to a second process.
+  if applying[dir] then
+    vim.notify("An apply is already running for this directory", vim.log.levels.WARN)
+    return
+  end
+
   local saved = plans[dir]
   if not saved or not vim.uv.fs_stat(saved.path) then
     plans[dir] = nil
     vim.notify("No reviewed plan for this directory — run :TerraformPlan first", vim.log.levels.WARN)
+    return
+  end
+
+  -- Pinned when the plan was made. If it has since been removed or replaced by
+  -- something non-executable, there is no safe substitute: applying a terraform
+  -- plan with tofu, or bypassing terragrunt, is not the reviewed operation.
+  if vim.fn.executable(saved.binary or "") ~= 1 then
+    vim.notify(
+      ("The executable that created this plan is no longer available (%s).\nRun :TerraformPlan again."):format(
+        saved.binary or "unknown"
+      ),
+      vim.log.levels.ERROR
+    )
     return
   end
 
@@ -318,7 +382,11 @@ function M.apply()
     return
   end
 
-  run({ "apply", "-no-color", "-input=false", saved.path }, dir, function(code, lines)
+  applying[dir] = true
+
+  local process = run({ "apply", "-no-color", "-input=false", saved.path }, dir, function(code, lines)
+    applying[dir] = nil
+
     -- Spent, whatever happened: terraform refuses to reuse a plan file, and
     -- keeping it would only invite applying a stale one.
     discard_plan(dir)
@@ -329,13 +397,27 @@ function M.apply()
     else
       vim.notify("Apply failed", vim.log.levels.ERROR)
     end
-  end)
+  end, saved.binary)
+
+  -- Nothing started, so nothing will arrive to clear the flag. Without this the
+  -- directory stays locked against plan, apply, init and discard for the rest of
+  -- the session.
+  if not process then
+    applying[dir] = nil
+  end
 end
 
 function M.init()
   local dir = root_dir()
   if not dir then
     vim.notify("No .tf or terragrunt.hcl found above this buffer", vim.log.levels.WARN)
+    return
+  end
+
+  -- init rewrites `.terraform/` — providers, modules, backend config — under a
+  -- process that is currently reading it.
+  if applying[dir] then
+    vim.notify("An apply is running in this directory — init would rewrite .terraform under it", vim.log.levels.WARN)
     return
   end
 
@@ -363,12 +445,21 @@ end
 
 ---Discards any reviewed plan without applying it.
 function M.discard()
-  local count = 0
+  local count, held = 0, 0
   for dir, _ in pairs(vim.deepcopy(plans)) do
-    discard_plan(dir)
-    count = count + 1
+    if applying[dir] then
+      -- Unlinking it now would delete the file out from under a running apply.
+      held = held + 1
+    else
+      discard_plan(dir)
+      count = count + 1
+    end
   end
-  vim.notify(("Discarded %d saved plan(s)"):format(count), vim.log.levels.INFO)
+  vim.notify(
+    held > 0 and ("Discarded %d saved plan(s); %d left alone, an apply is using them"):format(count, held)
+      or ("Discarded %d saved plan(s)"):format(count),
+    vim.log.levels.INFO
+  )
 end
 
 --- Internals exposed for the test suite only.
