@@ -259,6 +259,11 @@ plan for that directory is invalidated, so there is nothing left to apply.
 plan, an `init` and a `discard` while one runs. Two overlapping plans are
 ordered by when they were requested, not by which finished first.
 
+**Asking for a plan invalidates the one you already reviewed** — when you ask,
+not when the new plan succeeds. While it runs, an apply is refused; if it ends
+in "No changes" or an error, nothing is left to apply. A new plan is a statement
+that the old picture is out of date, so the old picture does not outlive it.
+
 **What is not guaranteed.** External infrastructure, credentials and remote
 state may still change independently between plan and apply. Terraform itself
 detects state drift when the apply runs; this runner does not, and does not

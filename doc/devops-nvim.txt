@@ -958,6 +958,15 @@ Two plans started in the same directory are ordered by when they were
 requested, not by which process finished first. The older one discards its own
 output rather than replacing a newer plan you have already read.
 
+Asking for a plan invalidates the one already reviewed for that directory, at
+the moment you ask rather than when the new plan succeeds. Requesting a new
+plan says the old picture is out of date, so it stops being appliable straight
+away: while the new plan runs, `:TerraformApply` says so and refuses, and if
+the new plan ends in "No changes" or an error there is nothing to apply
+afterwards either. Without this the previous plan stayed reachable — verified
+against the module, an apply after a plan reporting no changes was handed the
+plan from before it.
+
 AWS credentials                            *devops-nvim-terraform-credentials*
 
 The plan file fixes what terraform will do, not who it does it as. Credentials

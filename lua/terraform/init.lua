@@ -84,6 +84,28 @@ local plans = {}
 ---@type table<string, integer>
 local generation = {}
 
+--- Directories with a plan in flight, holding the generation that claimed them.
+---
+--- `generation` alone was not enough, and the gap between the two is the whole
+--- point of this table. It orders callbacks: it decides which of two plans in
+--- flight is allowed to record its result. It says nothing about the plan that
+--- was reviewed *before* either of them started, which stayed in `plans[dir]`
+--- and stayed appliable for as long as the new plan took to run — and, if the
+--- new plan ended in "No changes" or an error, kept staying appliable
+--- afterwards, because neither of those paths touched it. Verified against the
+--- module with fake binaries: after a plan that reported no changes, apply was
+--- still handed the plan from before it.
+---
+--- Asking for a new plan is a statement that the old one is no longer the
+--- picture you want to act on. So the request itself supersedes it, at the
+--- moment it is made rather than when it succeeds.
+---
+--- The generation is stored rather than a boolean so a finishing plan can only
+--- clear the state it claimed. An older callback arriving late must not
+--- announce that a newer plan has stopped running.
+---@type table<string, integer>
+local planning = {}
+
 --- Directories with an apply in flight.
 ---
 --- An apply cannot be taken back and it is the one operation here that changes
@@ -197,6 +219,15 @@ local function context_differs(a, b)
     return ("AWS identity changed: %s -> %s"):format(show(a.arn), show(b.arn))
   end
   return nil
+end
+
+---Releases a directory claimed by `plan`, if this plan is still the current one.
+---@param dir string
+---@param mine integer the generation that claimed it
+local function finish_planning(dir, mine)
+  if planning[dir] == mine then
+    planning[dir] = nil
+  end
 end
 
 ---Drops a saved plan and removes its file.
@@ -411,10 +442,23 @@ local function plan(destroy)
   generation[dir] = (generation[dir] or 0) + 1
   local mine = generation[dir]
 
+  -- Claimed in the same breath, and for the same reason: from here on there is
+  -- an await before anything else happens, and apply must not walk through it
+  -- and pick up the plan this one is replacing.
+  planning[dir] = mine
+
+  -- The old plan stops being appliable now, not when this one succeeds.
+  -- Asking for a new plan says the old picture is out of date; if this plan
+  -- then fails, or reports no changes, the honest state is "nothing reviewed",
+  -- not "the previous answer still stands".
+  discard_plan(dir)
+
   aws_identity(function(identity, identity_err)
     if generation[dir] ~= mine then
       -- Superseded while the identity lookup was in flight. Nothing has been
-      -- started yet, so there is nothing to clean up but the reservation.
+      -- started yet, so there is nothing to clean up but the reservation —
+      -- which the newer plan has already taken over, making this a no-op.
+      finish_planning(dir, mine)
       return
     end
 
@@ -430,24 +474,29 @@ local function plan(destroy)
 
     local context = aws_context(identity)
 
-    run(args, dir, function(code, lines)
+    local process = run(args, dir, function(code, lines)
       if generation[dir] ~= mine then
         -- A newer plan was started while this one was running. Its output would
         -- be misleading and its file must not become the plan that apply uses.
         pcall(vim.uv.fs_unlink, path)
+        finish_planning(dir, mine)
         return
       end
+
+      -- Past the generation check this callback is the end of this plan's life,
+      -- whichever branch below it takes. Released here rather than on each exit
+      -- so a branch added later cannot forget to, and leave the directory
+      -- refusing every apply for the rest of the session.
+      finish_planning(dir, mine)
 
       -- Showing the plan is not decoration, it is the review step, and a plan
       -- becomes appliable only because it was reviewed. If the window could not
       -- be opened then nothing was read, so this fails closed: the file
-      -- terraform wrote is removed, no plan is recorded, and any previously
-      -- reviewed plan for this directory goes too — it was superseded the
-      -- moment a new one was asked for. Nothing is left that :TerraformApply
-      -- could run.
+      -- terraform wrote is removed and no plan is recorded. The plan this one
+      -- replaced is already gone, discarded when this run was asked for, so
+      -- nothing is left that :TerraformApply could run.
       if not try_show(lines, (" %s plan%s "):format(vim.fs.basename(dir), destroy and " -destroy" or "")) then
         pcall(vim.uv.fs_unlink, path)
-        discard_plan(dir)
         vim.notify(
           "The plan ran, but it could not be shown, so it was discarded unread.\nNothing to apply — run :TerraformPlan again.",
           vim.log.levels.ERROR
@@ -466,10 +515,10 @@ local function plan(destroy)
         -- pre-created with the right mode because terraform replaces it.
         pcall(vim.uv.fs_chmod, path, tonumber("600", 8))
 
-        -- Removes the file of the plan being replaced. Without this each
-        -- superseded plan leaked a file into XDG_RUNTIME_DIR until logout.
-        discard_plan(dir)
-
+        -- Nothing to discard first: the plan this one replaces was dropped, and
+        -- its file unlinked, when this run was asked for. That is also what
+        -- keeps superseded plans from leaking files into XDG_RUNTIME_DIR until
+        -- logout.
         plans[dir] = { path = path, destroy = destroy, context = context, binary = binary }
         vim.notify(
           ("Plan saved%s. Review it, then :TerraformApply%s"):format(
@@ -483,6 +532,13 @@ local function plan(destroy)
         vim.notify("Plan failed", vim.log.levels.ERROR)
       end
     end, binary)
+
+    -- Nothing started, so no callback will arrive to release the claim. Without
+    -- this the directory would refuse every apply for the rest of the session,
+    -- waiting for a plan that is not running. `run` has already said why.
+    if not process then
+      finish_planning(dir, mine)
+    end
   end)
 end
 
@@ -507,6 +563,19 @@ function M.apply()
   -- and hands the same plan file to a second process.
   if applying[dir] then
     vim.notify("An apply is already running for this directory", vim.log.levels.WARN)
+    return
+  end
+
+  -- A plan is being computed for this directory, so there is by definition no
+  -- current reviewed plan: the one that was there has been discarded and the
+  -- replacement has not been read yet. Saying so is better than the bare "no
+  -- reviewed plan" below, which would be true but would read as though the plan
+  -- had gone missing.
+  if planning[dir] then
+    vim.notify(
+      "A new plan is still running for this directory — wait for it, read it, then apply",
+      vim.log.levels.WARN
+    )
     return
   end
 

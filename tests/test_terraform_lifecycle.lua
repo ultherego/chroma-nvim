@@ -357,6 +357,181 @@ T["ordering"]["a slower earlier plan does not overwrite a newer one"] = function
 end
 
 -- ---------------------------------------------------------------------------
+-- Superseded plans
+-- ---------------------------------------------------------------------------
+
+-- `generation` orders two plans against each other. It says nothing about the
+-- plan that was reviewed before either of them started, and that one stayed
+-- appliable — during the new run, and after it if the new run found no changes
+-- or failed. These three cases are the ones that reproduced it: each was run
+-- against the module before the fix and handed apply the superseded plan.
+T["superseding"] = new_set()
+
+--- A fake whose `plan` behaviour is read from control files, so one case can
+--- change what the next plan does. `apply` records the contents of the plan
+--- file it was given, which is what makes "which plan ran" answerable.
+---@param h table
+local function fake_terraform_by_mode(h)
+  h.mode = h.root .. "/mode"
+  h.marker = h.root .. "/marker"
+
+  return h.fake("terraform", {
+    ("mode=$(cat %s 2>/dev/null)"):format(vim.fn.shellescape(h.mode)),
+    ("marker=$(cat %s 2>/dev/null)"):format(vim.fn.shellescape(h.marker)),
+    'if [ "$1" = "apply" ]; then',
+    ('  for a in "$@"; do case "$a" in *.tfplan) printf "applied %%s\\n" "$(cat "$a")" >> %s;; esac; done'):format(
+      vim.fn.shellescape(h.log)
+    ),
+    "  exit 0",
+    "fi",
+    'if [ "$1" = "plan" ]; then',
+    '  [ "$mode" = "slow" ] && sleep 2',
+    '  if [ "$mode" = "none" ]; then exit 0; fi',
+    '  if [ "$mode" = "fail" ]; then exit 1; fi',
+    '  for a in "$@"; do case "$a" in -out=*) echo "$marker" > "${a#-out=}";; esac; done',
+    "  exit 2",
+    "fi",
+    "exit 0",
+  })
+end
+
+---What the next `terraform plan` should do, and what it should write.
+---@param h table
+---@param mode string one of changes, none, fail, slow
+---@param marker string|nil contents of the plan file it writes
+local function next_plan(h, mode, marker)
+  vim.fn.writefile({ mode }, h.mode)
+  if marker then
+    vim.fn.writefile({ marker }, h.marker)
+  end
+end
+
+---Which plan file contents `apply` was handed, if it ran at all.
+---@param h table
+---@return string|nil
+local function applied_marker(h)
+  for _, line in ipairs(h.invocations()) do
+    local marker = line:match("^applied (.*)$")
+    if marker then
+      return marker
+    end
+  end
+  return nil
+end
+
+T["superseding"]["apply is refused while a newer plan is still running"] = function()
+  local h = harness()
+  fake_terraform_by_mode(h)
+  start(h)
+
+  next_plan(h, "changes", "first")
+  terraform.plan()
+  settle("Plan saved")
+  notices = {}
+
+  -- The replacement is slow, so the whole of it is a window in which the old
+  -- plan used to still be reachable.
+  next_plan(h, "slow", "second")
+  terraform.plan()
+  vim.wait(400, function()
+    return false
+  end)
+
+  terraform.apply()
+  eq(said("still running"), true)
+  eq(applied_marker(h), nil)
+
+  settle("Plan saved", "Plan failed")
+end
+
+T["superseding"]["a plan reporting no changes leaves nothing to apply"] = function()
+  local h = harness()
+  fake_terraform_by_mode(h)
+  start(h)
+
+  next_plan(h, "changes", "first")
+  terraform.plan()
+  settle("Plan saved")
+  notices = {}
+
+  -- The configuration was edited so that it now matches reality. The earlier
+  -- plan describes changes the configuration no longer asks for.
+  next_plan(h, "none")
+  terraform.plan()
+  settle("No changes")
+  notices = {}
+
+  terraform.apply()
+  settle("No reviewed plan", "Applied", "Apply failed")
+
+  eq(said("No reviewed plan"), true)
+  eq(applied_marker(h), nil)
+  -- And the superseded file is gone rather than left in the runtime directory.
+  eq(#h.plan_files(), 0)
+end
+
+T["superseding"]["a failed plan leaves nothing to apply"] = function()
+  local h = harness()
+  fake_terraform_by_mode(h)
+  start(h)
+
+  next_plan(h, "changes", "first")
+  terraform.plan()
+  settle("Plan saved")
+  notices = {}
+
+  next_plan(h, "fail")
+  terraform.plan()
+  settle("Plan failed")
+  notices = {}
+
+  terraform.apply()
+  settle("No reviewed plan", "Applied", "Apply failed")
+
+  eq(said("No reviewed plan"), true)
+  eq(applied_marker(h), nil)
+end
+
+-- The claim has to be released on every exit, including the one where the
+-- process is never started at all. A directory stuck in "a plan is running"
+-- would refuse every apply for the rest of the session, waiting for something
+-- that is not running.
+--
+-- Reaching that path takes a real await between resolving the executable and
+-- starting it, which is what strict_aws_identity provides: the STS lookup is a
+-- subprocess, and the binary is deleted while it runs.
+T["superseding"]["the claim is released when the process cannot start"] = function()
+  local h = harness()
+  fake_terraform_by_mode(h)
+  fake_aws(h, { "sleep 1" })
+  vim.fn.writefile({ "a" }, h.sts)
+  start(h, { strict_aws_identity = true })
+
+  next_plan(h, "changes", "first")
+  terraform.plan()
+  settle("Plan saved")
+  notices = {}
+
+  terraform.plan()
+  -- Gone before the identity lookup answers, so `run` finds nothing to start.
+  vim.wait(300, function()
+    return false
+  end)
+  vim.fn.delete(h.bin .. "/terraform")
+
+  settle("not found on PATH")
+  eq(said("not found on PATH"), true)
+  notices = {}
+
+  -- Not "a plan is still running": nothing is. And not the earlier plan either,
+  -- which this attempt superseded before it failed to start.
+  terraform.apply()
+  eq(said("still running"), false)
+  eq(said("No reviewed plan"), true)
+  eq(applied_marker(h), nil)
+end
+
+-- ---------------------------------------------------------------------------
 -- Strict AWS identity
 -- ---------------------------------------------------------------------------
 
