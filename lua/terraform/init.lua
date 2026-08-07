@@ -32,10 +32,26 @@
 
 local M = {}
 
+--- Extra arguments are per subcommand, not global.
+---
+--- A single list for all four commands was wrong twice over. It was appended
+--- after the whole argument list, which for apply put it after the plan file —
+--- terraform parses options before the positional argument, so any non-empty
+--- value broke the one command that must not break. And the commands do not
+--- share an option set: `-lock-timeout` means nothing to validate,
+--- `-upgrade` only exists on init, `-refresh=false` only on plan and apply.
+--- Whatever was put in the shared list was wrong for at least one command.
+---
+--- `global_args` is for the few options every command does accept, such as
+--- `-chdir` style flags or `-no-color` overrides. Per-command lists come after
+--- it, so the more specific one wins where terraform lets a later flag win.
 local defaults = {
   keymaps = false,
-  ---Extra arguments appended to every command.
-  args = {},
+  global_args = {},
+  init_args = {},
+  validate_args = {},
+  plan_args = {},
+  apply_args = {},
 }
 
 M.options = vim.deepcopy(defaults)
@@ -197,6 +213,28 @@ local function show(lines, title)
   vim.keymap.set("n", "q", "<cmd>close<cr>", { buffer = buf, nowait = true, desc = "Close" })
 end
 
+---Assembles the argument list for one subcommand.
+---
+---Order is the point of this function. Our own flags come first, then the
+---user's global arguments, then the user's arguments for this command, and
+---positional arguments last. `terraform apply` takes the plan file as a
+---positional argument and expects options ahead of it, so anything appended
+---blindly to the end of an apply lands in the wrong place.
+---@param command string the subcommand, which also names its option list
+---@param flags string[] our own flags
+---@param positional? string[] arguments that must come last
+---@return string[]
+local function argv(command, flags, positional)
+  local out = { command }
+  vim.list_extend(out, flags)
+  vim.list_extend(out, M.options.global_args or {})
+  -- init_args, validate_args, plan_args, apply_args — named after the
+  -- subcommand so this stays a lookup rather than a branch per command.
+  vim.list_extend(out, M.options[command .. "_args"] or {})
+  vim.list_extend(out, positional or {})
+  return out
+end
+
 ---@param args string[]
 ---@param dir string
 ---@param on_done fun(code: integer, lines: string[])
@@ -215,7 +253,6 @@ local function run(args, dir, on_done, binary)
 
   local cmd = { bin }
   vim.list_extend(cmd, args)
-  vim.list_extend(cmd, M.options.args)
 
   vim.notify(("Running %s %s…"):format(vim.fs.basename(bin), args[1]), vim.log.levels.INFO)
 
@@ -262,10 +299,11 @@ local function plan(destroy)
     return
   end
 
-  local args = { "plan", "-no-color", "-input=false", "-detailed-exitcode", "-out=" .. path }
+  local flags = { "-no-color", "-input=false", "-detailed-exitcode", "-out=" .. path }
   if destroy then
-    table.insert(args, 2, "-destroy")
+    table.insert(flags, 1, "-destroy")
   end
+  local args = argv("plan", flags)
 
   -- Claim this generation before starting. Any plan already running for this
   -- directory becomes stale the moment a newer one is asked for.
@@ -384,7 +422,7 @@ function M.apply()
 
   applying[dir] = true
 
-  local process = run({ "apply", "-no-color", "-input=false", saved.path }, dir, function(code, lines)
+  local process = run(argv("apply", { "-no-color", "-input=false" }, { saved.path }), dir, function(code, lines)
     applying[dir] = nil
 
     -- Spent, whatever happened: terraform refuses to reuse a plan file, and
@@ -421,7 +459,7 @@ function M.init()
     return
   end
 
-  run({ "init", "-no-color", "-input=false" }, dir, function(code, lines)
+  run(argv("init", { "-no-color", "-input=false" }), dir, function(code, lines)
     show(lines, (" %s init "):format(vim.fs.basename(dir)))
     vim.notify(code == 0 and "Initialised" or "Init failed", code == 0 and vim.log.levels.INFO or vim.log.levels.ERROR)
   end)
@@ -434,7 +472,7 @@ function M.validate()
     return
   end
 
-  run({ "validate", "-no-color" }, dir, function(code, lines)
+  run(argv("validate", { "-no-color" }), dir, function(code, lines)
     if code == 0 then
       vim.notify("Configuration is valid", vim.log.levels.INFO)
     else
@@ -465,11 +503,28 @@ end
 --- Internals exposed for the test suite only.
 M._test = {
   context_differs = context_differs,
+  argv = argv,
 }
 
 ---@param opts table|nil
 function M.setup(opts)
-  M.options = vim.tbl_deep_extend("force", vim.deepcopy(defaults), opts or {})
+  opts = opts or {}
+
+  -- `args` was a single list appended to every command, which put it after the
+  -- plan file on apply. Dropping it silently would leave flags the user
+  -- believes are in effect quietly doing nothing.
+  if opts.args ~= nil then
+    vim.notify(
+      "terraform.nvim: `args` is gone — it broke apply and meant different things per command. "
+        .. "Use `global_args`, or `init_args` / `validate_args` / `plan_args` / `apply_args`. "
+        .. "The value given was ignored.",
+      vim.log.levels.WARN
+    )
+    opts = vim.deepcopy(opts)
+    opts.args = nil
+  end
+
+  M.options = vim.tbl_deep_extend("force", vim.deepcopy(defaults), opts)
 
   local commands = {
     TerraformInit = M.init,
