@@ -201,6 +201,59 @@ T["block_at"]["returns nothing for a !vault tag with no ciphertext"] = function(
   eq(block_at({ "key: !vault |", "next: value" }, 1), nil)
 end
 
+-- Regression: the upward scan skips the "left the block" test on the cursor's
+-- own line, so that a `key: !vault |` line does not stop the search before it
+-- starts. That exception let every other top-level line through too, and the
+-- first line after a block resolved to the block above it — :VaultReveal showed
+-- the previous secret rather than saying there was none here.
+local bounded = {
+  "secret: !vault |", -- 1
+  "  $ANSIBLE_VAULT;1.2;AES256", -- 2
+  "  123456", -- 3
+  "normal: hello", -- 4
+  "another: value", -- 5
+}
+
+T["block_at"]["finds the block from its marker line"] = function()
+  local b = block_at(bounded, 1)
+  eq(b.first, 1)
+  eq(b.last, 3)
+end
+
+T["block_at"]["finds the block from the first ciphertext line"] = function()
+  eq(block_at(bounded, 2).first, 1)
+end
+
+T["block_at"]["finds the block from the last ciphertext line"] = function()
+  eq(block_at(bounded, 3).first, 1)
+end
+
+T["block_at"]["returns nothing on the first line after a block"] = function()
+  eq(block_at(bounded, 4), nil)
+end
+
+T["block_at"]["returns nothing on the second line after a block"] = function()
+  eq(block_at(bounded, 5), nil)
+end
+
+-- With a block on either side, a plain line between them belongs to neither.
+T["block_at"]["returns nothing between two blocks"] = function()
+  local between = {
+    "first: !vault |", -- 1
+    "  $ANSIBLE_VAULT;1.2;AES256", -- 2
+    "  aaa", -- 3
+    "plain: value", -- 4
+    "second: !vault |", -- 5
+    "  $ANSIBLE_VAULT;1.2;AES256", -- 6
+    "  bbb", -- 7
+  }
+
+  eq(block_at(between, 4), nil)
+  eq(block_at(between, 1).key, "first")
+  eq(block_at(between, 5).key, "second")
+  eq(block_at(between, 7).key, "second")
+end
+
 -- ---------------------------------------------------------------------------
 -- Exactly one write hook per buffer
 -- ---------------------------------------------------------------------------

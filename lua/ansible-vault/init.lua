@@ -231,7 +231,8 @@ local function harden_buffer(buf)
   vim.bo[buf].buflisted = false
 end
 
----Finds the `!vault` block the cursor is inside or immediately above.
+---Finds the `!vault` block the cursor is in: its `key: !vault |` marker line or
+---any line of the indented body below it. Anywhere else returns nil.
 ---@param buf integer
 ---@param lnum integer 1-indexed
 ---@return table|nil { first, last, indent, ciphertext, key }
@@ -274,6 +275,25 @@ local function block_at(buf, lnum)
   end
 
   if #ciphertext == 0 or not ciphertext[1]:match("^%$ANSIBLE_VAULT") then
+    return nil
+  end
+
+  -- The cursor has to be in the block that was found.
+  --
+  -- The upward scan stops at a non-indented line, but only for lines above the
+  -- cursor: `i < lnum`. That exception exists so the `key: !vault |` line the
+  -- cursor sits on does not stop the search before it starts — and it also let
+  -- any other top-level line through. On the first line after a block, the scan
+  -- walked past it and returned the block above, so :VaultReveal showed the
+  -- previous secret instead of saying there was none under the cursor.
+  -- Verified: with a block on lines 1..3, line 4 resolved to it and line 5 did
+  -- not, which is the giveaway.
+  --
+  -- `lnum < start` cannot happen, since the scan begins at the cursor and moves
+  -- up. It is written out anyway: the condition this returns on is "the cursor
+  -- is inside first..last", and stating half of it would leave the next reader
+  -- working out why.
+  if lnum < start or lnum > last then
     return nil
   end
 
