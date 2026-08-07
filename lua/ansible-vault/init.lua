@@ -104,7 +104,14 @@ local function auth_for(buf)
     return nil, "cancelled"
   end
 
-  return { password = password }
+  -- `cwd` matters just as much on this branch as on the one above, and it was
+  -- missing here. Every caller passes `auth.cwd` to vim.system, so a nil left
+  -- ansible running in Neovim's working directory instead of the project the
+  -- buffer belongs to — the exact confusion context_dir exists to prevent. Open
+  -- a vault from another repository and the wrong ansible.cfg applies: another
+  -- vault_identity_list, other relative password file paths, another set of
+  -- secrets ansible will try.
+  return { password = password, cwd = cwd }
 end
 
 ---Which identity to encrypt with.

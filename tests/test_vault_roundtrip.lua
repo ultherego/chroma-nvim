@@ -106,6 +106,78 @@ T["encrypting a whole buffer produces a decryptable file"] = function()
 end
 
 -- ---------------------------------------------------------------------------
+-- Where the subprocess runs
+-- ---------------------------------------------------------------------------
+
+-- Regression: auth_for computed the project directory correctly and then threw
+-- it away on the one branch where the password is typed rather than configured.
+-- Every caller passes auth.cwd to vim.system, so nil meant ansible ran in
+-- Neovim's working directory — which is the confusion context_dir exists to
+-- prevent, and which decides which ansible.cfg applies.
+--
+-- Driven against a fake `ansible-vault` rather than the real one, because the
+-- question is which directory the subprocess started in, not what it computed.
+T["a prompted password still runs in the project directory"] = function()
+  -- Two projects. Neovim sits in the first; the buffer belongs to the second.
+  local elsewhere = vim.fn.tempname()
+  local project_dir = vim.fn.tempname()
+  vim.fn.mkdir(elsewhere, "p")
+  vim.fn.mkdir(project_dir .. "/group_vars", "p")
+
+  -- An ansible.cfg with no vault settings: enough for context_dir to find the
+  -- project, not enough for a password source, so the prompt branch runs.
+  vim.fn.writefile({ "[defaults]" }, project_dir .. "/ansible.cfg")
+
+  local vault = project_dir .. "/group_vars/vault.yml"
+  vim.fn.writefile({ "$ANSIBLE_VAULT;1.1;AES256", "3132333435" }, vault)
+
+  local bin = vim.fn.tempname()
+  vim.fn.mkdir(bin, "p")
+  local log = bin .. "/cwd"
+  vim.fn.writefile({
+    "#!/bin/sh",
+    ('printf "%%s\\n" "$PWD" >> %s'):format(vim.fn.shellescape(log)),
+    'echo "secret: value"',
+    "exit 0",
+  }, bin .. "/ansible-vault")
+  vim.fn.setfperm(bin .. "/ansible-vault", "rwxr-xr-x")
+
+  local saved = {
+    path = vim.env.PATH,
+    config = vim.env.ANSIBLE_CONFIG,
+    cwd = vim.fn.getcwd(),
+    inputsecret = vim.fn.inputsecret,
+  }
+  vim.env.PATH = bin .. ":" .. vim.env.PATH
+  -- Pins which ansible.cfg ansible-config resolves, so the case does not depend
+  -- on whether the machine running it has one in $HOME.
+  vim.env.ANSIBLE_CONFIG = project_dir .. "/ansible.cfg"
+  vim.fn.inputsecret = function()
+    return PASSWORD
+  end
+
+  vim.cmd.cd(elsewhere)
+  require("ansible-vault").setup({ transparent = false })
+  require("ansible-vault").reload()
+  vim.cmd.edit({ args = { vault } })
+  vim.cmd("VaultView")
+  vim.wait(15000, function()
+    return vim.uv.fs_stat(log) ~= nil
+  end, 50)
+
+  vim.fn.inputsecret = saved.inputsecret
+  vim.env.ANSIBLE_CONFIG = saved.config
+  vim.env.PATH = saved.path
+  vim.cmd.cd(saved.cwd)
+
+  -- Guards against the case passing because both paths happen to be the same.
+  MiniTest.expect.no_equality(vim.uv.fs_realpath(elsewhere), vim.uv.fs_realpath(project_dir))
+
+  local ran_in = vim.fn.readfile(log)[1]
+  eq(vim.uv.fs_realpath(ran_in), vim.uv.fs_realpath(project_dir))
+end
+
+-- ---------------------------------------------------------------------------
 -- Converting an existing plaintext file into a vault
 -- ---------------------------------------------------------------------------
 --
