@@ -1,13 +1,4 @@
 -- Tests for the formatting layer.
---
--- This is the first suite that touches lua/plugins/, and it does so without
--- loading a single plugin: a lazy.nvim spec is an ordinary table, so the keymap
--- callbacks in it can be pulled out and called directly. The commands they run
--- are real — lua/config/commands.lua defines them and depends on nothing.
---
--- What is deliberately not tested here is conform itself. These cases are about
--- the decisions this configuration makes before conform is involved: which flag
--- a toggle owns, and which formatter is chosen for a Terraform file.
 
 local new_set = MiniTest.new_set
 local eq = MiniTest.expect.equality
@@ -50,7 +41,6 @@ local T = new_set({
 
 -- ---------------------------------------------------------------------------
 -- The global toggle owns the global flag, and only it
--- ---------------------------------------------------------------------------
 
 T["global toggle"] = new_set()
 
@@ -70,11 +60,8 @@ T["global toggle"]["enables when the global flag is set"] = function()
   eq(vim.b.disable_autoformat, nil)
 end
 
--- Regression. The toggle used to read the buffer-local flag first and then run
--- a global command: with formatting off in this buffer and nothing set
--- globally, it ran :FormatEnable, clearing a global flag that was already
--- clear. The local flag stayed set, so formatting remained off and the key
--- looked like it had done nothing.
+-- Regression: the toggle read the buffer-local flag but ran a global command, so
+-- with formatting off here and nothing set globally it cleared an already-clear flag.
 T["global toggle"]["disables globally even when this buffer is already off"] = function()
   vim.b.disable_autoformat = true
 
@@ -85,9 +72,8 @@ T["global toggle"]["disables globally even when this buffer is already off"] = f
   eq(vim.b.disable_autoformat, true)
 end
 
--- The same confusion in the other direction: a buffer explicitly enabled while
--- the global flag is set. `false` is not `nil`, so the old code took it as the
--- state to invert and disabled globally instead of enabling.
+-- The same confusion the other way: `false` is not `nil`, so a buffer explicitly
+-- enabled made the old code disable globally instead of enabling.
 T["global toggle"]["enables globally even when this buffer is explicitly on"] = function()
   vim.g.disable_autoformat = true
   vim.b.disable_autoformat = false
@@ -100,7 +86,6 @@ end
 
 -- ---------------------------------------------------------------------------
 -- Which Terraform formatter gets picked
--- ---------------------------------------------------------------------------
 
 T["terraform formatter"] = new_set({
   hooks = {
@@ -140,9 +125,8 @@ T["terraform formatter"]["uses terraform_fmt when it is the only one"] = functio
   eq(chooser()(0), { "terraform_fmt" })
 end
 
--- The case this exists for. `:checkhealth devops` has always accepted `tofu`
--- alone as meaning ".tf files can be formatted"; until now that was only true
--- if terraform was installed.
+-- The case this exists for: health has always accepted `tofu` alone as meaning
+-- ".tf files can be formatted", which until now was true only of terraform.
 T["terraform formatter"]["falls back to tofu_fmt when terraform is missing"] = function()
   conform_with({ "tofu_fmt" })
   eq(chooser()(0), { "tofu_fmt" })
@@ -160,7 +144,6 @@ end
 
 -- The names above are strings, and a typo in one would make this whole layer
 -- quietly format nothing while every case with a stubbed conform still passed.
--- So they are checked against the conform that is actually installed.
 T["terraform formatter"]["names formatters conform actually ships"] = function()
   local root = vim.fs.joinpath(vim.fn.stdpath("data"), "lazy", "conform.nvim")
   if not vim.uv.fs_stat(root) then
@@ -174,7 +157,6 @@ end
 
 -- ---------------------------------------------------------------------------
 -- The buffer toggle owns the buffer's flag, and only it
--- ---------------------------------------------------------------------------
 
 T["buffer toggle"] = new_set()
 

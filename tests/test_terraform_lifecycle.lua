@@ -1,15 +1,4 @@
 -- Execution lifecycle tests for terraform.nvim.
---
--- These drive the module against fake `terraform` and `aws` executables rather
--- than the real ones. That is deliberate and not a compromise: every property
--- worth protecting here is about what this plugin does around the subprocess —
--- which binary it picks, whether a second apply can start, which plan file
--- survives a race, what happens when the review window cannot open. A real
--- terraform would add minutes, require credentials and infrastructure, and
--- test none of it.
---
--- The fakes log what they were invoked as, so assertions are made on the
--- command that actually ran rather than on what the module said it would do.
 
 local new_set = MiniTest.new_set
 local eq = MiniTest.expect.equality
@@ -209,8 +198,6 @@ local function start(h, opts)
 end
 
 ---Configures the plugin without clearing what it said, which `start` does.
----Option validation happens at configuration time, so its messages are the
----thing under test.
 ---@param opts table
 local function configure(opts)
   terraform.setup(opts)
@@ -218,7 +205,6 @@ end
 
 -- ---------------------------------------------------------------------------
 -- Which executable runs
--- ---------------------------------------------------------------------------
 
 T["executable"] = new_set()
 
@@ -264,7 +250,6 @@ end
 
 -- ---------------------------------------------------------------------------
 -- Serialised apply
--- ---------------------------------------------------------------------------
 
 T["serialisation"] = new_set()
 
@@ -327,7 +312,6 @@ end
 
 -- ---------------------------------------------------------------------------
 -- Ordering between concurrent plans
--- ---------------------------------------------------------------------------
 
 T["ordering"] = new_set()
 
@@ -366,18 +350,13 @@ end
 
 -- ---------------------------------------------------------------------------
 -- Superseded plans
--- ---------------------------------------------------------------------------
 
--- `generation` orders two plans against each other. It says nothing about the
--- plan that was reviewed before either of them started, and that one stayed
--- appliable — during the new run, and after it if the new run found no changes
--- or failed. These three cases are the ones that reproduced it: each was run
--- against the module before the fix and handed apply the superseded plan.
+-- `generation` orders two plans against each other, and says nothing about the
+-- plan reviewed before either of them started.
 T["superseding"] = new_set()
 
 --- A fake whose `plan` behaviour is read from control files, so one case can
 --- change what the next plan does. `apply` records the contents of the plan
---- file it was given, which is what makes "which plan ran" answerable.
 ---@param h table
 local function fake_terraform_by_mode(h)
   h.mode = h.root .. "/mode"
@@ -507,12 +486,6 @@ end
 
 -- The claim has to be released on every exit, including the one where the
 -- process is never started at all. A directory stuck in "a plan is running"
--- would refuse every apply for the rest of the session, waiting for something
--- that is not running.
---
--- Reaching that path takes a real await between resolving the executable and
--- starting it, which is what strict_aws_identity provides: the STS lookup is a
--- subprocess, and the binary is deleted while it runs.
 T["superseding"]["the claim is released when the process cannot start"] = function()
   local h = harness()
   fake_terraform_by_mode(h)
@@ -546,7 +519,6 @@ end
 
 -- ---------------------------------------------------------------------------
 -- Who owns which command-line arguments
--- ---------------------------------------------------------------------------
 
 T["arguments"] = new_set()
 
@@ -558,10 +530,8 @@ local function invocation(h, verb)
   return h.calls(verb)[1] and h.calls(verb)[1]:match("^%S+%s+(.*)$") or nil
 end
 
--- terraform documents `terraform [global options] <subcommand> [args]`, and
--- -chdir has to precede the subcommand. These were appended after it, which is
--- not where terraform looks — so the one option the name was chosen for could
--- not have worked.
+-- terraform documents `terraform [global options] <subcommand> [args]`, so global
+-- options appended after the subcommand land where it does not look for them.
 T["arguments"]["global arguments come before the subcommand"] = function()
   local h = harness()
   fake_terraform_by_mode(h)
@@ -593,10 +563,8 @@ T["arguments"]["-chdir is dropped from global arguments"] = function()
   eq(args:find("-chdir", 1, true), nil)
 end
 
--- The runner's headline promise is that a destroy is visible: the review window
--- is marked and the confirmation has to be typed out as "destroy". A -destroy
--- in plan_args produced a destroy plan while the runner went on believing it
--- was an ordinary one.
+-- The runner's headline promise is that a destroy is visible: the review window is
+-- marked and the confirmation has to be typed out.
 T["arguments"]["-destroy in plan_args is dropped"] = function()
   local h = harness()
   fake_terraform_by_mode(h)
@@ -681,14 +649,10 @@ end
 
 -- ---------------------------------------------------------------------------
 -- The reviewed plan as an artefact
--- ---------------------------------------------------------------------------
 
 T["integrity"] = new_set()
 
 -- Regression: the chmod was wrapped in pcall, which catches nothing here.
--- fs_chmod reports failure by returning nil and an error rather than raising,
--- so pcall reported success whatever happened and a plan the runner could not
--- protect was saved as though it had been.
 T["integrity"]["a plan that cannot be protected is discarded"] = function()
   local h = harness()
   fake_terraform_by_mode(h)
@@ -808,11 +772,8 @@ T["integrity"]["a plan replaced with same-size contents is refused"] = function(
   eq(applied_marker(h), nil)
 end
 
--- The digest is taken before the review and again after it, and the pair has to
--- match. The review is synchronous, so the only way to be the process that
--- touches the file in between is to act from inside it: show() ends by mapping
--- `q` in the output buffer, which puts this exactly between the two digests.
--- Coupled to an implementation detail on purpose — there is no other moment.
+-- The digest is taken before the review and again after, and the pair has to match.
+-- The review is synchronous, so only something inside show() can change the file.
 T["integrity"]["a plan that changes while being reviewed is discarded"] = function()
   local h = harness()
   fake_terraform_by_mode(h)
@@ -859,14 +820,9 @@ end
 
 -- ---------------------------------------------------------------------------
 -- init against the rest of the lifecycle
--- ---------------------------------------------------------------------------
 
--- init was serialised against apply and nothing else, so it could run beside a
--- plan, and two inits could run at once. Verified against the module before the
--- fix: an init started during a plan ran concurrently, both reporting success.
---
--- What it rewrites is `.terraform/` — providers, modules, backend config —
--- which is what plan reads and what validate takes its schemas from.
+-- init was serialised against apply and nothing else, so it could run beside a plan,
+-- and two inits could rewrite the same directory at once.
 T["init"] = new_set()
 
 T["init"]["is refused while a plan is running"] = function()
@@ -1001,7 +957,6 @@ end
 
 -- The claim is taken before the process starts, so the path where nothing
 -- starts has to release it too. Here the binary is simply gone, which `run`
--- discovers after the directory has already been claimed.
 T["init"]["the claim is released when the process cannot start"] = function()
   local h = harness()
   fake_terraform_by_mode(h)
@@ -1040,7 +995,6 @@ end
 
 -- ---------------------------------------------------------------------------
 -- Strict AWS identity
--- ---------------------------------------------------------------------------
 
 T["strict identity"] = new_set()
 
@@ -1146,9 +1100,8 @@ T["strict identity"]["treats a missing aws CLI as a quiet skip"] = function()
   eq(said("Could not determine"), false)
 end
 
--- The identity lookup is an await between the "already running" guard and the
--- start of the process. Without the directory claimed across it, two applies
--- both walk through to the same plan file.
+-- The identity lookup is an await between the "already running" guard and the start
+-- of the process, so the directory has to be claimed across it.
 T["strict identity"]["a second apply during the lookup is refused"] = function()
   local h = harness()
   fake_terraform(h)
@@ -1171,9 +1124,8 @@ T["strict identity"]["a second apply during the lookup is refused"] = function()
   eq(#h.calls("apply"), 1)
 end
 
--- Claiming the generation after the lookup would order plans by how quickly
--- STS answered rather than by when they were requested, and the older plan
--- would win. The newer one must, and the older must not even start terraform.
+-- Claiming the generation after the lookup would order plans by how quickly STS
+-- answered rather than by when they were asked for.
 T["strict identity"]["the lookup does not invert plan ordering"] = function()
   local h = harness()
   fake_terraform(h)
@@ -1206,7 +1158,6 @@ end
 
 -- ---------------------------------------------------------------------------
 -- Review rendering
--- ---------------------------------------------------------------------------
 
 T["review"] = new_set()
 
@@ -1302,9 +1253,8 @@ T["review"]["the state is released, so planning works again"] = function()
   eq(said("Applied"), true)
 end
 
--- The exception used to escape the async callback and take the outcome
--- notification with it, leaving an operation that changed infrastructure
--- reporting nothing at all.
+-- The exception used to escape the async callback and take the outcome notification
+-- with it, leaving an operation that changed infrastructure unreported.
 T["review"]["a failed window still reports the outcome"] = function()
   local h = harness()
   fake_terraform(h)

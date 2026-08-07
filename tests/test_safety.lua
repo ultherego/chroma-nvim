@@ -1,18 +1,5 @@
 -- Tests for the logic that decides whether a secret leaks or an apply runs
 -- against the wrong account.
---
--- Deliberately narrow. There is no value in testing that conform formats Lua —
--- conform has its own tests. What is worth testing is the code written here,
--- and specifically the parts where being wrong is expensive:
---
---   * parsing another tool's output, which changes without warning
---   * recognising an encrypted block, which decides whether plaintext is
---     written to disk
---   * detecting that credentials changed between planning and applying
---   * detecting credentials that silently override the selected profile
---
--- Run with:  nvim --headless --noplugin -u tests/minimal_init.lua \
---                 -c "lua MiniTest.run()"
 
 local new_set = MiniTest.new_set
 local eq = MiniTest.expect.equality
@@ -21,7 +8,6 @@ local T = new_set()
 
 -- ---------------------------------------------------------------------------
 -- ansible-config output parsing
--- ---------------------------------------------------------------------------
 
 T["parse_dump"] = new_set()
 
@@ -69,7 +55,6 @@ end
 
 -- ---------------------------------------------------------------------------
 -- Recognising an encrypted buffer
--- ---------------------------------------------------------------------------
 
 T["is_encrypted"] = new_set()
 
@@ -114,15 +99,12 @@ end
 
 -- ---------------------------------------------------------------------------
 -- Where ansible.cfg is looked for
--- ---------------------------------------------------------------------------
 
 T["context_dir"] = new_set()
 
 T["context_dir"]["returns a string for a buffer"] = function()
-  -- The regression this guards against: callers were changed to pass a buffer
-  -- while the function they called still took a directory, so a buffer number
-  -- reached vim.system as its cwd. It failed as a notification about ansible
-  -- rather than as a type error, which hid it completely.
+  -- The regression this guards against: a buffer number reached vim.system as its
+  -- cwd, and the failure read like an ansible problem.
   local r = with_lines({ "---" }, function(buf)
     return require("ansible-vault")._test.context_dir(buf)
   end)
@@ -147,7 +129,6 @@ end
 
 -- ---------------------------------------------------------------------------
 -- Finding the inline !vault block under the cursor
--- ---------------------------------------------------------------------------
 
 T["block_at"] = new_set()
 
@@ -201,11 +182,8 @@ T["block_at"]["returns nothing for a !vault tag with no ciphertext"] = function(
   eq(block_at({ "key: !vault |", "next: value" }, 1), nil)
 end
 
--- Regression: the upward scan skips the "left the block" test on the cursor's
--- own line, so that a `key: !vault |` line does not stop the search before it
--- starts. That exception let every other top-level line through too, and the
--- first line after a block resolved to the block above it — :VaultReveal showed
--- the previous secret rather than saying there was none here.
+-- Regression: the scan's exception for the cursor's own line also let the first
+-- line after a block resolve to the block above it.
 local bounded = {
   "secret: !vault |", -- 1
   "  $ANSIBLE_VAULT;1.2;AES256", -- 2
@@ -256,7 +234,6 @@ end
 
 -- ---------------------------------------------------------------------------
 -- Exactly one write hook per buffer
--- ---------------------------------------------------------------------------
 
 T["attach_writer"] = new_set()
 
@@ -282,8 +259,6 @@ end
 
 T["attach_writer"]["stays at one across repeated attaches"] = function()
   -- A buffer is decrypted again on every `:edit!`, and each decrypt attaches.
-  -- Without clearing first, one `:write` ran the whole encrypt-and-persist
-  -- sequence once per reload.
   local buf = vim.api.nvim_create_buf(true, false)
   vim.api.nvim_buf_set_name(buf, vim.fn.tempname())
 
@@ -298,7 +273,6 @@ end
 
 -- ---------------------------------------------------------------------------
 -- Noticing that the file changed underneath us
--- ---------------------------------------------------------------------------
 
 T["file_changed_since_read"] = new_set()
 
@@ -330,9 +304,8 @@ T["file_changed_since_read"]["says nothing when the file is untouched"] = functi
 end
 
 T["file_changed_since_read"]["notices a changed size"] = function()
-  -- Vault buffers carry 'noswapfile' and a BufWriteCmd, which between them
-  -- remove both of Neovim's protections against two editors clobbering each
-  -- other. This is the replacement, so it has to actually fire.
+  -- Vault buffers carry 'noswapfile' and a BufWriteCmd, which between them remove
+  -- both of Neovim's protections against two editors clobbering each other.
   local r = with_file("one\ntwo", function(buf, path)
     vault().remember_file_state(buf)
     vim.fn.writefile({ "one", "two", "three", "four" }, path)
@@ -360,8 +333,6 @@ end
 
 -- The fingerprint was whole seconds and size, and this is what that missed: a
 -- second writer landing inside the same second with a file of the same length.
--- Both fields compare equal, the conflict check passes, and the other writer's
--- change is overwritten in silence.
 T["file_changed_since_read"]["notices a same-second change of the same size"] = function()
   local r = with_file("aaaa", function(buf, path)
     vault().remember_file_state(buf)
@@ -380,9 +351,8 @@ T["file_changed_since_read"]["notices a same-second change of the same size"] = 
   eq(type(r), "string")
 end
 
--- A careful writer replaces a file rather than rewriting it, which produces a
--- new inode and can carry any timestamp it likes afterwards. Nanoseconds alone
--- would not see this.
+-- A careful writer replaces a file rather than rewriting it: a new inode, carrying
+-- any timestamp it likes, which nanoseconds alone would miss.
 T["file_changed_since_read"]["notices an atomic replacement with the timestamp restored"] = function()
   local r = with_file("one", function(buf, path)
     vault().remember_file_state(buf)
@@ -399,7 +369,6 @@ end
 
 -- ---------------------------------------------------------------------------
 -- Atomic replacement refuses to break hard links
--- ---------------------------------------------------------------------------
 
 T["write_atomically"] = new_set()
 
@@ -417,8 +386,6 @@ end
 
 -- rename() replaces one name. Every other name for that inode keeps the old
 -- contents, so saving through one of them leaves the others quietly stale.
--- Writing in place instead would keep the links and give up the protection
--- against a truncated vault, so this refuses rather than choosing for the user.
 T["write_atomically"]["refuses a file with more than one link"] = function()
   local dir = vim.fn.tempname()
   vim.fn.mkdir(dir, "p")
@@ -451,7 +418,6 @@ end
 
 -- ---------------------------------------------------------------------------
 -- Encrypting a range, not whatever was selected last
--- ---------------------------------------------------------------------------
 
 T["encrypt_selection"] = new_set()
 
@@ -467,10 +433,8 @@ local capture_notify = function(fn)
 end
 
 T["encrypt_selection"]["refuses without a range"] = function()
-  -- It used to read the '< and '> marks, which outlive the selection that set
-  -- them. Invoking it from normal mode then encrypted whatever had last been
-  -- selected, wherever the cursor was — leaving the value you meant to protect
-  -- in the clear and encrypting an unrelated one instead.
+  -- It used to read the '< and '> marks, which outlive their selection, so from
+  -- normal mode it encrypted whatever had last been selected.
   local notified = capture_notify(require("ansible-vault").encrypt_selection)
   eq(type(notified), "string")
   eq(notified:find("needs a range") ~= nil, true)
@@ -485,7 +449,6 @@ end
 
 -- ---------------------------------------------------------------------------
 -- setup() options actually take effect
--- ---------------------------------------------------------------------------
 
 T["setup"] = new_set({
   hooks = {
@@ -507,10 +470,8 @@ T["setup"]["registers transparent editing when asked"] = function()
 end
 
 T["setup"]["removes it when asked, even after enabling"] = function()
-  -- The bug this guards against: only the enabling branch touched the augroup,
-  -- so a later setup with transparent = false left the earlier autocmds in
-  -- place. The option looked respected and was not — which quietly invalidated
-  -- every test that thought it had transparent editing switched off.
+  -- The bug this guards against: only the enabling branch touched the augroup, so
+  -- `transparent = false` left the earlier autocmds in place.
   require("ansible-vault").setup({ transparent = true })
   require("ansible-vault").setup({ transparent = false })
   eq(transparent_autocmds(), 0)
@@ -518,7 +479,6 @@ end
 
 -- ---------------------------------------------------------------------------
 -- Credential drift between plan and apply
--- ---------------------------------------------------------------------------
 
 T["context_differs"] = new_set()
 
@@ -559,7 +519,6 @@ end
 
 -- ---------------------------------------------------------------------------
 -- Credentials that override the selected AWS profile
--- ---------------------------------------------------------------------------
 
 T["overriding_credentials"] = new_set({
   hooks = {

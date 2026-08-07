@@ -1,16 +1,4 @@
 -- Integration tests for ansible-vault.nvim, against the real CLI.
---
--- These exist because of what the audit found. Every one of the seven defects
--- in these modules was in an integration path — a signature that no longer
--- matched its callers, a write hook that was never attached, an option that did
--- not disable anything, a rename that ate a symlink. The unit tests cover pure
--- functions and would not have caught a single one of them.
---
--- So each case here reproduces one of those failures. If any of them regresses,
--- a test goes red rather than a secret going to disk in the clear.
---
--- Skipped when ansible is not installed, rather than failing: the suite still
--- has to be runnable on a machine that does not have it.
 
 local new_set = MiniTest.new_set
 local eq = MiniTest.expect.equality
@@ -107,16 +95,9 @@ end
 
 -- ---------------------------------------------------------------------------
 -- Where the subprocess runs
--- ---------------------------------------------------------------------------
 
 -- Regression: auth_for computed the project directory correctly and then threw
 -- it away on the one branch where the password is typed rather than configured.
--- Every caller passes auth.cwd to vim.system, so nil meant ansible ran in
--- Neovim's working directory — which is the confusion context_dir exists to
--- prevent, and which decides which ansible.cfg applies.
---
--- Driven against a fake `ansible-vault` rather than the real one, because the
--- question is which directory the subprocess started in, not what it computed.
 T["a prompted password still runs in the project directory"] = function()
   -- Two projects. Neovim sits in the first; the buffer belongs to the second.
   local elsewhere = vim.fn.tempname()
@@ -179,12 +160,6 @@ end
 
 -- ---------------------------------------------------------------------------
 -- Converting an existing plaintext file into a vault
--- ---------------------------------------------------------------------------
---
--- :VaultEncryptFile used to replace the buffer's contents and stop there. On a
--- file that had never been a vault that left three things undone, and all three
--- are the same problem: the plaintext this command exists to remove was still
--- reachable afterwards.
 
 --- A project whose ansible.cfg has a password file, holding a plaintext file
 --- that has never been encrypted — the case :VaultEncryptFile is for.
@@ -255,10 +230,8 @@ T["conversion"]["hardens the buffer and installs one writer"] = function()
   eq(vim.b[buf].ansible_vault_plain, nil)
 end
 
--- The undo file is the reason this command needed reworking. 'undofile' is
--- consulted when the undo file is written, so switching it off stops new ones
--- appearing — it does not remove the one already on disk, and that one holds
--- every earlier state of the buffer.
+-- The undo file is why this command needed reworking: switching 'undofile' off stops
+-- new ones appearing and removes nothing already on disk.
 T["conversion"]["removes the persistent undo file holding the plaintext"] = function()
   local _, file = plaintext_project("---\nsecret: undo-marker-value\n")
   local buf = open_plaintext(file)
@@ -277,9 +250,8 @@ T["conversion"]["removes the persistent undo file holding the plaintext"] = func
   eq(vim.uv.fs_stat(undo), nil)
 end
 
--- Fail closed. Completing the conversion would mean announcing a vault while a
--- plaintext copy of it stays on disk, which is the failure this command is
--- supposed to prevent rather than one it may cause.
+-- Fail closed: completing the conversion would announce a vault while a plaintext
+-- copy of it stayed on disk.
 T["conversion"]["refuses when the undo file cannot be removed"] = function()
   local _, file = plaintext_project("---\nsecret: stays-plain\n")
 
@@ -325,11 +297,8 @@ T["conversion"]["refuses when the undo file cannot be removed"] = function()
   eq(vim.bo[buf].undofile, false)
 end
 
--- Proves the write actually goes through persist() rather than Neovim's own
--- write path — which is also what keeps Neovim from making a backup copy of
--- the plaintext file it is replacing. 'backup' and 'writebackup' are global
--- options and cannot be turned off per buffer; taking the write over is what
--- replaces them.
+-- Proves the write goes through persist() rather than Neovim's own path, which is
+-- also what keeps it from backing up the plaintext file it replaces.
 T["conversion"]["the first write goes through the guarded path"] = function()
   local dir, file = plaintext_project("---\nsecret: plain-value\n")
   local buf = open_plaintext(file)
@@ -341,10 +310,6 @@ T["conversion"]["the first write goes through the guarded path"] = function()
 
   -- 'backup' is kept rather than deleted after the write, so the copy is
   -- visible afterwards instead of only existing for the duration of the write.
-  -- 'backupskip' has to go too: it covers /tmp/* by default, and these fixtures
-  -- live in a temporary directory, so leaving it would make the assertion below
-  -- pass for a reason that has nothing to do with this plugin. Checked — with
-  -- the writer removed and backupskip left alone, no backup appears either.
   local saved_backup, saved_skip = vim.o.backup, vim.o.backupskip
   vim.o.backup = true
   vim.o.backupskip = ""
@@ -368,16 +333,12 @@ T["conversion"]["a file changed underneath refuses the write"] = function()
   vim.cmd("VaultEncryptFile")
   wait_for_ciphertext(buf)
 
-  -- Asserted before the write, not after, and deliberately. Without the writer
-  -- the `:write` below goes back to Neovim's own path, which asks "the file has
-  -- changed since reading it, write anyway?" — and in a headless run that
-  -- question blocks forever. Checking here turns that regression into a failing
-  -- expectation instead of a CI job that times out.
+  -- Asserted before the write on purpose: without the writer, `:write` falls back to
+  -- Neovim's path and blocks on its changed-file prompt, which no headless run answers.
   eq(writers_for(buf), 1)
 
-  -- Another writer lands between the conversion and the write. The fingerprint
-  -- was taken of the plaintext file during the conversion, so this differs from
-  -- it in size as well as in mtime.
+  -- Another writer lands between the conversion and the write, differing from the
+  -- fingerprint in size as well as in mtime.
   vim.fn.writefile({ "---", "secret: someone-else" }, file)
 
   local notices = {}
@@ -480,9 +441,8 @@ T["a file changed underneath refuses the write"] = function()
 
   vim.api.nvim_buf_set_lines(0, -1, -1, false, { "from: us" })
 
-  -- The refusal propagates out of BufWriteCmd, so `:write` fails rather than
-  -- appearing to succeed. That is the behaviour we want — `:wq` aborts instead
-  -- of quitting with unsaved changes — so the test asserts on it.
+  -- The refusal propagates out of BufWriteCmd, so `:write` fails rather than appearing
+  -- to succeed and `:wq` aborts instead of quitting with unsaved changes.
   local wrote = pcall(vim.cmd, "silent write")
   vim.wait(5000)
 
@@ -495,9 +455,8 @@ T["a file changed underneath refuses the write"] = function()
 end
 
 T["repeated writes keep working"] = function()
-  -- The guard above was first written without refreshing the remembered state,
-  -- which made the second save impossible — a worse failure than the one it
-  -- prevents.
+  -- The guard above was first written without refreshing the remembered state, which
+  -- made the second save impossible.
   local dir, vault = project("---\none: 1\n")
 
   open_with(vault, { transparent = true })
@@ -519,11 +478,9 @@ end
 
 -- ---------------------------------------------------------------------------
 -- Rekey
--- ---------------------------------------------------------------------------
 
 --- A project whose ansible.cfg knows two vault ids, with the file encrypted
 --- under the first. This is the shape rekey needs: the new password has to come
---- from somewhere that outlives the command.
 ---@return string dir, string vault
 local function two_identity_project()
   local dir = vim.fn.tempname()
@@ -556,8 +513,6 @@ local function header_label(path)
 end
 
 -- Regression: rekey gated on is_encrypted(buf), which inspects buffer contents.
--- Under transparent editing the buffer holds plaintext, so the command refused
--- on precisely the files it exists for.
 T["rekey works on a transparently decrypted buffer"] = function()
   local dir, vault = two_identity_project()
   eq(header_label(vault), "old")
@@ -589,9 +544,8 @@ T["rekey works on a transparently decrypted buffer"] = function()
   eq(said:find("Rekeyed") ~= nil, true)
   eq(header_label(vault), "new")
 
-  -- Still readable, and readable as plaintext in the buffer after the reload
-  -- that follows — which is only possible because the new id is one ansible
-  -- resolves for itself.
+  -- Still readable, and still decrypted in the buffer after the reload, which only
+  -- works because ansible resolves the new id for itself.
   eq(decrypt_externally(dir, vault):find("key: value") ~= nil, true)
   eq(vim.api.nvim_buf_get_lines(0, 0, 1, false)[1], "key: value")
 end
@@ -613,9 +567,8 @@ T["rekey leaves the old password unable to open the file"] = function()
 
   eq(header_label(vault), "new")
 
-  -- Asked away from the project, so ansible.cfg cannot quietly supply the new
-  -- secret: --vault-id adds to the configured list rather than replacing it,
-  -- which makes an in-project check meaningless here.
+  -- Asked away from the project: --vault-id adds to the list from ansible.cfg rather
+  -- than replacing it, so an in-project check would prove nothing.
   local elsewhere = vim.fn.tempname()
   vim.fn.mkdir(elsewhere, "p")
   vim.fn.writefile(vim.fn.readfile(vault), elsewhere .. "/f.yml")
@@ -645,15 +598,6 @@ end
 
 -- Regression: rekey went straight to the CLI and so was the one mutating path
 -- that skipped the hard-link policy the writer enforces.
---
--- This is not the writer's failure mode repeated. Writing renames over one
--- name and leaves the others stale, which is recoverable. ansible-vault shreds
--- the inode before unlinking it, so the data behind the other name is
--- overwritten with random bytes. Measured against ansible-core 2.21.2: the
--- second name came back 4096 bytes long and no longer vault data at all.
---
--- The assertions below are therefore about the untouched name as much as about
--- the refusal.
 T["rekey refuses a file with hard links, leaving both names intact"] = function()
   local dir, vault = two_identity_project()
 
@@ -669,12 +613,8 @@ T["rekey refuses a file with hard links, leaving both names intact"] = function(
     return vim.api.nvim_buf_get_lines(0, 0, 1, false)[1] == "key: value"
   end, 100)
 
-  -- Answers the identity prompt for real rather than cancelling it. That is
-  -- what gives the assertions below their force: with the guard removed this
-  -- case does not merely reach a question it should not have reached, it goes
-  -- on to perform the rekey — and a rekey through a hard link is what leaves
-  -- the other name unrecoverable. Removing the guard was tried: the case fails
-  -- at the missing refusal, which is the first expectation it reaches.
+  -- Answers the identity prompt for real, so with the guard removed the rekey happens
+  -- and the assertions below have something to catch.
   local asked = false
   local input = vim.fn.inputlist
   vim.fn.inputlist = function()

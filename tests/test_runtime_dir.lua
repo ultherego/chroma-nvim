@@ -1,13 +1,4 @@
 -- The XDG runtime directory check, in both of the places it lives.
---
--- ansible-vault.nvim and terraform.nvim each carry their own copy of this
--- policy. That is deliberate — see DECISIONS.md, "The runtime-directory check
--- is duplicated on purpose" — and the price of it is that the two can drift
--- apart. This file is what stops that being discovered by a user.
---
--- Every case runs against both copies and asserts they reached the same
--- verdict, so a change made in one and forgotten in the other fails here rather
--- than leaving one module writing secrets somewhere the other would refuse.
 
 local new_set = MiniTest.new_set
 local eq = MiniTest.expect.equality
@@ -149,7 +140,6 @@ end
 
 -- ---------------------------------------------------------------------------
 -- The callers refuse rather than falling back
--- ---------------------------------------------------------------------------
 
 T["callers"] = new_set()
 

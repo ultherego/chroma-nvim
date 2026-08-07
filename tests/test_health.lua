@@ -1,13 +1,4 @@
 -- Tests for `:checkhealth devops`.
---
--- Driven through the real command rather than by reaching into the module, for
--- two reasons. The functions that matter are local to it, and the thing worth
--- protecting is the report a user actually sees — a check that exists but never
--- reaches the output is no check at all.
---
--- The assertions are about which questions are asked, not about the answers.
--- Whether `unzip` happens to be installed on the machine running the suite is
--- not this configuration's business; that it is asked about is.
 
 local new_set = MiniTest.new_set
 local eq = MiniTest.expect.equality
@@ -25,10 +16,8 @@ local T = new_set()
 
 T["core tooling"] = new_set()
 
--- Regression: Mason unpacks its packages with unzip and gzip, and the core
--- tooling list did not mention either. Without them an install runs to the
--- point of unpacking and fails there, which surfaces as a Mason error about an
--- archive rather than as a missing tool.
+-- Regression: Mason unpacks with unzip and gzip, and the core tooling list asked
+-- about neither, so a missing one surfaced as an archive error.
 T["core tooling"]["asks about every tool Mason needs"] = function()
   local text = report()
 
