@@ -197,12 +197,19 @@ we maintain — unless the gap is genuine.
 
 Scope set by the survey of 2026-08-06, not by assumption.
 
-### `ansible-vault.nvim` — built, in `lua/ansible-vault/`
+Both modules that handle secrets or change infrastructure are **beta**. They
+are in use and covered by the test suite, but their safety model has been
+revised three times under external audit, so it is not claimed to be settled.
+What they guarantee is written out in `README.md` under *Safety model* and in
+`:help devops-nvim-vault` and `:help devops-nvim-terraform`. Nothing there
+describes an intention; every line describes current behaviour.
+
+### `ansible-vault.nvim` — beta, in `lua/ansible-vault/`
 The one genuine gap. Every existing candidate is a single-person project with
 0–7 stars, the most visible one abandoned since 2023. Nothing meets the bar of
 "actively maintained + properly documented", so this is ours to build.
 
-### `terraform.nvim` — built as a thin runner, in `lua/terraform/`
+### `terraform.nvim` — beta, a thin runner, in `lua/terraform/`
 Most of the originally planned scope is already covered by plugins this config
 installs anyway:
 

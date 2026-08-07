@@ -19,9 +19,14 @@ devops-nvim-lsp-dual	devops-nvim.txt	/*devops-nvim-lsp-dual*
 devops-nvim-lsp-helm	devops-nvim.txt	/*devops-nvim-lsp-helm*
 devops-nvim-requirements	devops-nvim.txt	/*devops-nvim-requirements*
 devops-nvim-rules	devops-nvim.txt	/*devops-nvim-rules*
+devops-nvim-runtime-dir	devops-nvim.txt	/*devops-nvim-runtime-dir*
 devops-nvim-sessions	devops-nvim.txt	/*devops-nvim-sessions*
 devops-nvim-terraform	devops-nvim.txt	/*devops-nvim-terraform*
+devops-nvim-terraform-concurrency	devops-nvim.txt	/*devops-nvim-terraform-concurrency*
+devops-nvim-terraform-credentials	devops-nvim.txt	/*devops-nvim-terraform-credentials*
+devops-nvim-terraform-executable	devops-nvim.txt	/*devops-nvim-terraform-executable*
 devops-nvim-terraform-plans	devops-nvim.txt	/*devops-nvim-terraform-plans*
+devops-nvim-terraform-review	devops-nvim.txt	/*devops-nvim-terraform-review*
 devops-nvim-terraform-safety	devops-nvim.txt	/*devops-nvim-terraform-safety*
 devops-nvim-tests	devops-nvim.txt	/*devops-nvim-tests*
 devops-nvim-treesitter	devops-nvim.txt	/*devops-nvim-treesitter*
@@ -32,7 +37,9 @@ devops-nvim-ui-v3	devops-nvim.txt	/*devops-nvim-ui-v3*
 devops-nvim-vault	devops-nvim.txt	/*devops-nvim-vault*
 devops-nvim-vault-ids	devops-nvim.txt	/*devops-nvim-vault-ids*
 devops-nvim-vault-pass	devops-nvim.txt	/*devops-nvim-vault-pass*
+devops-nvim-vault-rekey	devops-nvim.txt	/*devops-nvim-vault-rekey*
 devops-nvim-vault-safe	devops-nvim.txt	/*devops-nvim-vault-safe*
 devops-nvim-vault-transparent	devops-nvim.txt	/*devops-nvim-vault-transparent*
+devops-nvim-vault-writing	devops-nvim.txt	/*devops-nvim-vault-writing*
 devops-nvim-zellij	devops-nvim.txt	/*devops-nvim-zellij*
 devops-nvim.txt	devops-nvim.txt	/*devops-nvim.txt*

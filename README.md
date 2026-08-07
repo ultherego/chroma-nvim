@@ -40,10 +40,16 @@ every choice, and what is deliberately absent
 | UI — dashboard, aerial, trouble, markdown | done |
 | DevOps — kubectl.nvim, nvim-ansible | done |
 | Health check, CI, lint config | done |
-| `ansible-vault.nvim` — inline values, whole files, transparent editing, rekey | done |
-| `terraform.nvim` — plan / review / apply, terragrunt-aware | done |
+| `ansible-vault.nvim` — inline values, whole files, transparent editing, rekey | beta |
+| `terraform.nvim` — plan / review / apply, terragrunt-aware | beta |
 | Sessions — persisted.nvim | done |
 | AWS — own profile/region switcher | done |
+
+**Beta** means the two own modules that handle secrets and change
+infrastructure are in use and covered by tests, but their safety model has been
+revised three times under external audit and is not yet claimed to be settled.
+What they do and do not guarantee is written out in
+[Safety model](#safety-model) below; nothing there is aspirational.
 
 Startup is ~25 ms with 32 plugins, measured locally with
 `nvim --headless --startuptime` on CachyOS; treat it as an indication, not a
@@ -201,6 +207,93 @@ maintains beats a better one only you maintain — unless the gap is real.
 
 Full terms: [`CONTRACT.md`](./CONTRACT.md) · reasoning:
 [`DECISIONS.md`](./DECISIONS.md)
+
+## Safety model
+
+Both own modules do something that is expensive to get wrong — one handles
+secrets, the other changes infrastructure. This is what they actually promise.
+The distinction between a guarantee and a mitigation is kept deliberately
+sharp, because the earlier version of this section claimed more than the code
+did.
+
+### `terraform.nvim`
+
+**The saved plan fixes the exact planned action set.** `:TerraformApply`
+applies that file and nothing else, so it cannot execute an action set other
+than the one written out at plan time.
+
+**The executable is pinned.** The path `terraform`, `tofu` or `terragrunt`
+resolved to when the plan was made is recorded and used for the apply. If it is
+gone, the apply is refused rather than falling back to whichever of the three
+is still on PATH — a terraform plan applied by tofu, or an apply that bypasses
+terragrunt, is not the reviewed operation.
+
+**Two independent checks cover credentials**, and they are different layers,
+not one feature:
+
+| | Checks | Default |
+|---|---|---|
+| Environment | `AWS_PROFILE` and the region are recorded with the plan and compared before apply | always on |
+| Identity | `aws sts get-caller-identity` — both account ID and principal ARN | `strict_aws_identity`, off |
+
+The environment check catches the ordinary mistake of switching profile between
+reading a plan and applying it. It does not catch new static credentials, an
+SSO session refreshed against a different account, an edited
+`~/.aws/credentials`, the same profile name now assuming a different role, or
+credential environment variables, which take precedence over the profile
+entirely. Those need `strict_aws_identity`.
+
+With `strict_aws_identity = true`, `aws sts get-caller-identity` runs during
+plan and again before apply. Both the account ID and the principal ARN must
+match. If identity cannot be verified before an apply whose plan was
+identity-bound, the apply is refused. The result is never cached: a cache is a
+way of being told which credentials were in effect earlier, which is the thing
+being guarded against. It is off by default because it costs a network round
+trip on every plan and every apply.
+
+**A plan counts as reviewed only once the review window has actually opened.**
+If rendering it fails, the new plan file is deleted and any previously reviewed
+plan for that directory is invalidated, so there is nothing left to apply.
+
+**Concurrency.** One apply per directory; a second is refused, as are a new
+plan, an `init` and a `discard` while one runs. Two overlapping plans are
+ordered by when they were requested, not by which finished first.
+
+**What is not guaranteed.** External infrastructure, credentials and remote
+state may still change independently between plan and apply. Terraform itself
+detects state drift when the apply runs; this runner does not, and does not
+claim to.
+
+### `ansible-vault.nvim`
+
+**Writes are atomic and checked.** A vault is replaced by writing a sibling
+file and renaming over the target, so a crash or a full disk leaves the old
+contents rather than a truncated file. Symlinks are followed, so the link
+survives and the file it points at is what changes.
+
+**Concurrent edits are detected.** Vault buffers carry `noswapfile` and take
+over the write, which removes both of Neovim's own protections; a fingerprint
+of mtime including nanoseconds, size, inode and device is recorded at read and
+compared before write. A file changed — or atomically replaced — underneath the
+buffer refuses the write instead of overwriting it.
+
+**Hard links are refused, not broken.** Renaming over one name leaves every
+other name for that inode pointing at the old contents. Rather than silently
+diverge, the write is refused and says so.
+
+**`:VaultRekey` re-encrypts to a configured Vault identity** from
+`vault_identity_list`, not to an arbitrary one-off password. A password typed
+once cannot be found again by ansible, which would leave a file nothing can
+open; with no identity configured the command refuses and says what to set up.
+
+**Secrets never reach persistent storage.** A prompted password is staged in
+`$XDG_RUNTIME_DIR`, which is validated first — absolute, a directory, owned by
+you, mode 0700 — with a private subdirectory inside it. If that check fails the
+operation is refused rather than falling back to `/tmp`. Decrypted buffers get
+`noundofile`, `noswapfile` and `nomodeline`.
+
+The same runtime-directory validation guards terraform plan files, which quote
+variable values.
 
 ## Tests
 

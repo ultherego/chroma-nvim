@@ -589,9 +589,43 @@ No `-auto-approve`, anywhere.
 
 **Why.** Terraform documents that passing a saved plan means it "performs the
 operations in the saved plan without prompting you for confirmation" — the file
-*is* the approval. So apply cannot execute anything other than what was on
-screen. Drift between reading and applying becomes structurally impossible
-rather than merely unlikely.
+*is* the approval. So apply cannot execute an action set other than the one
+that was on screen.
+
+This entry used to end "drift between reading and applying becomes structurally
+impossible rather than merely unlikely". That was wrong, and wrong in the
+direction that matters — it promised more than the code did. The saved plan
+fixes the planned action set. It does not fix the program that carries it out
+(see the pinned executable, below), who it runs as (see the credential
+entries), or the state of the world at the far end. Infrastructure,
+credentials and remote state can all change independently in between.
+
+### The executable is pinned to the plan
+
+**Decision.** The path `terraform`, `tofu` or `terragrunt` resolved to when the
+plan was made is recorded with it and used for the apply. If it is gone, the
+apply is refused.
+
+**Why.** The plan file fixes the action set, not the program executing it. PATH
+changes, terraform gets uninstalled leaving tofu to answer for the name, a
+terragrunt.hcl appears in the directory. Any of the three would then carry out
+"the reviewed plan" as something other than the reviewed operation. There is no
+safe substitute, so there is no fallback.
+
+### A plan is reviewed only once it has actually been shown
+
+**Decision.** If the review window cannot be opened, the new plan file is
+deleted and any previously reviewed plan for that directory is invalidated.
+
+**Why.** Review is what makes a plan appliable, so a plan nobody saw must not
+be appliable. The window can genuinely fail — E36, when the layout leaves no
+room for a split — and the alternative shape, catching the failure and
+recording the plan anyway, converts a visible error into a silent one: the
+interface broke and the plan counts as read. The previous plan goes too because
+asking for a new plan supersedes it; leaving it would let apply run something
+the user had not just reviewed.
+
+**What would change it.** Nothing that keeps the review step meaningful.
 
 ### Destroy is not a separate command with a scarier name
 

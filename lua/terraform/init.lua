@@ -18,8 +18,15 @@
 -- Terraform documents the consequence: "When you pass a saved plan file to
 -- terraform apply, Terraform performs the operations in the saved plan without
 -- prompting you for confirmation" — the file is the approval. So apply never
--- needs -auto-approve, and more importantly it can never apply something other
--- than what was on screen. Drift between reading and applying is impossible.
+-- needs -auto-approve.
+--
+-- What that fixes, stated exactly: the saved plan fixes the planned action set.
+-- The runner additionally pins the executable that carries it out and, when
+-- strict_aws_identity is enabled, verifies the AWS account and principal before
+-- applying. External infrastructure, credentials and remote state may still
+-- change independently in between. This comment used to claim drift between
+-- reading and applying was impossible; it is not, and claiming it was the more
+-- dangerous of the two errors.
 --
 -- Destroy is not a separate, scarier command. It is `plan -destroy`, reviewed
 -- the same way and applied through the same step. There is no key in this

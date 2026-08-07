@@ -715,6 +715,10 @@ maintained candidate: every existing one is a single-person project of 0–7
 stars, the most visible untouched since 2023. It depends on nothing else in
 this configuration and can be moved to its own repository unchanged.
 
+Status: BETA. It is in use and covered by the test suite, but its safety model
+has been revised three times under external audit and is not claimed to be
+settled. Everything below describes current behaviour, not intent.
+
 Commands ~
 >
     :VaultReveal       show the value under the cursor, file untouched
@@ -722,7 +726,7 @@ Commands ~
     :VaultEncryptFile  encrypt the whole buffer
     :VaultDecryptFile  decrypt the whole buffer in place
     :VaultView         read an encrypted file without decrypting the buffer
-    :VaultRekey        re-encrypt this file under a new password
+    :VaultRekey        re-encrypt this file under another configured vault id
     :VaultStatus       report where the password will come from
     :VaultReload       re-read ansible.cfg after changing it
 <
@@ -762,6 +766,47 @@ to encrypt with:
 Set `vault_encrypt_identity` in ansible.cfg and it is used silently. Without
 it, you are asked which one to use each time.
 
+Rekeying                                         *devops-nvim-vault-rekey*
+
+`:VaultRekey` re-encrypts the current file to another identity from
+`vault_identity_list`. It works relative to a configured Vault identity, not an
+arbitrary one-off password.
+
+That restriction is the point. A password typed once lives only in a temporary
+file that is deleted immediately, and ansible resolves credentials from
+ansible.cfg — so a file rekeyed to it could not be opened again by anything,
+including this plugin. With no `vault_identity_list` configured the command
+refuses and says what to set up, rather than offering a password it cannot make
+persistent.
+
+The new id is recorded in the file header (`$ANSIBLE_VAULT;1.2;AES256;prod`),
+which is how ansible finds the right secret next time the file is opened. The
+identity the file currently uses is marked "(current)" in the list.
+
+The check is made against the file on disk, not the buffer: with transparent
+editing the buffer holds plaintext, and an earlier version inspected it and
+therefore refused on exactly the files this command is for.
+
+Writing                                          *devops-nvim-vault-writing*
+
+A vault is replaced by writing a sibling file and renaming over the target, so
+an interrupted write leaves the old contents rather than a truncated file.
+Symlinks are followed: the link survives and the file it points at is what
+changes.
+
+Hard links are refused. rename() replaces one name, and every other name for
+that inode would keep the old contents — so instead of letting two names
+silently diverge, the write stops and says how many links there are. Writing in
+place would keep them and give up the protection against a truncated vault.
+
+Vault buffers carry 'noswapfile' and take over `:write`, which removes both of
+Neovim's protections against two editors clobbering each other. The replacement
+is a fingerprint — mtime including nanoseconds, size, inode and device — taken
+when the file is read and compared before it is written. A file changed, or
+atomically replaced, underneath the buffer refuses the write. Whole seconds and
+size alone were not enough: two writes inside the same second producing the
+same number of bytes compare equal on both.
+
 Where the password comes from                          *devops-nvim-vault-pass*
 
 Ansible's own configuration is consulted rather than reimplemented: the plugin
@@ -776,9 +821,24 @@ refuses with "The vault-ids default,default are available to encrypt".
 
 With nothing configured, you are prompted; the password is then written to
 $XDG_RUNTIME_DIR with mode 0600 and unlinked as soon as the command returns.
-That directory is tmpfs, so it never reaches persistent storage. If
-XDG_RUNTIME_DIR is unset the plugin refuses rather than quietly falling back
-to /tmp.
+That directory is tmpfs, so it never reaches persistent storage.
+
+The runtime directory                             *devops-nvim-runtime-dir*
+
+$XDG_RUNTIME_DIR is validated before anything is written into it, by both
+`ansible-vault.nvim` for staged passwords and `terraform.nvim` for plan files.
+It must be set, absolute, a directory, owned by the current user, and mode
+0700 — what the XDG specification requires of it. Each plugin then uses its own
+0700 subdirectory, created if missing and checked either way.
+
+The variable is checked rather than trusted because it is a variable: anything
+able to set it can redirect these writes somewhere readable. Checking only that
+it was set, which is what both did before, accepted a world-readable directory
+without a word.
+
+If the check fails, the operation is refused. Neither plugin falls back to
+/tmp. `:checkhealth ansible-vault` and `:checkhealth devops` report the result
+of the same check, so the failure is visible before it is hit.
 
 What it protects against                               *devops-nvim-vault-safe*
 
@@ -816,6 +876,10 @@ the originally planned scope already covered: formatting is conform's
 `terraform_fmt`, validation is tflint running as a language server. What was
 missing was running a plan and applying it without leaving the editor.
 
+Status: BETA. It is in use and covered by the test suite, but its safety model
+has been revised three times under external audit and is not claimed to be
+settled. Everything below describes current behaviour, not intent.
+
 The safety model                              *devops-nvim-terraform-safety*
 
 Naive runners call `terraform apply -auto-approve`, which applies a plan nobody
@@ -827,15 +891,92 @@ read, computed at a moment nobody chose. This one cannot do that.
 <
 Terraform documents the consequence: passing a saved plan file to `apply` means
 "Terraform performs the operations in the saved plan without prompting you for
-confirmation" — the file is the approval. So apply never needs -auto-approve,
-and it cannot apply anything other than what was on screen. Drift between
-reading and applying is impossible.
+confirmation" — the file is the approval. So apply never needs -auto-approve.
+
+What that does and does not promise, precisely:
+
+The saved plan fixes the exact planned action set. The runner also preserves
+the selected executable and, when `strict_aws_identity` is enabled, verifies
+the AWS account and principal before apply. External infrastructure,
+credentials and remote state may still change independently between plan and
+apply.
+
+An earlier version of this file said drift between reading and applying was
+impossible. It is not, and the sentence is gone: what is fixed is the action
+set, the program that carries it out and — optionally — who it runs as.
 
 Destroy is not a separate, scarier command. `:TerraformPlanDestroy` produces a
 plan to read like any other, applied through the same step. Nothing in this
 plugin destroys anything without a plan having been reviewed first, and the
 confirmation for a destroy plan requires typing `destroy` — `yes` is rejected.
 Verified.
+
+The pinned executable                        *devops-nvim-terraform-executable*
+
+Whichever of `terraform`, `tofu` or `terragrunt` applies to the directory is
+resolved once, when the plan is made, and the resolved path is recorded with
+it. The apply runs that path.
+
+If it has since disappeared the apply is refused rather than resolving the name
+again. PATH can change, terraform can be uninstalled leaving tofu to answer for
+it, and a terragrunt.hcl can appear in the directory in between — none of those
+three produce the plan that was reviewed.
+
+When a plan counts as reviewed                  *devops-nvim-terraform-review*
+
+A plan is considered reviewed only after the review view is displayed
+successfully. If review rendering fails, the new plan artifact is deleted and
+any previously reviewed plan for that directory is invalidated.
+
+The window can genuinely fail to open — E36, when the layout leaves no room for
+a split. Recording the plan anyway would mean a plan nobody saw was appliable,
+so nothing appliable survives a review that did not happen. `:TerraformPlan`
+works again immediately; only the unread plan is lost.
+
+One operation at a time                     *devops-nvim-terraform-concurrency*
+
+An apply cannot be taken back, so while one runs in a directory the plugin
+refuses a second apply, a new plan, an `init` and a `discard` there. The first
+two would hand the running apply's plan file to another process or delete it;
+init would rewrite `.terraform` underneath it. `validate` is deliberately not
+refused: it reads configuration and provider schemas, not state.
+
+Two plans started in the same directory are ordered by when they were
+requested, not by which process finished first. The older one discards its own
+output rather than replacing a newer plan you have already read.
+
+AWS credentials                            *devops-nvim-terraform-credentials*
+
+The plan file fixes what terraform will do, not who it does it as. Credentials
+come from the environment, which `:AwsProfile` changes on the Neovim process.
+There are two layers, and they are not the same check.
+
+The first is always on: AWS_PROFILE and the region are recorded with the plan
+and compared before apply. A difference refuses.
+
+That is a proxy, and a weak one. With the profile name unchanged it still
+misses new static credentials, an SSO session refreshed against a different
+account, an edited ~/.aws/credentials, the same profile now assuming a
+different role, and credential environment variables, which take precedence
+over the profile entirely.
+
+The second closes that, and is off by default: >
+
+    require("terraform").setup({ strict_aws_identity = true })
+<
+`strict_aws_identity` is disabled by default. When enabled, `aws sts
+get-caller-identity` is executed during plan and again before apply. Both the
+AWS account ID and principal ARN must match. If identity cannot be verified
+before apply after the plan was identity-bound, apply is refused.
+
+The answer is never cached. A cache is a way of being told which credentials
+were in effect earlier, which is exactly what this is guarding against — so the
+cost is a network round trip on every plan and every apply, and that cost is
+why it is opt-in rather than the default.
+
+No `aws` on PATH is treated as "not an AWS project" and skipped without
+comment. An `aws` that is present and refuses is reported at plan time, because
+the plan is then recorded without the protection the option was enabled for.
 
 Commands and keys ~
 >
@@ -859,8 +1000,11 @@ Plan files can quote sensitive variable values, so they are written to
 $XDG_RUNTIME_DIR — tmpfs, user-only — and chmod'ed to 0600 as soon as terraform
 has created them. Terraform writes them under the ambient umask; they came out
 0644 in testing, which is why this is done explicitly. They are removed after
-apply and on exiting Neovim. If XDG_RUNTIME_DIR is unset the plugin refuses to
-plan rather than writing one to persistent storage.
+apply, when a review cannot be shown, and on exiting Neovim.
+
+$XDG_RUNTIME_DIR is validated rather than trusted; see
+|devops-nvim-runtime-dir|. If it fails that check the plugin refuses to plan
+rather than writing a plan to persistent storage.
 
 ==============================================================================
 16. AWS AND SESSIONS                                          *devops-nvim-aws*
