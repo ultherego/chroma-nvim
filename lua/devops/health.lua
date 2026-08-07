@@ -1,13 +1,4 @@
 -- Health check for DevOps nVim: `:checkhealth devops`.
---
--- This exists because most of this configuration is a front-end for external
--- programs. When ripgrep is missing, the failure surfaces as an unhelpful
--- error from inside a picker; when the terraform CLI is missing, formatting
--- silently does nothing. Guarding every call site would scatter the same
--- three lines across a dozen files, so the question is answered in one place
--- instead, in the form Neovim already has a command for.
---
--- Nothing here changes behaviour. It reports.
 
 local M = {}
 
@@ -53,11 +44,7 @@ local function check_core()
     { cmd = "git", what = "plugin management", advice = "git >= 2.19 is required for partial clones" },
     { cmd = "curl", what = "downloading parsers and prebuilt binaries" },
     { cmd = "tar", what = "unpacking treesitter grammars" },
-    -- Mason's own requirements, which this list did not cover. Without them a
-    -- server installs right up to the point of unpacking and fails there,
-    -- reported as a Mason error about an archive rather than as a missing
-    -- tool. Taken from mason.nvim's Requirements section, which lists git,
-    -- curl or wget, unzip, GNU tar and gzip for Unix.
+    -- Mason unpacks its packages with these, and fails at unpacking without them.
     { cmd = "unzip", what = "unpacking Mason packages" },
     { cmd = "gzip", what = "unpacking Mason packages" },
     {
@@ -88,10 +75,8 @@ local function check_lockfile()
     return
   end
 
-  -- A corrupted lockfile does not stop Neovim starting — lazy.nvim falls back
-  -- to whatever is installed and says nothing. What is lost is silent: the
-  -- pinned versions, and any chance of :Lazy restore working. Verified that a
-  -- broken file still boots all plugins with no message.
+  -- A corrupted lockfile does not stop Neovim starting; it silently costs the
+  -- pinned versions and any chance of :Lazy restore.
   local ok, decoded = pcall(vim.json.decode, contents)
   if not ok or type(decoded) ~= "table" then
     health.error(
@@ -146,9 +131,8 @@ local function check_devops()
     )
   end
 
-  -- Where :TerraformPlan will put the plan it writes. A plan quotes variable
-  -- values, so a runtime directory that is not private is a refusal, not a
-  -- warning at write time — reported here so it is known before a plan is run.
+  -- A plan quotes variable values, so a runtime directory that is not private is
+  -- a refusal rather than a warning.
   local plan_dir, plan_err = require("terraform.runtime").secure_dir("terraform.nvim")
   if plan_dir then
     health.ok(("Plan files will be written to %s (tmpfs, 0700)"):format(plan_dir))
@@ -157,9 +141,7 @@ local function check_devops()
   end
 
   if vim.fn.executable("kubectl") == 1 then
-    -- KUBECONFIG is a path LIST, not a path. kubectl merges every entry, and
-    -- splitting on the platform separator is the difference between reporting
-    -- a perfectly good multi-cluster setup as missing and reading it correctly.
+    -- KUBECONFIG is a path LIST, not a path: kubectl merges every entry.
     local separator = vim.fn.has("win32") == 1 and ";" or ":"
     local entries = vim.env.KUBECONFIG and vim.split(vim.env.KUBECONFIG, separator, { trimempty = true })
       or { vim.fs.joinpath(vim.env.HOME, ".kube", "config") }

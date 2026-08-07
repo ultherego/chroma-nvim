@@ -1,8 +1,4 @@
 -- lazy.nvim bootstrap and setup.
---
--- Verified against https://lazy.folke.io/installation and the default option
--- table at https://lazy.folke.io/configuration, lazy.nvim v11.17.5 (2025-11-06).
--- lazy.nvim requires Neovim >= 0.8 (LuaJIT) and git >= 2.19.
 
 local lazypath = vim.fn.stdpath("data") .. "/lazy/lazy.nvim"
 
@@ -38,12 +34,6 @@ require("lazy").setup({
 
   -- SECURITY. lazy.nvim defaults this to true, which makes it load a
   -- project-local `.lazy.lua` from whatever directory Neovim was started in.
-  -- That file is Lua: it can declare `init`, `config` and `build` hooks, so
-  -- opening a repository you did not write could execute its code or install
-  -- plugins of its choosing.
-  --
-  -- This config is used to read other people's infrastructure repositories all
-  -- day, which is exactly the situation where that is unacceptable.
   local_spec = false,
 
   install = {
@@ -53,14 +43,12 @@ require("lazy").setup({
     colorscheme = { "catppuccin-mocha", "habamax" },
   },
 
-  -- No plugin in this config ships a rockspec, so hererocks/luarocks would be
-  -- an unused dependency that :checkhealth lazy reports as an error. Re-enable
-  -- if a future plugin genuinely requires it.
+  -- No plugin here ships a rockspec, so luarocks would be an unused dependency
+  -- that :checkhealth lazy reports as an error.
   rocks = { enabled = false },
 
-  -- Off by default upstream. Enabled here because the contract commits to
-  -- actively maintained plugins, so drift should be visible. notify = false
-  -- keeps it from interrupting; check the state in :Lazy.
+  -- On, because the contract commits to maintained plugins and drift should be
+  -- visible; quiet, because a notification on every start is not.
   checker = {
     enabled = true,
     notify = false,
@@ -77,9 +65,6 @@ require("lazy").setup({
     cache = { enabled = true },
     rtp = {
       -- Built-ins that ship with Neovim 0.12 and are unused in this workflow.
-      -- Archive browsing is handled by yazi/oil, not by the vim archive plugins.
-      -- netrw is deliberately NOT disabled here — that belongs with the
-      -- oil.nvim setup, which documents how it wants netrw handled.
       disabled_plugins = {
         "gzip",
         "tarPlugin",

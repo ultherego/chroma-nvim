@@ -1,23 +1,4 @@
 -- Git layer.
---
--- Two plugins, one of them not the one the contract originally named.
---
--- The contract said `lazygit.nvim` (kdheepak). The survey rejected it: last
--- push 2025-12, 52 open issues, and no colourscheme integration. snacks.nvim
--- ships a lazygit module that generates a lazygit theme from the active Neovim
--- colourscheme, so lazygit comes up in Catppuccin Mocha instead of its own
--- palette — which is the whole point of the contract's colour rule. snacks is
--- already on the plugin list, so this removes a dependency rather than adding
--- one.
---
--- API NOTE for gitsigns: the keymap block found in most guides calls three
--- functions that upstream now marks DEPRECATED —
---
---   next_hunk() / prev_hunk()  ->  nav_hunk('next') / nav_hunk('prev')
---   undo_stage_hunk()          ->  stage_hunk() on a staged sign, it toggles
---   toggle_deleted()           ->  preview_hunk_inline()
---
--- The mappings below use the current API.
 
 return {
   {
@@ -27,10 +8,8 @@ return {
       signs = {
         add = { text = "▎" },
         change = { text = "▎" },
-        -- Deleted lines have no line of their own to mark, so they are drawn
-        -- on the boundary. Leaving these empty — as an earlier version did —
-        -- makes deletions completely invisible in the sign column: additions
-        -- and changes show, and removals silently do not.
+        -- Deleted lines have no line of their own, so the mark goes on the boundary;
+        -- leaving it empty hides the deletion entirely.
         delete = { text = "▁" },
         topdelete = { text = "▔" },
         changedelete = { text = "▎" },
@@ -95,14 +74,6 @@ return {
   {
     "folke/snacks.nvim",
     -- Called through require("snacks") rather than the `Snacks` global.
-    -- Upstream documents the global, and the two are the same table — verified
-    -- — but the global only exists once snacks has set itself up, and a static
-    -- linter cannot know about it at all.
-    --
-    -- This spec only adds the lazygit module and its keys. Loading is settled
-    -- in plugins/ui.lua, where the snacks base spec lives: the dashboard has
-    -- to draw on an empty start, so snacks loads eagerly with a high priority
-    -- as upstream recommends. lazy.nvim merges the two specs.
     keys = {
       {
         "<leader>gg",

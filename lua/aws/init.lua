@@ -1,24 +1,4 @@
 -- aws.nvim — switch the AWS profile and region for this Neovim session.
---
--- The survey found nothing worth adopting: MABD-dev/nvim-aws-cli has no stars
--- and no commit since March 2025, zuzmuz/nvimawscli has twelve stars and
--- targets EC2 instance management, which is not what an editor is for.
---
--- What an editor IS for is making sure the next `terraform plan` runs against
--- the account you meant. That is the entire scope here: set AWS_PROFILE and
--- AWS_REGION on the Neovim process so every subprocess — the terraform runner
--- in lua/terraform/, a :terminal, an LSP — inherits them.
---
--- Profiles come from `aws configure list-profiles` rather than from parsing
--- ~/.aws/config, because the CLI already knows about config, credentials, SSO
--- sessions and the AWS_CONFIG_FILE override, and that lookup is not worth
--- reimplementing.
---
--- Regions are not hardcoded. A baked-in list is wrong the moment AWS opens a
--- region, so they are read from the account when credentials allow and typed
--- otherwise.
---
--- Kept free of any dependency on the rest of this configuration.
 
 local M = {}
 
@@ -29,19 +9,10 @@ local defaults = {
 M.options = vim.deepcopy(defaults)
 
 --- The environment Neovim was started with, captured once at setup.
----
---- :AwsClear used to unset everything, which is not the same as undoing what
---- this module did: a shell that exported AWS_PROFILE=production before
---- launching Neovim ended up with no profile at all, silently switching to the
---- default one rather than back to production.
 ---@type table<string, string|nil>
 local initial = {}
 
 --- Credentials that take precedence over AWS_PROFILE.
----
---- The SDK resolves static keys in the environment before it looks at a named
---- profile, so with these set, changing AWS_PROFILE changes what this plugin
---- reports and nothing about what terraform actually authenticates as.
 local OVERRIDING = {
   "AWS_ACCESS_KEY_ID",
   "AWS_SECRET_ACCESS_KEY",
@@ -121,10 +92,7 @@ function M.pick_profile()
 
     vim.env.AWS_PROFILE = choice
 
-    -- Cleared first. A profile usually carries its own region, but if the new
-    -- one does not, keeping the previous profile's region is worse than having
-    -- none: the display would show the new profile beside a region belonging
-    -- to the old account.
+    -- Cleared first: a profile that carries no region should not inherit the last one.
     vim.env.AWS_REGION = nil
     vim.env.AWS_DEFAULT_REGION = nil
 
@@ -184,9 +152,6 @@ function M.pick_region()
 end
 
 ---Restores the environment Neovim started with.
----
----Deliberately not "unset everything": undoing this module's changes means
----going back to what the shell provided, which may well have been a profile.
 function M.clear()
   vim.env.AWS_PROFILE = initial.AWS_PROFILE
   vim.env.AWS_REGION = initial.AWS_REGION
@@ -200,9 +165,6 @@ function M.clear()
 end
 
 ---Confirms which account the current credentials actually resolve to.
----
----Worth its own command: AWS_PROFILE being set is not the same as it working,
----and finding that out from a failed apply is expensive.
 function M.whoami()
   local out, err = capture({ "aws", "sts", "get-caller-identity", "--output", "text" })
   if not out then

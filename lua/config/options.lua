@@ -1,25 +1,15 @@
 -- Core editor options.
---
--- Only options that actually differ from Neovim 0.12 defaults are set here.
--- Defaults were read from the running instance, not assumed. Anything Neovim
--- already does correctly is left alone, and the reason is noted where the
--- omission is deliberate.
 
 local o = vim.o
 
 -- Indentation: two spaces, everywhere, no tabs.
--- This is the single most important setting in a DevOps config. YAML has no
--- tabs — a literal tab character is a parse error in Ansible playbooks,
--- Kubernetes manifests, Helm charts and GitHub Actions workflows alike.
 o.expandtab = true
 o.shiftwidth = 2
 o.tabstop = 2
 o.softtabstop = 2
 
--- 'smartindent' is deliberately NOT enabled. It is a pre-treesitter heuristic
--- that forces lines starting with '#' to column 0, which mangles comments in
--- exactly the languages used here. Indentation is left to the filetype plugins
--- and to treesitter.
+-- 'smartindent' is NOT enabled: it forces lines starting with '#' to column 0,
+-- which mangles comments in YAML and Dockerfiles.
 
 -- Line numbers, relative for motion counts.
 o.number = true
@@ -63,9 +53,8 @@ vim.opt.listchars = {
   nbsp = "␣",
 }
 
--- Folding is driven by treesitter (see plugins/treesitter.lua), but a file
--- should open fully expanded. Without these, every buffer with a parser opens
--- collapsed to its top-level nodes.
+-- Treesitter drives folding (see plugins/treesitter.lua); these keep a file from
+-- opening folded shut.
 o.foldlevel = 99
 o.foldlevelstart = 99
 
@@ -77,6 +66,4 @@ o.winborder = "rounded"
 -- working over SSH inside Kitty.
 o.clipboard = "unnamedplus"
 
--- 'termguicolors' is deliberately NOT set: Neovim detects 24-bit colour
--- support and enables it on its own unless explicitly disabled
--- (see :help 'termguicolors').
+-- 'termguicolors' is NOT set: Neovim detects 24-bit colour on its own.

@@ -1,8 +1,4 @@
 -- `:checkhealth ansible-vault`
---
--- Answers the two questions that make this plugin useless when the answer is
--- wrong: can it run ansible, and does it know a password for the project you
--- are sitting in.
 
 local vault_config = require("ansible-vault.config")
 
@@ -62,10 +58,7 @@ function M.check()
 
   health.start("Plaintext handling")
 
-  -- The same call the staging path makes, so this reports what will actually
-  -- happen rather than a weaker approximation of it. It used to check only
-  -- that the variable was set and could be stat'ed, and would have said "ok"
-  -- for a world-readable directory.
+  -- The same call the staging path makes, so this reports what will actually happen.
   local runtime_dir, runtime_err = require("ansible-vault.runtime").secure_dir("ansible-vault.nvim")
   if runtime_dir then
     health.ok(("Prompted passwords will be staged in %s (tmpfs, 0700)"):format(runtime_dir))

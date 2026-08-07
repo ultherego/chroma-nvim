@@ -1,28 +1,14 @@
 -- Navigation layer: pickers, file management, project roots.
---
--- Every plugin here was checked for activity before being written in
--- (contract rule #2). One rejection is recorded below.
---
--- A recurring theme in this file: Zellij's default keybindings capture
--- Ctrl g/q/h/o/b/s/t/p/n and Alt f/h/i/j/k/l/n/o/p in `shared_except "locked"`,
--- so those never reach Neovim. Several plugins here ship defaults that land
--- exactly on those keys, and are remapped rather than left silently dead.
--- Harmless if you do not use Zellij; see :help devops-nvim-zellij.
 
 return {
-  -- Shared icon provider. Chosen once for the whole config: oil.nvim
-  -- recommends mini.icons, and fzf-lua supports it natively, so there is no
-  -- reason to also pull in nvim-web-devicons.
+  -- The one icon provider for the whole config: oil recommends it and fzf-lua
+  -- supports it natively.
   {
     "nvim-mini/mini.icons",
     lazy = true,
     opts = {},
     init = function()
-      -- Several plugins (aerial among them) look for nvim-web-devicons by
-      -- name rather than asking for icons in the abstract. mini.icons ships
-      -- mock_nvim_web_devicons() for exactly this; hooking it into
-      -- package.preload means a require of the old name transparently returns
-      -- mini.icons, so one provider still serves everything.
+      -- Plugins that require nvim-web-devicons by name get mini.icons instead.
       package.preload["nvim-web-devicons"] = function()
         require("mini.icons").mock_nvim_web_devicons()
         return package.loaded["nvim-web-devicons"]
@@ -37,13 +23,10 @@ return {
     dependencies = { "nvim-mini/mini.icons" },
     -- opts must be a function: the action table below requires a fzf-lua
     -- module, which does not exist until the plugin is on the runtimepath.
-    -- Evaluating it in a plain table would run at startup and fail.
     opts = function()
       local actions = require("fzf-lua.actions")
       return {
-        -- Profile from the README. "fzf-native" uses fzf's own previewer with
-        -- bat rather than a Lua previewer buffer, so bat is a requirement of
-        -- this profile. :checkhealth devops reports whether it is present.
+        -- Uses fzf's own previewer through bat, which is therefore a requirement.
         "fzf-native",
         actions = {
           files = {
@@ -58,10 +41,7 @@ return {
             ["alt-."] = actions.toggle_hidden,
             ["alt-,"] = actions.toggle_ignore,
             ["alt-/"] = actions.toggle_follow,
-            -- This table replaces the upstream defaults outright rather than
-            -- merging with them, so the quickfix and location-list actions
-            -- have to be restated or they are lost. Both keys are free in
-            -- Zellij and keep their upstream bindings.
+            -- Replaces the upstream defaults outright, so they are repeated here.
             ["alt-q"] = actions.file_sel_to_qf,
             ["alt-Q"] = actions.file_sel_to_ll,
           },
@@ -95,9 +75,8 @@ return {
         show_hidden = true,
       },
       keymaps = {
-        -- Four oil defaults land on keys Zellij eats: <C-s>, <C-h>, <C-t>
-        -- and <C-p>. Replacements use keys free in both, and the dead
-        -- originals are switched off rather than left as decoration.
+        -- Four oil defaults land on keys Zellij eats, so they are moved and the
+        -- originals disabled rather than left dead.
         ["<C-s>"] = false,
         ["<C-h>"] = false,
         ["<C-t>"] = false,
@@ -117,8 +96,6 @@ return {
   },
 
   -- yazi.nvim: the full-screen file manager from the contract's workflow.
-  -- open_for_directories stays false (its default) so oil keeps directory
-  -- buffers and yazi is only ever opened deliberately.
   {
     "mikavilpas/yazi.nvim",
     version = "*",
@@ -143,11 +120,6 @@ return {
   },
 
   -- project.nvim — the DrKJeff16 fork, not ahmedkhalf/project.nvim.
-  --
-  -- The original has had no commit since August 2024, carries 96 open issues
-  -- and calls deprecated APIs; upstream itself points at this fork. Requires
-  -- Neovim >= 0.11 and fd. Licence differs from upstream: GPL-2.0 rather
-  -- than Apache-2.0.
   {
     "DrKJeff16/project.nvim",
     event = "VeryLazy",

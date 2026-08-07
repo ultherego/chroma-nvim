@@ -1,14 +1,4 @@
 -- DevOps layer.
---
--- kubectl.nvim replaces the `kube.nvim` the contract originally planned to
--- write; see CONTRACT.md for the survey that settled that. It downloads a
--- prebuilt Rust binary through blink.download, so no cargo toolchain is
--- needed — the blink ecosystem is already present through blink.cmp.
---
--- nvim-ansible is what finally makes the lint layer's `yaml.ansible` entry
--- fire: it ships the ftdetect rules that recognise playbooks and roles. Its
--- canonical home is Codeberg; the GitHub repository is the author's mirror.
--- Note it publishes no licence.
 
 return {
   {
@@ -40,11 +30,6 @@ return {
 
       -- Three of kubectl's default mappings never arrive: Zellij captures
       -- <C-p> (pane mode), <C-n> (resize mode) and <M-h> (move focus left).
-      -- In kubectl those are the picker, the namespace view and the header
-      -- toggle. Remapped onto keys free in both, using the <Plug> mappings
-      -- the plugin exposes for exactly this.
-      --
-      -- <C-e> for the picker is upstream's own example of an override.
       vim.api.nvim_create_autocmd("FileType", {
         group = vim.api.nvim_create_augroup("devops_kubectl_keys", { clear = true }),
         pattern = "k8s_*",
