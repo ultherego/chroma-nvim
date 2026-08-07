@@ -284,6 +284,27 @@ local function show(lines, title)
   vim.keymap.set("n", "q", "<cmd>close<cr>", { buffer = buf, nowait = true, desc = "Close" })
 end
 
+---Opens the output window, reporting failure instead of raising it.
+---
+---`show` opens a split, and a split can fail — E36 when the layout leaves no
+---room for one. Every call site is inside an async callback, where raising
+---abandons whatever bookkeeping that callback had left to do. For plan that
+---meant a plan file terraform had already written was neither cleaned up nor
+---recorded, and the traceback was the only sign anything had happened.
+---
+---Presentation must not be able to decide the outcome of an operation. This
+---makes the failure a value the caller handles.
+---@param lines string[]
+---@param title string
+---@return boolean shown
+local function try_show(lines, title)
+  local ok, err = pcall(show, lines, title)
+  if not ok then
+    vim.notify(("Could not open the output window: %s"):format(err), vim.log.levels.ERROR)
+  end
+  return ok
+end
+
 ---Assembles the argument list for one subcommand.
 ---
 ---Order is the point of this function. Our own flags come first, then the
@@ -410,7 +431,22 @@ local function plan(destroy)
         return
       end
 
-      show(lines, (" %s plan%s "):format(vim.fs.basename(dir), destroy and " -destroy" or ""))
+      -- Showing the plan is not decoration, it is the review step, and a plan
+      -- becomes appliable only because it was reviewed. If the window could not
+      -- be opened then nothing was read, so this fails closed: the file
+      -- terraform wrote is removed, no plan is recorded, and any previously
+      -- reviewed plan for this directory goes too — it was superseded the
+      -- moment a new one was asked for. Nothing is left that :TerraformApply
+      -- could run.
+      if not try_show(lines, (" %s plan%s "):format(vim.fs.basename(dir), destroy and " -destroy" or "")) then
+        pcall(vim.uv.fs_unlink, path)
+        discard_plan(dir)
+        vim.notify(
+          "The plan ran, but it could not be shown, so it was discarded unread.\nNothing to apply — run :TerraformPlan again.",
+          vim.log.levels.ERROR
+        )
+        return
+      end
 
       -- -detailed-exitcode: 0 no changes, 1 error, 2 changes present.
       if code == 0 then
@@ -540,7 +576,10 @@ function M.apply()
       -- keeping it would only invite applying a stale one.
       discard_plan(dir)
 
-      show(lines, (" %s apply "):format(vim.fs.basename(dir)))
+      -- No state hangs off this one — the lock is already released and the plan
+      -- already discarded above — but the outcome of an operation that changed
+      -- infrastructure must still be reported if the window cannot open.
+      try_show(lines, (" %s apply "):format(vim.fs.basename(dir)))
       if code == 0 then
         vim.notify("Applied", vim.log.levels.INFO)
       else
@@ -572,7 +611,7 @@ function M.init()
   end
 
   run(argv("init", { "-no-color", "-input=false" }), dir, function(code, lines)
-    show(lines, (" %s init "):format(vim.fs.basename(dir)))
+    try_show(lines, (" %s init "):format(vim.fs.basename(dir)))
     vim.notify(code == 0 and "Initialised" or "Init failed", code == 0 and vim.log.levels.INFO or vim.log.levels.ERROR)
   end)
 end
@@ -588,7 +627,7 @@ function M.validate()
     if code == 0 then
       vim.notify("Configuration is valid", vim.log.levels.INFO)
     else
-      show(lines, (" %s validate "):format(vim.fs.basename(dir)))
+      try_show(lines, (" %s validate "):format(vim.fs.basename(dir)))
     end
   end)
 end
