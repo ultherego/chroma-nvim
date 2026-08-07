@@ -334,6 +334,15 @@ buffers get `noundofile`, `noswapfile` and `nomodeline`. The same
 runtime-directory validation guards terraform plan files, which quote variable
 values.
 
+**The plaintext appears only once its writer is in place.** Decryption produces
+a string first; the buffer is filled after the hardening, the fingerprint and
+the write hook are all installed, and the marker saying "this buffer holds
+plaintext" is set last of all. A failure anywhere in that sequence leaves the
+buffer holding the ciphertext it was opened with. The marker is also cleared
+whenever the file is re-read, because `:edit!` brings the ciphertext back while
+buffer variables survive, and the writer checks the buffer's actual contents
+before re-encrypting them.
+
 **What is outside that guarantee.** Neovim registers, ShaDa, the system
 clipboard and external clipboard managers. This configuration sets
 `clipboard=unnamedplus`, so ordinary editing — `yy`, `dd`, `dw`, `cw`, `x` —

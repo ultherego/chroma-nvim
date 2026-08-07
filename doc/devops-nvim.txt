@@ -752,6 +752,19 @@ earlier version registered it globally with a fallback for everything else,
 which is a takeover of `:write` for the entire editor — it broke on the first
 scratch buffer that was saved.
 
+It is attached before the plaintext is put in the buffer, not after, and the
+same holds for `:VaultDecryptFile`. Decryption happens into a Lua string first;
+the buffer is only filled once the hook that protects it is in place. If any
+step fails the buffer still holds the ciphertext it was opened with, which is
+the safe half of the failure. The step that actually fails in practice is not
+the hook but filling the buffer: a 'nomodifiable' buffer refuses it.
+
+The marker saying a buffer holds plaintext is set last, and cleared whenever
+the file is re-read. `:edit!` reloads the ciphertext but keeps buffer
+variables, so a marker set by an earlier decrypt would otherwise describe a
+buffer that no longer holds plaintext. The writer checks what the buffer
+actually contains before re-encrypting it.
+
 Turn it off with: >
     require("ansible-vault").setup({ transparent = false })
 <

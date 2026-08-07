@@ -359,6 +359,120 @@ T["conversion"]["a file changed underneath refuses the write"] = function()
   eq(vim.bo[buf].modified, true)
 end
 
+T["decrypt ordering"] = new_set()
+
+---Runs `fn` with the writer refusing to install, and returns what was notified.
+---@param fn fun()
+---@return string
+local function with_failing_writer(fn)
+  local vault = require("ansible-vault")
+  local real_attach, real_notify = vault.attach_writer, vim.notify
+  local notices = {}
+
+  vault.attach_writer = function()
+    error("synthetic writer failure")
+  end
+  vim.notify = function(message, _)
+    table.insert(notices, tostring(message))
+  end
+
+  local ok, err = pcall(fn)
+
+  vault.attach_writer = real_attach
+  vim.notify = real_notify
+  assert(ok, err)
+
+  return table.concat(notices, " ")
+end
+
+-- The plaintext must not appear in a file buffer the writer does not cover. What
+-- actually raises there is nvim_buf_set_lines on a 'nomodifiable' buffer, but the
+-- order has to hold whichever of the two steps fails.
+T["decrypt ordering"]["a writer that cannot be installed leaves the ciphertext"] = function()
+  local _, vault = project("---\nsecret: must-not-appear\n")
+
+  local buf = open_with(vault, { transparent = false })
+  local said = with_failing_writer(function()
+    vim.cmd("VaultDecryptFile")
+    vim.wait(5000)
+  end)
+
+  eq(said:find("Refusing to decrypt") ~= nil, true)
+  eq(vim.api.nvim_buf_get_lines(buf, 0, 1, false)[1]:match("^%$ANSIBLE_VAULT") ~= nil, true)
+  eq(vim.b[buf].ansible_vault_plain, nil)
+  eq(writers_for(buf), 0)
+end
+
+T["decrypt ordering"]["transparent decrypt fails the same way"] = function()
+  local _, vault = project("---\nsecret: must-not-appear\n")
+
+  local buf
+  local said = with_failing_writer(function()
+    require("ansible-vault").setup({ transparent = true })
+    require("ansible-vault").reload()
+    vim.cmd.edit({ args = { vault } })
+    buf = vim.api.nvim_get_current_buf()
+    vim.wait(5000)
+  end)
+
+  eq(said:find("Refusing to decrypt") ~= nil, true)
+  eq(vim.api.nvim_buf_get_lines(buf, 0, 1, false)[1]:match("^%$ANSIBLE_VAULT") ~= nil, true)
+  eq(vim.b[buf].ansible_vault_plain, nil)
+  eq(writers_for(buf), 0)
+end
+
+-- A reload that cannot be decrypted must not leave the previous decrypt's flag
+-- behind: the buffer holds ciphertext from the moment the file is re-read.
+T["decrypt ordering"]["a failed reload clears the flag the last decrypt set"] = function()
+  local dir, vault = project("---\nsecret: value\n")
+
+  local buf = open_with(vault, { transparent = true })
+  vim.wait(15000, function()
+    return vim.api.nvim_buf_get_lines(buf, 0, 1, false)[1] == "---"
+  end, 100)
+  eq(vim.b[buf].ansible_vault_plain, true)
+
+  -- The password file keeps its path, so auth still resolves; only the password
+  -- it holds is now the wrong one.
+  vim.fn.writefile({ "not-the-password" }, dir .. "/.vault_pass")
+
+  local notify = vim.notify
+  vim.notify = function() end
+  vim.cmd("edit!")
+  vim.wait(5000)
+  vim.notify = notify
+
+  eq(vim.api.nvim_buf_get_lines(buf, 0, 1, false)[1]:match("^%$ANSIBLE_VAULT") ~= nil, true)
+  eq(vim.b[buf].ansible_vault_plain, nil)
+end
+
+-- `:edit!` reloads the ciphertext and keeps buffer variables, so the flag saying "this
+-- buffer holds plaintext" outlived the plaintext. Measured without the guard: the writer
+-- hands the ciphertext back to ansible-vault, which answers "input is already encrypted",
+-- and the write fails for good.
+T["decrypt ordering"]["a reloaded buffer writes its ciphertext verbatim"] = function()
+  local dir, vault = project("---\nsecret: single-layer\n")
+
+  local buf = open_with(vault, { transparent = false })
+  vim.cmd("VaultDecryptFile")
+  vim.wait(15000, function()
+    return vim.api.nvim_buf_get_lines(buf, 0, 1, false)[1] == "---"
+  end, 100)
+  eq(vim.b[buf].ansible_vault_plain, true)
+
+  vim.cmd("edit!")
+  eq(vim.api.nvim_buf_get_lines(buf, 0, 1, false)[1]:match("^%$ANSIBLE_VAULT") ~= nil, true)
+  eq(writers_for(buf), 1)
+
+  vim.cmd("silent write")
+  vim.wait(5000)
+
+  -- One layer, not two: decrypting once has to reach the secret, not another header.
+  local decrypted = decrypt_externally(dir, vault)
+  eq(decrypted:find("^%$ANSIBLE_VAULT"), nil)
+  eq(decrypted:find("single%-layer") ~= nil, true)
+end
+
 -- Regression: :VaultDecryptFile hardened the buffer and filled it with
 -- plaintext but never attached the write hook, so :w wrote the secret out.
 T["decrypting then writing re-encrypts rather than leaking"] = function()

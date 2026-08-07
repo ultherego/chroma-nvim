@@ -476,13 +476,6 @@ local function harden_sensitive_buffer(buf)
   vim.bo[buf].modeline = false
 end
 
---- A buffer holding a decrypted vault: hardened, and marked for re-encryption on write.
----@param buf integer
-local function mark_plain_vault_buffer(buf)
-  harden_sensitive_buffer(buf)
-  vim.b[buf].ansible_vault_plain = true
-end
-
 --- Removes the undo file for a path. Turning 'undofile' off stops new ones appearing;
 --- it does not remove one already holding every earlier state of the buffer.
 ---@param path string
@@ -570,6 +563,10 @@ function M.encrypt_file()
 end
 
 ---Decrypts the whole current buffer in place, leaving it unsaved.
+---
+---Ordered so the plaintext is the last thing to appear: hardening, then the
+---writer, and only then the contents it protects. See
+---:help devops-nvim-vault-transparent.
 function M.decrypt_file()
   local buf = vim.api.nvim_get_current_buf()
 
@@ -577,6 +574,8 @@ function M.decrypt_file()
     vim.notify("Buffer is not vault-encrypted", vim.log.levels.WARN)
     return
   end
+
+  harden_sensitive_buffer(buf)
 
   local auth, err = auth_for(buf)
   if not auth then
@@ -592,12 +591,20 @@ function M.decrypt_file()
     return
   end
 
-  mark_plain_vault_buffer(buf)
-  vim.api.nvim_buf_set_lines(buf, 0, -1, false, vim.split(plaintext:gsub("\n$", ""), "\n"))
+  remember_file_state(buf)
 
   -- Not optional: without the writer, `:w` replaces the vault with its cleartext.
-  remember_file_state(buf)
-  M.attach_writer(buf)
+  local attached, writer_err = pcall(M.attach_writer, buf)
+  if not attached then
+    vim.notify(
+      ("Refusing to decrypt: the safe writer could not be installed: %s"):format(writer_err),
+      vim.log.levels.ERROR
+    )
+    return
+  end
+
+  vim.api.nvim_buf_set_lines(buf, 0, -1, false, vim.split(plaintext:gsub("\n$", ""), "\n"))
+  vim.b[buf].ansible_vault_plain = true
 
   vim.notify("Decrypted buffer — it will be re-encrypted on write", vim.log.levels.INFO)
 end
@@ -775,6 +782,12 @@ function M.attach_writer(buf)
     callback = function(ev)
       local name = vim.fn.fnamemodify(vim.api.nvim_buf_get_name(ev.buf), ":t")
 
+      -- `:edit!` reloads the ciphertext but keeps buffer variables, and ansible-vault
+      -- refuses input that is already encrypted: measured, every `:w` then failed.
+      if vim.b[ev.buf].ansible_vault_plain and is_encrypted(ev.buf) then
+        vim.b[ev.buf].ansible_vault_plain = nil
+      end
+
       if not vim.b[ev.buf].ansible_vault_plain then
         -- Holds ciphertext already, as after :VaultEncryptFile: written verbatim,
         -- but through the same guarded path.
@@ -825,12 +838,15 @@ local function enable_transparent_editing()
         return
       end
 
+      -- This buffer holds ciphertext right now, whatever an earlier decrypt of it left
+      -- set: `:edit!` reloads the file without clearing buffer variables.
+      vim.b[ev.buf].ansible_vault_plain = nil
+
       -- Hardened before the plaintext exists, not after.
-      mark_plain_vault_buffer(ev.buf)
+      harden_sensitive_buffer(ev.buf)
 
       local auth, err = auth_for(ev.buf)
       if not auth then
-        vim.b[ev.buf].ansible_vault_plain = nil
         if err ~= "cancelled" then
           vim.notify(err, vim.log.levels.ERROR)
         end
@@ -839,15 +855,27 @@ local function enable_transparent_editing()
 
       local plaintext, decrypt_err = cli.decrypt_document(buffer_text(ev.buf), { auth = auth, cwd = auth.cwd })
       if not plaintext then
-        vim.b[ev.buf].ansible_vault_plain = nil
         vim.notify(decrypt_err, vim.log.levels.ERROR)
         return
       end
 
-      vim.api.nvim_buf_set_lines(ev.buf, 0, -1, false, vim.split(plaintext:gsub("\n$", ""), "\n"))
-      vim.bo[ev.buf].modified = false
       remember_file_state(ev.buf)
-      M.attach_writer(ev.buf)
+
+      local attached, writer_err = pcall(M.attach_writer, ev.buf)
+      if not attached then
+        vim.notify(
+          ("Refusing to decrypt %s: the safe writer could not be installed: %s"):format(
+            vim.fn.fnamemodify(vim.api.nvim_buf_get_name(ev.buf), ":t"),
+            writer_err
+          ),
+          vim.log.levels.ERROR
+        )
+        return
+      end
+
+      vim.api.nvim_buf_set_lines(ev.buf, 0, -1, false, vim.split(plaintext:gsub("\n$", ""), "\n"))
+      vim.b[ev.buf].ansible_vault_plain = true
+      vim.bo[ev.buf].modified = false
 
       -- Filetype was detected against ciphertext; worth another look now.
       vim.cmd("filetype detect")
