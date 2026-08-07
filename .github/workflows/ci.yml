@@ -28,7 +28,19 @@ env:
   # without a commit here. Raise them deliberately.
   STYLUA_VERSION: 2.5.2
   SELENE_VERSION: 0.31.0
+  # SHA-256 of selene-${SELENE_VERSION}-linux.zip, checked before the binary is
+  # run. A version pin says which release was asked for; it does not say the
+  # bytes are the ones that release had when it was pinned, and a release asset
+  # can be replaced. These two lines belong to each other: change the version
+  # and the sum changes with it, in the same commit, from a download made on
+  # purpose rather than from memory.
+  SELENE_SHA256: dac452422747999ec4919bbb8bb52992b66aae533b60022bf005669de8616671
   TREE_SITTER_VERSION: 0.26.9
+  # The tests drive the real ansible-vault, and its behaviour is what several
+  # of them assert on — which header a rekey writes, how --vault-id composes
+  # with ansible.cfg. Pinned to the series those answers were verified against
+  # rather than taken from whatever the runner image happens to ship.
+  ANSIBLE_CORE_VERSION: 2.21.*
   # The version this configuration targets. `stable` is deliberately not used:
   # this config requires the 0.12 LSP API and the rewritten nvim-treesitter, so
   # a silent major bump should fail here rather than on somebody's machine.
@@ -53,6 +65,10 @@ jobs:
           set -euo pipefail
           curl -fsSL -o selene.zip \
             "https://github.com/Kampfkarren/selene/releases/download/${SELENE_VERSION}/selene-${SELENE_VERSION}-linux.zip"
+          # Verified before it is unpacked, let alone run. Everything else in
+          # this workflow is pinned by SHA for the same reason; this was the one
+          # downloaded artefact still trusted on its filename alone.
+          echo "${SELENE_SHA256}  selene.zip" | sha256sum -c -
           unzip -q selene.zip
           chmod +x selene
           sudo mv selene /usr/local/bin/
@@ -72,14 +88,34 @@ jobs:
           neovim: true
           version: ${{ env.NEOVIM_VERSION }}
 
-      - name: Install ansible
+      - name: Install ansible-core
         # The integration tests drive the real ansible-vault CLI. Without it
         # they skip, which would quietly remove the regression cover for every
         # defect they were written for.
+        #
+        # From pip at a pinned series rather than from the distribution, which
+        # ships whatever the image was built with. Several cases assert on
+        # ansible's own behaviour — that a rekey to `label@source` writes a 1.2
+        # header carrying the label, that --vault-id adds to the identity list
+        # from ansible.cfg instead of replacing it — and those answers were
+        # established against 2.21. A silent move to another series should fail
+        # here, deliberately, rather than change what the suite is testing.
         run: |
           set -euo pipefail
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends ansible
+          python3 -m venv .venv
+          .venv/bin/pip install --quiet "ansible-core==${ANSIBLE_CORE_VERSION}"
+          # Ahead of anything the image already has, so the tests cannot pick up
+          # a system ansible-vault instead of the pinned one.
+          echo "${GITHUB_WORKSPACE}/.venv/bin" >> "$GITHUB_PATH"
+
+      - name: Ansible versions
+        # Diagnostic, not a check: when a case fails on ansible's behaviour, the
+        # first question is which ansible answered.
+        run: |
+          set -euo pipefail
+          command -v ansible-vault
+          ansible --version
+          ansible-vault --version
 
       - name: Fetch mini.test
         # The suite needs nothing else: tests/minimal_init.lua loads this
@@ -97,9 +133,16 @@ jobs:
           nvim --headless --noplugin -u tests/minimal_init.lua \
             -c "lua MiniTest.run()" -c "qa!" 2>&1 | tee result.txt
           # MiniTest reports failures in its summary rather than through the
-          # exit code, so the summary is what decides this job.
-          if grep -qE 'Fails \([1-9]' result.txt; then
-            echo "::error::test failures above"
+          # exit code, so the summary is what decides this job — and it decides
+          # it by being there and saying zero.
+          #
+          # Looking for `Fails ([1-9]` instead was a job that passed whenever
+          # the summary was absent: a crash before it printed, a runner that
+          # died partway, an empty result.txt, a suite that collected nothing,
+          # or a future MiniTest that words its summary differently. All of
+          # those are failures, and all of them read as success.
+          if ! grep -q 'Fails (0)' result.txt; then
+            echo "::error::MiniTest did not report a clean result"
             exit 1
           fi
 
@@ -119,7 +162,12 @@ jobs:
         run: |
           set -euo pipefail
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends build-essential curl tar ripgrep fd-find
+          # unzip and gzip are what Mason unpacks its packages with, and this is
+          # the job that boots the real configuration. They are in README's
+          # requirements and in `:checkhealth devops`; installing them here
+          # keeps the three saying the same thing.
+          sudo apt-get install -y --no-install-recommends \
+            build-essential curl tar unzip gzip ripgrep fd-find
           # Upstream is explicit that the npm build is not supported.
           cargo install tree-sitter-cli --locked --version "${TREE_SITTER_VERSION}"
 
