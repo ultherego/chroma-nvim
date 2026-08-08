@@ -306,7 +306,10 @@ claim to.
 **Writes are atomic and checked.** A vault is replaced by writing a sibling
 file and renaming over the target, so a crash or a full disk leaves the old
 contents rather than a truncated file. Symlinks are followed, so the link
-survives and the file it points at is what changes.
+survives and the file it points at is what changes. The directory holding the
+new name is flushed afterwards, because a rename that is atomic against a dying
+process can still be lost to a power cut; if that flush fails you get a warning
+rather than a failed write, since the file is already in place.
 
 **Concurrent edits are detected.** Vault buffers carry `noswapfile` and take
 over the write, which removes both of Neovim's own protections; a fingerprint

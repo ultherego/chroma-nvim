@@ -844,6 +844,84 @@ T["atomic replacement"]["a temporary file that cannot be removed is named"] = fu
   vim.fn.delete(leftovers[1])
 end
 
+---Runs `fn` recording every path fsynced during it, optionally failing one.
+---@param fail_path string|nil the path whose fsync should report an error
+---@param fn function
+---@return string[] paths
+local function watching_fsync(fail_path, fn)
+  local real_open, real_fsync = vim.uv.fs_open, vim.uv.fs_fsync
+  local of, synced = {}, {}
+
+  -- fsync takes a descriptor, so the path it belongs to has to be remembered
+  -- when the descriptor is handed out.
+  vim.uv.fs_open = function(path, flags, mode)
+    local fd, err = real_open(path, flags, mode)
+    if fd then
+      of[fd] = path
+    end
+    return fd, err
+  end
+
+  vim.uv.fs_fsync = function(fd)
+    local path = of[fd]
+    table.insert(synced, path or "?")
+    if fail_path and path == fail_path then
+      return nil, "EIO: i/o error"
+    end
+    return real_fsync(fd)
+  end
+
+  local ok, err = pcall(fn)
+
+  vim.uv.fs_open = real_open
+  vim.uv.fs_fsync = real_fsync
+  assert(ok, err)
+
+  return synced
+end
+
+-- The rename is atomic but not durable on its own: until the directory holding
+-- the entry is synced, a power cut can leave the old name in place.
+T["atomic replacement"]["the directory entry is synced after the rename"] = function()
+  local dir, vault = project("---\nsecret: value\n")
+  opened_decrypted(vault)
+  vim.api.nvim_buf_set_lines(0, -1, -1, false, { "written: yes" })
+
+  local holding = vim.fs.dirname(vim.uv.fs_realpath(vault))
+  local synced = watching_fsync(nil, function()
+    pcall(vim.cmd, "silent write")
+  end)
+
+  eq(vim.tbl_contains(synced, holding), true)
+  eq(decrypt_externally(dir, vault):find("written: yes") ~= nil, true)
+end
+
+-- Durability is the one failure here with nothing to undo: the vault is already
+-- in place, so reporting a failed write would be false and would leave the
+-- buffer modified over work that did reach the disk.
+T["atomic replacement"]["a directory that cannot be synced still counts as written"] = function()
+  local dir, vault = project("---\nsecret: value\n")
+  opened_decrypted(vault)
+  vim.api.nvim_buf_set_lines(0, -1, -1, false, { "written: yes" })
+
+  local holding = vim.fs.dirname(vim.uv.fs_realpath(vault))
+  local notices, real_notify = {}, vim.notify
+  vim.notify = function(message, _)
+    table.insert(notices, tostring(message))
+  end
+
+  watching_fsync(holding, function()
+    pcall(vim.cmd, "silent write")
+  end)
+  vim.notify = real_notify
+
+  local said = table.concat(notices, " "):gsub("\n", " ")
+  eq(said:find("could not be confirmed as on%-disk") ~= nil, true)
+  eq(said:find("Could not write"), nil)
+  eq(vim.bo.modified, false)
+  eq(decrypt_externally(dir, vault):find("written: yes") ~= nil, true)
+end
+
 -- ---------------------------------------------------------------------------
 -- Rekey
 

@@ -548,14 +548,27 @@ before creating one.
 every `:edit!`. Without clearing, each reload added another hook, so one
 `:write` ran the whole encrypt-and-persist sequence once per reload.
 
-### Vault writes are atomic
+### Vault writes are atomic, and then made durable
 
-**Decision.** Write to a sibling temp file, check the length, fsync, rename.
+**Decision.** Write to a sibling temp file, check the length, fsync, rename,
+then fsync the directory the rename changed.
 
 **Why.** Opening the target with `"w"` truncates it before the first byte is
 written. An interruption between those moments destroys the vault. The previous
 version also ignored the return values of `fs_write` and `fs_close` while
 reporting success, so a half-written vault would have been announced as saved.
+
+Syncing the file is not the same as syncing the name that points at it. The
+rename is atomic against a crashing process, but the directory entry it changed
+can still be lost to a power cut, leaving the old contents behind after a
+write that was reported as done. One fsync of the parent directory closes that,
+and it is cheap because it happens once per save.
+
+A failure there is reported and not turned into a failed write. Every other
+error in this sequence leaves the vault untouched, so refusing is honest; this
+one arrives after the file is already in place. Calling it "could not write"
+would be false, and leaving the buffer modified would invite a second write of
+work that already reached the disk.
 
 ### Prompted passwords go to the runtime directory, or nowhere
 

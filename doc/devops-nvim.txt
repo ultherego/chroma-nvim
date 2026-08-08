@@ -895,6 +895,14 @@ an interrupted write leaves the old contents rather than a truncated file.
 Symlinks are followed: the link survives and the file it points at is what
 changes.
 
+The rename is followed by an fsync of the directory it changed. Renaming is
+atomic against a process that dies, but the entry it wrote is not on the disk
+until the directory is flushed, so a power cut could otherwise leave the old
+contents behind after a write that reported success. If that fsync fails you
+get a warning naming the file, not a failed write: the vault is already in
+place, so there is nothing to undo and the buffer is not left modified over
+work that reached the disk.
+
 That sibling is named after the process and the monotonic clock, and created
 with a flag that refuses an existing name. The clock is not decoration: a name
 made from the process id alone comes back once the system reuses that id, and

@@ -425,6 +425,26 @@ local function check_hardlinks(path)
 end
 
 --- Replaces a file without ever leaving it truncated: sibling temp file, then rename.
+---Puts a directory's own entries on the disk, which is what makes a rename durable.
+---@param dir string
+---@return boolean synced, string|nil err
+local function sync_directory(dir)
+  -- Read-only is how a directory is opened for this; there is nothing to write to it.
+  local fd, open_err = vim.uv.fs_open(dir, "r", tonumber("500", 8))
+  if not fd then
+    return false, open_err or "could not be opened"
+  end
+
+  local synced, sync_err = vim.uv.fs_fsync(fd)
+  vim.uv.fs_close(fd)
+
+  if synced == nil then
+    return false, sync_err or "fsync failed"
+  end
+
+  return true
+end
+
 ---@param path string
 ---@param contents string
 ---@return boolean ok, string|nil err
@@ -492,6 +512,21 @@ local function write_atomically(path, contents)
   local renamed, rename_err = vim.uv.fs_rename(tmp, target)
   if not renamed then
     return false, with_leftover(rename_err or "rename failed")
+  end
+
+  -- The rename is atomic, but the directory entry it changed is not on the disk
+  -- until the directory itself is synced: a power cut in between can leave the
+  -- old name. Said out loud rather than returned as a failure — the vault is in
+  -- place, there is nothing to undo, and "could not write" would be false.
+  local durable, durability_err = sync_directory(vim.fs.dirname(target))
+  if not durable then
+    vim.notify(
+      ("Wrote %s, but the change could not be confirmed as on-disk (%s).\n"):format(
+        vim.fn.fnamemodify(target, ":t"),
+        durability_err
+      ) .. "The file is in place; a crash or power cut before the filesystem flushes could still lose it.",
+      vim.log.levels.WARN
+    )
   end
 
   return true
