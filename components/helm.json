@@ -1,15 +1,22 @@
 {
-  "contract": 1,
+  "contract": 2,
   "id": "helm",
   "name": "Helm",
   "description": "Chart templates: filetype detection, language server, rendering.",
-  "requires": ["core"],
+  "requires": [
+    "core"
+  ],
   "tools": {
     "required": [
-      { "id": "helm", "reason": "rendering and linting a chart, both of which work without a cluster" }
+      {
+        "id": "helm",
+        "reason": "rendering and linting a chart, both of which work without a cluster"
+      }
     ]
   },
   "nvim": {
-    "plugins": ["plugins.lsp"]
+    "plugins": [
+      "plugins.lsp"
+    ]
   }
 }

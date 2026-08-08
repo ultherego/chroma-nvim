@@ -13,7 +13,52 @@ local M = {}
 --- declaring a higher one was written for a newer Chroma than this, and reading
 --- it as though the difference did not matter is how the two sides drift apart
 --- quietly. See cli/DESIGN.md, "The component contract".
-M.CONTRACT = 1
+M.CONTRACT = 2
+
+---Dotted numbers, with an optional leading v and whatever suffix a release
+---carries: 0.26.1, v1.14.3, 2.51.0-rc1.
+---@param value string
+---@return boolean
+function M.looks_like_version(value)
+  local numbers = (value:gsub("^v", "")):match("^[^-+]+") or ""
+  if numbers == "" then
+    return false
+  end
+
+  for part in (numbers .. "."):gmatch("([^.]*)%.") do
+    if part == "" or part:match("^%d+$") == nil then
+      return false
+    end
+  end
+  return true
+end
+
+---Orders two dotted versions: -1, 0 or 1. Missing components count as zero, so
+---1.2 and 1.2.0 are the same. Anything after the numbers is ignored.
+---@param a string
+---@param b string
+---@return integer
+function M.compare_versions(a, b)
+  local function parts(value)
+    local numbers = ((value:gsub("^%s*v?", "")):match("^[^-+]+") or "")
+    local out = {}
+    for part in (numbers .. "."):gmatch("([^.]*)%.") do
+      table.insert(out, tonumber(part:match("^%d+")) or 0)
+    end
+    return out
+  end
+
+  local left, right = parts(a), parts(b)
+  for i = 1, math.max(#left, #right) do
+    local l, r = left[i] or 0, right[i] or 0
+    if l < r then
+      return -1
+    elseif l > r then
+      return 1
+    end
+  end
+  return 0
+end
 
 ---Where the component files live: alongside this configuration, not in state.
 ---Resolved from this file rather than from stdpath("config"), so it answers the
@@ -38,7 +83,8 @@ local KNOWN = {
     nvim = true,
   },
   tools = { required = true, recommended = true, optional = true },
-  tool = { id = true, any = true, reason = true },
+  tool = { id = true, any = true, reason = true, version = true },
+  version = { min = true, max = true, exact = true },
   nvim = { modules = true, plugins = true },
 }
 
@@ -62,6 +108,11 @@ local function unknown_fields(decoded)
           return ("tools.%s[].%s"):format(key, field)
         end
       end
+      for field in pairs(tool.version or {}) do
+        if not KNOWN.version[field] then
+          return ("tools.%s[].version.%s"):format(key, field)
+        end
+      end
     end
   end
 
@@ -69,6 +120,42 @@ local function unknown_fields(decoded)
     if not KNOWN.nvim[key] then
       return ("nvim.%s"):format(key)
     end
+  end
+
+  return nil
+end
+
+---Whether a version constraint says one thing, and says it in numbers.
+---The rules are the Go reader's, because a contract with two meanings has none.
+---@param version table|nil
+---@return string|nil problem
+local function version_problem_of(version)
+  if version == nil then
+    return nil
+  end
+  if type(version) ~= "table" then
+    return "is not an object"
+  end
+
+  local min, max, exact = version.min, version.max, version.exact
+  if not min and not max and not exact then
+    return "says nothing"
+  end
+
+  -- Exact answers the question on its own; a bound beside it is a second answer
+  -- that some reader would have to choose between.
+  if exact and (min or max) then
+    return "sets exact together with min or max"
+  end
+
+  for name, value in pairs({ min = min, max = max, exact = exact }) do
+    if type(value) ~= "string" or not M.looks_like_version(value) then
+      return ("has a %s that is not a version: %s"):format(name, vim.inspect(value))
+    end
+  end
+
+  if min and max and M.compare_versions(min, max) > 0 then
+    return ("has min %s above max %s"):format(min, max)
   end
 
   return nil
@@ -98,6 +185,11 @@ local function tool_problem(tools)
         if name == "" then
           return ("has a %s tool with an empty name in any"):format(level)
         end
+      end
+
+      local version_problem = version_problem_of(tool.version)
+      if version_problem then
+        return ("has a %s tool whose version %s"):format(level, version_problem)
       end
     end
   end
@@ -237,6 +329,7 @@ function M.tools(component)
         names = tool.any or { tool.id },
         level = level,
         reason = tool.reason or "",
+        version = tool.version,
       })
     end
   end
@@ -244,6 +337,11 @@ function M.tools(component)
 end
 
 ---Whether any of a tool's accepted names is on PATH.
+---
+---Presence only. Whether the version meets the contract is checked by `chroma
+---doctor`, which owns the knowledge of how to ask each executable what it is;
+---duplicating that here would be a second registry to keep in step. The health
+---check says so rather than implying it has checked.
 ---@param tool table
 ---@return boolean
 function M.satisfied(tool)

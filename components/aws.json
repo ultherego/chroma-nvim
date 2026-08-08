@@ -1,15 +1,22 @@
 {
-  "contract": 1,
+  "contract": 2,
   "id": "aws",
   "name": "AWS",
   "description": "Profile and region for this session, and identity-bound Terraform plans.",
-  "requires": ["core"],
+  "requires": [
+    "core"
+  ],
   "tools": {
     "required": [
-      { "id": "aws", "reason": "listing profiles and regions, and sts get-caller-identity" }
+      {
+        "id": "aws",
+        "reason": "listing profiles and regions, and sts get-caller-identity"
+      }
     ]
   },
   "nvim": {
-    "modules": ["chroma-aws"]
+    "modules": [
+      "chroma-aws"
+    ]
   }
 }

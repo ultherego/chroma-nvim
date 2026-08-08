@@ -1,19 +1,36 @@
 {
-  "contract": 1,
+  "contract": 2,
   "id": "terraform",
   "name": "Terraform / OpenTofu",
   "description": "Plan, review and apply from the editor, and formatting.",
-  "requires": ["core"],
+  "requires": [
+    "core"
+  ],
   "tools": {
     "required": [
-      { "any": ["terraform", "tofu"], "reason": "the runner and the formatter both shell out to one of them" }
+      {
+        "any": [
+          "terraform",
+          "tofu"
+        ],
+        "reason": "the runner and the formatter both shell out to one of them"
+      }
     ],
     "recommended": [
-      { "id": "terragrunt", "reason": "directories holding terragrunt.hcl are run and formatted with it" }
+      {
+        "id": "terragrunt",
+        "reason": "directories holding terragrunt.hcl are run and formatted with it"
+      }
     ]
   },
   "nvim": {
-    "modules": ["chroma-terraform"],
-    "plugins": ["plugins.lsp", "plugins.formatting", "plugins.lint"]
+    "modules": [
+      "chroma-terraform"
+    ],
+    "plugins": [
+      "plugins.lsp",
+      "plugins.formatting",
+      "plugins.lint"
+    ]
   }
 }

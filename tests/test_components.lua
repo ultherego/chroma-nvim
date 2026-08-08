@@ -126,7 +126,7 @@ end
 -- a typo that means "install less than asked".
 T["reader"]["refuses a field it does not know"] = function()
   with_contract({
-    ["typo.json"] = '{ "contract": 1, "id": "typo", "require": ["core"] }',
+    ["typo.json"] = '{ "contract": 2, "id": "typo", "require": ["core"] }',
   }, function(module)
     local loaded, problems = module.load()
     eq(loaded, {})
@@ -137,7 +137,7 @@ end
 
 T["reader"]["refuses an unknown field inside a tool"] = function()
   with_contract({
-    ["deep.json"] = '{ "contract": 1, "id": "deep", "tools": { "required": [ { "id": "x", "reason": "y", "min": "1.0" } ] } }',
+    ["deep.json"] = '{ "contract": 2, "id": "deep", "tools": { "required": [ { "id": "x", "reason": "y", "min": "1.0" } ] } }',
   }, function(module)
     local _, problems = module.load()
     eq(#problems, 1)
@@ -148,7 +148,7 @@ end
 -- With both set the reader picks one and drops the other in silence.
 T["reader"]["refuses a tool with both id and any"] = function()
   with_contract({
-    ["both.json"] = '{ "contract": 1, "id": "both", "tools": { "required": [ { "id": "x", "any": ["y"], "reason": "z" } ] } }',
+    ["both.json"] = '{ "contract": 2, "id": "both", "tools": { "required": [ { "id": "x", "any": ["y"], "reason": "z" } ] } }',
   }, function(module)
     local _, problems = module.load()
     eq(#problems, 1)
@@ -158,7 +158,7 @@ end
 
 T["reader"]["refuses a tool with neither, and one with no reason"] = function()
   with_contract({
-    ["neither.json"] = '{ "contract": 1, "id": "neither", "tools": { "required": [ { "reason": "z" } ] } }',
+    ["neither.json"] = '{ "contract": 2, "id": "neither", "tools": { "required": [ { "reason": "z" } ] } }',
   }, function(module)
     local _, problems = module.load()
     eq(#problems, 1)
@@ -166,7 +166,7 @@ T["reader"]["refuses a tool with neither, and one with no reason"] = function()
   end)
 
   with_contract({
-    ["silent.json"] = '{ "contract": 1, "id": "silent", "tools": { "required": [ { "id": "x" } ] } }',
+    ["silent.json"] = '{ "contract": 2, "id": "silent", "tools": { "required": [ { "id": "x" } ] } }',
   }, function(module)
     local _, problems = module.load()
     eq(#problems, 1)
@@ -174,8 +174,57 @@ T["reader"]["refuses a tool with neither, and one with no reason"] = function()
   end)
 end
 
+-- Contract 1 had no version field; a file that carries one is describing a
+-- schema this does not know, whatever else it says.
+T["reader"]["refuses a version under contract 1"] = function()
+  with_contract({
+    ["old.json"] = '{ "contract": 1, "id": "old", "tools": { "required": [ { "id": "x", "reason": "y", "version": { "min": "1.0" } } ] } }',
+  }, function(module)
+    local _, problems = module.load()
+    eq(#problems, 1)
+    eq(problems[1]:find("declares contract 1") ~= nil, true)
+  end)
+end
+
+T["reader"]["refuses a version that says two things or nothing"] = function()
+  local cases = {
+    { json = '{ "exact": "1.2", "min": "1.0" }', expect = "exact together with min or max" },
+    { json = "{}", expect = "says nothing" },
+    { json = '{ "min": "2.0", "max": "1.0" }', expect = "above max" },
+    { json = '{ "min": "latest" }', expect = "not a version" },
+    { json = '{ "minimum": "1.0" }', expect = "unknown field" },
+  }
+
+  for _, case in ipairs(cases) do
+    with_contract({
+      ["v.json"] = ('{ "contract": 2, "id": "v", "tools": { "required": [ { "id": "x", "reason": "y", "version": %s } ] } }'):format(
+        case.json
+      ),
+    }, function(module)
+      local _, problems = module.load()
+      eq({ case.json, #problems }, { case.json, 1 })
+      eq({ case.json, problems[1]:find(case.expect, 1, true) ~= nil }, { case.json, true })
+    end)
+  end
+end
+
+T["reader"]["compares versions the way the Go reader does"] = function()
+  local c = require("chroma.components")
+  eq(c.compare_versions("1.2.3", "1.2.3"), 0)
+  eq(c.compare_versions("1.2", "1.2.0"), 0)
+  eq(c.compare_versions("v2.19", "2.19"), 0)
+  eq(c.compare_versions("0.26.1", "0.26.9"), -1)
+  eq(c.compare_versions("1.10", "1.9"), 1)
+  eq(c.compare_versions("2.0.0-rc1", "2.0.0"), 0)
+
+  eq(c.looks_like_version("0.26.1"), true)
+  eq(c.looks_like_version("v1.14.3"), true)
+  eq(c.looks_like_version("latest"), false)
+  eq(c.looks_like_version(""), false)
+end
+
 T["reader"]["reports two components claiming one id"] = function()
-  local one = '{ "contract": 1, "id": "same", "requires": [] }'
+  local one = '{ "contract": 2, "id": "same", "requires": [] }'
   with_contract({ ["a.json"] = one, ["b.json"] = one }, function(module)
     local loaded, problems = module.load()
     eq(vim.tbl_count(loaded), 1)
@@ -186,7 +235,7 @@ end
 
 T["reader"]["reports a dependency that is not declared"] = function()
   with_contract({
-    ["orphan.json"] = '{ "contract": 1, "id": "orphan", "requires": ["nothing"] }',
+    ["orphan.json"] = '{ "contract": 2, "id": "orphan", "requires": ["nothing"] }',
   }, function(module)
     local problems = module.resolve_problems(module.load())
     eq(#problems, 1)
@@ -198,8 +247,8 @@ end
 -- resolver would notice: every dependency in one exists.
 T["reader"]["reports a dependency cycle"] = function()
   with_contract({
-    ["a.json"] = '{ "contract": 1, "id": "a", "requires": ["b"] }',
-    ["b.json"] = '{ "contract": 1, "id": "b", "requires": ["a"] }',
+    ["a.json"] = '{ "contract": 2, "id": "a", "requires": ["b"] }',
+    ["b.json"] = '{ "contract": 2, "id": "b", "requires": ["a"] }',
   }, function(module)
     local problems = module.resolve_problems(module.load())
     eq(#problems > 0, true)
@@ -209,9 +258,9 @@ end
 
 T["reader"]["accepts a component that reaches core through another"] = function()
   with_contract({
-    ["core.json"] = '{ "contract": 1, "id": "core", "requires": [] }',
-    ["mid.json"] = '{ "contract": 1, "id": "mid", "requires": ["core"] }',
-    ["leaf.json"] = '{ "contract": 1, "id": "leaf", "requires": ["mid", "core"] }',
+    ["core.json"] = '{ "contract": 2, "id": "core", "requires": [] }',
+    ["mid.json"] = '{ "contract": 2, "id": "mid", "requires": ["core"] }',
+    ["leaf.json"] = '{ "contract": 2, "id": "leaf", "requires": ["mid", "core"] }',
   }, function(module)
     -- A diamond is not a cycle, and a resolver that cannot tell them apart
     -- refuses perfectly ordinary contracts.

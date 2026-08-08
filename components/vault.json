@@ -1,15 +1,22 @@
 {
-  "contract": 1,
+  "contract": 2,
   "id": "vault",
   "name": "Ansible Vault",
   "description": "Editing encrypted files in place: transparent decrypt, inline values, rekey.",
-  "requires": ["core"],
+  "requires": [
+    "core"
+  ],
   "tools": {
     "required": [
-      { "id": "ansible-vault", "reason": "every encrypt, decrypt and rekey; it ships with ansible-core, but nothing here needs playbooks" }
+      {
+        "id": "ansible-vault",
+        "reason": "every encrypt, decrypt and rekey; it ships with ansible-core, but nothing here needs playbooks"
+      }
     ]
   },
   "nvim": {
-    "modules": ["chroma-vault"]
+    "modules": [
+      "chroma-vault"
+    ]
   }
 }

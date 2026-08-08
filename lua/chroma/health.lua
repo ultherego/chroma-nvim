@@ -211,11 +211,20 @@ local function check_components()
   local ids = vim.tbl_keys(components)
   table.sort(ids)
 
+  -- Said once, rather than implied nine times: this checks presence. Whether a
+  -- tool is new enough is `chroma doctor`, which owns the knowledge of how to
+  -- ask each executable what version it is. A second copy of that here would be
+  -- a second thing to keep in step with reality.
+  local constrained = false
+
   for _, id in ipairs(ids) do
     local component = components[id]
     local missing = {}
 
     for _, tool in ipairs(contract.tools(component)) do
+      if tool.version then
+        constrained = true
+      end
       if tool.level == "required" and not contract.satisfied(tool) then
         table.insert(missing, table.concat(tool.names, " or "))
       end
@@ -229,6 +238,10 @@ local function check_components()
         ("nothing else is affected; the rest of the editor works without %s"):format(component.name)
       )
     end
+  end
+
+  if constrained then
+    health.info("`ready` here means present. `chroma doctor` also checks that versions meet the contract.")
   end
 end
 

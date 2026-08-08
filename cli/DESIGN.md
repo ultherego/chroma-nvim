@@ -114,6 +114,46 @@ duplication this contract exists to prevent. Reading from a tree costs nothing:
 every command that needs the contract already has a tree, because fetching
 happens before any of them decides anything.
 
+**A tool may carry a version, and the constraint is data rather than prose.**
+
+```json
+{ "id": "tree-sitter", "version": { "min": "0.26.1" }, "reason": "compiling parsers" }
+```
+
+`exact`, or `min` and/or `max` — never both kinds, because "exactly 1.2 and at
+least 1.0" is two answers to one question. Deliberately not a constraint
+language: `>=1.2,<2.0 || >=3.0` is a grammar, a parser and a class of bug, and
+nothing here has needed one. That is what took the contract from 1 to 2; the
+readers of contract 1 correctly refuse a `version` field they have never heard
+of, which is the version check doing its job.
+
+**How to read a version is not in the contract.** A manifest says *what* is
+required, which is a fact about the product. That `kubectl` needs `version
+--client` while Info-ZIP has no `--version` at all and prints its own on the
+second line of a usage message — measured, both — is a fact about those
+executables, and it changes when they do. It lives in the CLI's own registry, so
+the shared contract never carries this CLI's implementation details.
+
+```
+components/*.json          says WHAT is required
+        ↓
+   the requirement
+        ↓
+ the CLI's tool registry    knows HOW to ask this executable
+        ↓
+   version, or unknown
+```
+
+An unknown version satisfies no constraint. A tool that will not say what it is
+cannot be shown to be new enough, and guessing in its favour is the false
+positive this exists to remove: `exec.LookPath` succeeds, and the thing is too
+old to do the job.
+
+`:checkhealth chroma` checks presence and says so in as many words, pointing at
+`chroma doctor` for the version half. Two implementations of "how to interrogate
+this binary" would be a second registry to keep in step, and one of them would
+drift.
+
 **`contract` is a version, and it is checked in both directions.** A CLI refuses
 a configuration whose `contract` is higher than it understands and says to update
 itself; a configuration refuses to be driven by a CLI that is older than its

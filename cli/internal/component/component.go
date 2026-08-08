@@ -20,14 +20,32 @@ import (
 // Contract is the version this CLI understands. A component declaring a higher
 // one was written for a newer Chroma; reading it anyway is how the two sides
 // drift apart quietly. See cli/DESIGN.md, "The component contract".
-const Contract = 1
+const Contract = 2
+
+// Version is what a tool has to be, when being present is not enough. Either
+// Exact, or a Min and/or Max — never both kinds, because "exactly 1.2, and at
+// least 1.0" is two answers to one question.
+//
+// Deliberately not a constraint language. `>=1.2,<2.0 || >=3.0` is a parser, a
+// grammar and a class of bug, and nothing here has yet needed one.
+type Version struct {
+	Min   string `json:"min"`
+	Max   string `json:"max"`
+	Exact string `json:"exact"`
+}
+
+// Constrained reports whether this says anything at all.
+func (v Version) Constrained() bool {
+	return v.Min != "" || v.Max != "" || v.Exact != ""
+}
 
 // Tool is something that has to be on PATH. Exactly one of ID or Any is set:
 // Any lists names that are interchangeable, as terraform and tofu are.
 type Tool struct {
-	ID     string   `json:"id"`
-	Any    []string `json:"any"`
-	Reason string   `json:"reason"`
+	ID      string   `json:"id"`
+	Any     []string `json:"any"`
+	Version *Version `json:"version"`
+	Reason  string   `json:"reason"`
 }
 
 // Names are the names that satisfy this tool, in the order they were declared.
@@ -169,10 +187,133 @@ func validateTools(tools Tools) string {
 					return fmt.Sprintf("has a %s tool with an empty name in any", level.name)
 				}
 			}
+			if problem := validateVersion(tool.Version); problem != "" {
+				return fmt.Sprintf("has a %s tool whose version %s", level.name, problem)
+			}
 		}
 	}
 
 	return ""
+}
+
+func validateVersion(v *Version) string {
+	if v == nil {
+		return ""
+	}
+
+	if !v.Constrained() {
+		return "says nothing"
+	}
+
+	// Exact answers the question on its own; a bound next to it is a second,
+	// possibly contradictory answer that some reader would have to pick between.
+	if v.Exact != "" && (v.Min != "" || v.Max != "") {
+		return "sets exact together with min or max"
+	}
+
+	for name, value := range map[string]string{"min": v.Min, "max": v.Max, "exact": v.Exact} {
+		if value == "" {
+			continue
+		}
+		if !looksLikeVersion(value) {
+			return fmt.Sprintf("has a %s that is not a version: %q", name, value)
+		}
+	}
+
+	if v.Min != "" && v.Max != "" && CompareVersions(v.Min, v.Max) > 0 {
+		return fmt.Sprintf("has min %s above max %s", v.Min, v.Max)
+	}
+
+	return ""
+}
+
+// looksLikeVersion accepts a leading v and dotted numbers, with whatever suffix
+// a release likes to carry: 0.26.1, v1.14.3, 2.51.0-rc1.
+func looksLikeVersion(value string) bool {
+	value = strings.TrimPrefix(value, "v")
+	if value == "" {
+		return false
+	}
+
+	for _, part := range strings.Split(strings.FieldsFunc(value, func(r rune) bool {
+		return r == '-' || r == '+'
+	})[0], ".") {
+		if part == "" {
+			return false
+		}
+		for _, r := range part {
+			if r < '0' || r > '9' {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+// CompareVersions orders two dotted versions: -1, 0 or 1. Missing components
+// count as zero, so 1.2 and 1.2.0 are the same version. Anything after the
+// numbers — a release candidate, a build tag — is ignored, because a constraint
+// this project writes is about the numbers.
+func CompareVersions(a, b string) int {
+	left, right := versionParts(a), versionParts(b)
+	for i := 0; i < len(left) || i < len(right); i++ {
+		var l, r int
+		if i < len(left) {
+			l = left[i]
+		}
+		if i < len(right) {
+			r = right[i]
+		}
+		switch {
+		case l < r:
+			return -1
+		case l > r:
+			return 1
+		}
+	}
+	return 0
+}
+
+func versionParts(value string) []int {
+	value = strings.TrimPrefix(strings.TrimSpace(value), "v")
+	value = strings.FieldsFunc(value, func(r rune) bool { return r == '-' || r == '+' })[0]
+
+	var parts []int
+	for _, part := range strings.Split(value, ".") {
+		number := 0
+		for _, r := range part {
+			if r < '0' || r > '9' {
+				break
+			}
+			number = number*10 + int(r-'0')
+		}
+		parts = append(parts, number)
+	}
+	return parts
+}
+
+// Satisfies reports whether a version string meets this constraint. An empty
+// constraint is met by anything, including a version nobody could read.
+func (v *Version) Satisfies(found string) bool {
+	if v == nil || !v.Constrained() {
+		return true
+	}
+	if found == "" {
+		return false
+	}
+
+	switch {
+	case v.Exact != "":
+		return CompareVersions(found, v.Exact) == 0
+	default:
+		if v.Min != "" && CompareVersions(found, v.Min) < 0 {
+			return false
+		}
+		if v.Max != "" && CompareVersions(found, v.Max) > 0 {
+			return false
+		}
+		return true
+	}
 }
 
 // ResolveProblems reports dependencies that are not declared, and cycles. A
@@ -237,22 +378,40 @@ func (s Set) IDs() []string {
 
 // Missing are the required tools of this component that are not on PATH.
 func (c *Component) Missing(lookup func(string) bool) []Tool {
-	var missing []Tool
-	for _, tool := range c.Tools.Required {
-		if !satisfied(tool, lookup) {
-			missing = append(missing, tool)
-		}
-	}
-	return missing
+	return c.Unsatisfied(lookup, nil)
 }
 
-func satisfied(tool Tool, lookup func(string) bool) bool {
-	for _, name := range tool.Names() {
-		if lookup(name) {
-			return true
+// Unsatisfied is Missing with versions taken into account: a tool that is
+// present but older than the contract asks for is not satisfied, and reporting
+// it as ready is the false positive this exists to prevent. `version` may be
+// nil, in which case only presence is checked.
+func (c *Component) Unsatisfied(lookup func(string) bool, version func(string) string) []Tool {
+	var unsatisfied []Tool
+	for _, tool := range c.Tools.Required {
+		if _, ok := Satisfy(tool, lookup, version); !ok {
+			unsatisfied = append(unsatisfied, tool)
 		}
 	}
-	return false
+	return unsatisfied
+}
+
+// Satisfy reports whether a tool is present and within its constraint, and
+// which name answered. A tool with alternatives is satisfied by the first name
+// that is both present and acceptable — so an old terraform does not mask a
+// good tofu.
+func Satisfy(tool Tool, lookup func(string) bool, version func(string) string) (string, bool) {
+	for _, name := range tool.Names() {
+		if !lookup(name) {
+			continue
+		}
+		if tool.Version == nil || !tool.Version.Constrained() || version == nil {
+			return name, true
+		}
+		if tool.Version.Satisfies(version(name)) {
+			return name, true
+		}
+	}
+	return "", false
 }
 
 func join(parts []string, sep string) string {

@@ -1,15 +1,22 @@
 {
-  "contract": 1,
+  "contract": 2,
   "id": "kubernetes",
   "name": "Kubernetes",
   "description": "Cluster views, contexts, namespaces, logs.",
-  "requires": ["core"],
+  "requires": [
+    "core"
+  ],
   "tools": {
     "required": [
-      { "id": "kubectl", "reason": "every cluster view, and the context and namespace pickers" }
+      {
+        "id": "kubectl",
+        "reason": "every cluster view, and the context and namespace pickers"
+      }
     ]
   },
   "nvim": {
-    "plugins": ["plugins.devops"]
+    "plugins": [
+      "plugins.devops"
+    ]
   }
 }
