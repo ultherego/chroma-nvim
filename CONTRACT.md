@@ -215,7 +215,7 @@ installs anyway:
 
 | Originally planned | Actually provided by |
 |---|---|
-| `fmt` | conform.nvim `terraform_fmt`, and `terragrunt_hclfmt` for terragrunt files. Requires the `terraform` CLI — the LSP is not a fallback, it shells out to `terraform fmt` itself. |
+| `fmt` | conform.nvim `terraform_fmt`, falling back to `tofu_fmt` where only OpenTofu is installed, and `terragrunt_hclfmt` for terragrunt files. Requires one of those CLIs — the LSP is not a fallback, it shells out to `terraform fmt` itself. |
 | `validate` | `tflint`, running as a language server. It is deliberately **not** registered with nvim-lint as well; that would double every finding. |
 | `init` | implemented after all as `:TerraformInit`; it is one keystroke from where you already are |
 
