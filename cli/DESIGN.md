@@ -308,26 +308,54 @@ Nothing outside these is written:
 
 ---
 
-## The installed state
+## The selection
 
-`~/.local/state/<appname>/install.json` — state, not configuration, so it is not
-in the config directory where a `git pull` would see it as untracked.
+`$XDG_CONFIG_HOME/chroma/components.json` — the user's own configuration, not
+the release tree. An update replaces `~/.config/chroma-nvim` wholesale; what
+somebody chose has to survive that.
 
 ```json
 {
-  "contract": 1,
-  "version": "v2.1.0",
-  "appname": "chroma-nvim",
-  "installed_at": "2026-08-08T21:40:00Z",
-  "profile": "custom",
-  "components": ["core", "terraform", "kubernetes", "aws"],
-  "backup": null
+  "schema": 1,
+  "selected": ["terraform", "aws"]
 }
 ```
 
-It is what makes `update` quiet — it upgrades the same components to the next
-release rather than asking again — and what `components` edits. The Lua side
-reads `components` and nothing else; the rest is the CLI's business.
+**Intent, not a resolved graph.** `selected` is what was ticked and nothing
+else. Everything that runs is worked out on read, so a component whose
+dependencies change is never described by a stale copy of them.
+
+**`core` is not in it.** It is enabled always and is not a choice, so naming it
+is refused rather than ignored — a file that lists it was written against a
+different idea of what this document means.
+
+**`schema` is its own version.** It describes this file; `contract` describes
+`components/*.json`. Two documents with two reasons to change, and tying their
+numbers together would make one of them lie.
+
+**No file is not an empty selection.** That distinction carries the whole
+migration: a configuration from before any of this existed runs everything,
+while `"selected": []` runs core alone. Someone who has used this for months and
+never seen the CLI does not lose Terraform on the day gating arrives.
+
+Everything about it is refused rather than guessed at: an unknown field, a
+schema it does not know, a `selected` that is not an array, a member that is not
+a string or is empty, a duplicate, `core`, and a component that does not exist.
+That last one fails closed because a typo and "a newer CLI wrote this for an
+older Chroma" look identical, and both mean the configuration about to run is
+not the one that was chosen. The editor says so loudly and then runs everything,
+because starting with less than yesterday is the worse outcome.
+
+**It is not installation status.** `"selected": ["terraform"]` says somebody
+wants Terraform support. Whether terraform is installed, and new enough, is
+`doctor`, and mixing the two would make a wish look like a fact.
+
+Both languages read it, from one corpus of fixtures under
+`tests/fixtures/component-state`, so "Go accepts, Lua rejects" is a failing test
+rather than a machine behaving differently from the editor on it. The writer is
+atomic — temporary file, fsync, rename, fsync the directory — because an editor
+decides what to load from this at startup, and half of it is a Chroma that comes
+up wrong.
 
 ---
 

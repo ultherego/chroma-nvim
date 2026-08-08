@@ -269,6 +269,15 @@ function M.load()
   return components, problems
 end
 
+---Every component id this configuration ships, sorted. The answer to "what does
+---legacy mean", which is: all of it.
+---@return string[]
+function M.load_ids()
+  local ids = vim.tbl_keys(M.load())
+  table.sort(ids)
+  return ids
+end
+
 ---Whether the set resolves: every dependency exists, and nothing depends on
 ---itself through any path. A contract that does not resolve is a broken
 ---installation plan, so it is worth saying so where someone will read it.
