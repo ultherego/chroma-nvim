@@ -14,6 +14,7 @@ import (
 	"strings"
 
 	"github.com/ultherego/chroma-nvim/cli/internal/component"
+	"github.com/ultherego/chroma-nvim/cli/internal/plan"
 )
 
 // Exit codes are part of the interface: this ends up in scripts.
@@ -46,7 +47,9 @@ func run(args []string, out, errOut *os.File) int {
 		return cmdComponents(args[1:], out, errOut)
 	case "doctor":
 		return cmdDoctor(args[1:], out, errOut)
-	case "install", "update", "uninstall", "rollback":
+	case "install":
+		return cmdInstall(args[1:], out, errOut)
+	case "update", "uninstall", "rollback":
 		fmt.Fprintf(errOut, "%s is not implemented yet — see cli/DESIGN.md\n", args[0])
 		return exitMisuse
 	case "-h", "--help", "help":
@@ -64,9 +67,10 @@ func usage(w *os.File) {
 
   components   list the components of a configuration tree
   doctor       report what each component needs and what is missing
+  install      --dry-run only for now: builds the plan and prints it
   version      this CLI, and the contract it understands
 
-  install, update, uninstall, rollback   not implemented yet
+  update, uninstall, rollback   not implemented yet
 
 Both reading commands take --tree to point at a configuration; the default is
 the directory this is run from.
@@ -85,18 +89,26 @@ func cmdVersion(out *os.File) int {
 // tree resolves --tree, defaulting to the working directory, and returns the
 // components directory inside it.
 func tree(set *flag.FlagSet, args []string, errOut *os.File) (string, int) {
+	dir, _, code := treeWithRoot(set, args, errOut)
+	return dir, code
+}
+
+// treeWithRoot returns the components directory and the tree it is in, because
+// a message about where something would be installed should name the tree
+// rather than the directory this happens to read.
+func treeWithRoot(set *flag.FlagSet, args []string, errOut *os.File) (string, string, int) {
 	root := set.String("tree", ".", "configuration tree to read")
 	set.SetOutput(errOut)
 	if err := set.Parse(args); err != nil {
-		return "", exitMisuse
+		return "", "", exitMisuse
 	}
 
 	dir := filepath.Join(*root, "components")
 	if info, err := os.Stat(dir); err != nil || !info.IsDir() {
 		fmt.Fprintf(errOut, "no components directory in %s — is that a Chroma Neovim tree?\n", *root)
-		return "", exitMisuse
+		return "", "", exitMisuse
 	}
-	return dir, exitOK
+	return dir, *root, exitOK
 }
 
 func load(dir string, errOut *os.File) (component.Set, int) {
@@ -179,6 +191,56 @@ func cmdDoctor(args []string, out, errOut *os.File) int {
 	// Not a failure: a component nobody wants is allowed to be incomplete. The
 	// exit code says "something is missing", and the caller decides.
 	if incomplete {
+		return exitPreflight
+	}
+	return exitOK
+}
+
+// cmdInstall builds the plan and prints it. It stops there: `--dry-run` is the
+// only form that exists, and the alternative — running a plan nobody has
+// implemented the second half of — is not something to approximate.
+func cmdInstall(args []string, out, errOut *os.File) int {
+	set := flag.NewFlagSet("install", flag.ContinueOnError)
+	dryRun := set.Bool("dry-run", false, "print the plan and stop")
+	components := set.String("components", "core", "comma-separated component ids")
+
+	dir, root, code := treeWithRoot(set, args, errOut)
+	if code != exitOK {
+		return code
+	}
+
+	if !*dryRun {
+		fmt.Fprint(errOut, "install is not implemented yet; --dry-run builds and prints the plan.\nSee cli/DESIGN.md for what the rest of it will do.\n")
+		return exitMisuse
+	}
+
+	loaded, code := load(dir, errOut)
+	if code != exitOK {
+		return code
+	}
+
+	requested := strings.Split(*components, ",")
+	for i := range requested {
+		requested[i] = strings.TrimSpace(requested[i])
+	}
+
+	onPath := func(name string) bool {
+		_, err := exec.LookPath(name)
+		return err == nil
+	}
+
+	built := plan.Build(loaded, requested, onPath)
+
+	fmt.Fprintf(out, "Chroma Neovim would be installed from %s.\n\n", root)
+	built.Render(out)
+	fmt.Fprint(out, "\nNothing was written: this is a dry run.\n")
+
+	// An unknown component is a request that cannot be satisfied, whatever the
+	// rest of the plan says.
+	if len(built.Unknown) > 0 {
+		return exitMisuse
+	}
+	if !built.Complete() {
 		return exitPreflight
 	}
 	return exitOK
