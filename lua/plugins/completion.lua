@@ -37,6 +37,27 @@ return {
 
       sources = {
         default = { "lsp", "path", "snippets", "buffer" },
+        providers = {
+          buffer = {
+            opts = {
+              -- Upstream's default is every visible window's buffer, minus
+              -- `buftype=nofile`. A transparently decrypted vault is an ordinary
+              -- file buffer, so with one open in a split its words — the secrets —
+              -- were offered as completions in the file next to it, and accepting
+              -- one puts the secret in a buffer nothing here protects.
+              get_bufnrs = function()
+                local bufs = {}
+                for _, win in ipairs(vim.api.nvim_list_wins()) do
+                  local buf = vim.api.nvim_win_get_buf(win)
+                  if vim.bo[buf].buftype ~= "nofile" and not vim.b[buf].ansible_vault_plain then
+                    table.insert(bufs, buf)
+                  end
+                end
+                return bufs
+              end,
+            },
+          },
+        },
       },
 
       -- Falls back to the Lua matcher with a warning if the prebuilt binary is

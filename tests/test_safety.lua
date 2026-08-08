@@ -584,6 +584,45 @@ T["overriding_credentials"]["ignores an empty value"] = function()
 end
 
 -- ---------------------------------------------------------------------------
+-- Completion does not carry words out of a decrypted vault
+
+T["completion sources"] = new_set({
+  hooks = {
+    post_case = function()
+      vim.cmd("silent! only")
+      vim.cmd("silent! %bwipeout!")
+    end,
+  },
+})
+
+-- blink's default takes every visible window's buffer and rejects only
+-- `buftype=nofile`. A transparently decrypted vault is an ordinary file buffer,
+-- so its words — the secrets — were offered as completions in the file in the
+-- split next to it.
+T["completion sources"]["skip a buffer holding a decrypted vault"] = function()
+  local spec
+  for _, entry in ipairs(require("plugins.completion")) do
+    if entry[1] and entry[1]:match("blink%.cmp") then
+      spec = entry
+    end
+  end
+  local get_bufnrs = spec.opts.sources.providers.buffer.opts.get_bufnrs
+
+  local ordinary = vim.api.nvim_create_buf(true, false)
+  local decrypted = vim.api.nvim_create_buf(true, false)
+  vim.b[decrypted].ansible_vault_plain = true
+
+  -- Both visible, which is the only way either is a candidate.
+  vim.api.nvim_set_current_buf(ordinary)
+  vim.cmd("vsplit")
+  vim.api.nvim_set_current_buf(decrypted)
+
+  local offered = get_bufnrs()
+  eq(vim.tbl_contains(offered, decrypted), false)
+  eq(vim.tbl_contains(offered, ordinary), true)
+end
+
+-- ---------------------------------------------------------------------------
 -- Spawning that raises rather than fails
 
 -- The terraform runner learned this the hard way: vim.system raises before it

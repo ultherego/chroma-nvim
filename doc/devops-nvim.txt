@@ -1037,11 +1037,16 @@ attaches to a YAML file. A language server is handed the whole buffer on
 didOpen, and nvim-lint feeds linters on stdin, so without a rule the plaintext
 would reach yamlls and yamllint as a matter of course.
 
-So while a buffer holds plaintext: linters are not run for it, formatting on
-save does not touch it, language servers are detached from it — including any
-that attach later, because setting the filetype is what invites them and it
-happens after the plaintext is in place — and gitsigns neither attaches nor
-stays attached.
+So while a buffer holds plaintext: linters are not run for it, neither
+format-on-save nor `<leader>xf` touches it, language servers are detached from
+it — including any that attach later, because setting the filetype is what
+invites them and it happens after the plaintext is in place — and gitsigns
+neither attaches nor stays attached.
+
+Completion is on the list for a third reason: blink's buffer source offers
+words from every visible buffer, so a vault open in a split fed its secrets to
+the file beside it as completion candidates, and accepting one put the secret
+somewhere nothing here protects.
 
 Gitsigns is on that list for a different reason from the others. Staging a hunk
 does not write the working tree; it writes `.git/index` and a blob object from

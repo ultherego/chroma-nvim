@@ -178,6 +178,37 @@ T["buffer toggle"]["enables this buffer without touching the global flag"] = fun
 end
 
 -- ---------------------------------------------------------------------------
+-- Decrypted vaults are not handed to subprocesses
+
+T["vault buffers"] = new_set()
+
+T["vault buffers"]["are not formatted on save"] = function()
+  local buf = vim.api.nvim_create_buf(true, false)
+  vim.b[buf].ansible_vault_plain = true
+  eq(require("plugins.formatting")[1].opts.format_on_save(buf), nil)
+end
+
+-- The manual mapping is a second entry point to the same subprocesses, and it
+-- had no rule of its own.
+T["vault buffers"]["are not formatted on demand either"] = function()
+  local buf = vim.api.nvim_create_buf(true, false)
+  vim.b[buf].ansible_vault_plain = true
+  vim.api.nvim_set_current_buf(buf)
+
+  local called, real = false, package.loaded.conform
+  package.loaded.conform = {
+    format = function()
+      called = true
+    end,
+  }
+
+  keymap("<leader>xf")()
+
+  package.loaded.conform = real
+  eq(called, false)
+end
+
+-- ---------------------------------------------------------------------------
 -- The synchronous budget
 
 local notices = {}

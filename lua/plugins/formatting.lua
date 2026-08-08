@@ -96,6 +96,16 @@ return {
       {
         "<leader>xf",
         function()
+          -- The same rule as format-on-save: a formatter is a subprocess fed the
+          -- buffer, and a decrypted vault is not something to hand one. Said out
+          -- loud here, because unlike the save path this was asked for.
+          if vim.b[vim.api.nvim_get_current_buf()].ansible_vault_plain then
+            vim.notify(
+              "Not formatting: this buffer holds a decrypted vault, and formatters run as subprocesses.",
+              vim.log.levels.WARN
+            )
+            return
+          end
           require("conform").format({ async = true, lsp_format = "fallback" })
         end,
         mode = { "n", "v" },
