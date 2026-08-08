@@ -561,4 +561,73 @@ T["overriding_credentials"]["ignores an empty value"] = function()
   eq(overriding(), {})
 end
 
+-- ---------------------------------------------------------------------------
+-- What :AwsClear puts back
+
+local saved = {}
+
+T["starting environment"] = new_set({
+  hooks = {
+    pre_case = function()
+      saved.profile = vim.env.AWS_PROFILE
+      saved.region = vim.env.AWS_REGION
+      saved.default_region = vim.env.AWS_DEFAULT_REGION
+      saved.notify = vim.notify
+      vim.notify = function() end
+      -- A module that has never been set up, so this case decides what starting means.
+      require("aws")._test.forget_initial_environment()
+    end,
+    post_case = function()
+      vim.env.AWS_PROFILE = saved.profile
+      vim.env.AWS_REGION = saved.region
+      vim.env.AWS_DEFAULT_REGION = saved.default_region
+      vim.notify = saved.notify
+      require("aws")._test.forget_initial_environment()
+    end,
+  },
+})
+
+-- Regression: setup recaptured the environment every time it ran. A second call —
+-- a re-sourced config, a lazy reload — happens after profiles have been switched,
+-- so "restore what Neovim started with" restored the profile switched to instead.
+T["starting environment"]["survives a second setup"] = function()
+  local aws = require("aws")
+
+  vim.env.AWS_PROFILE = "started-as"
+  vim.env.AWS_REGION = "eu-central-1"
+  vim.env.AWS_DEFAULT_REGION = "eu-central-1"
+  aws.setup({})
+
+  -- What :AwsProfile and :AwsRegion do.
+  vim.env.AWS_PROFILE = "switched-to"
+  vim.env.AWS_REGION = "us-east-1"
+  vim.env.AWS_DEFAULT_REGION = "us-east-1"
+
+  aws.setup({})
+  aws.clear()
+
+  eq(vim.env.AWS_PROFILE, "started-as")
+  eq(vim.env.AWS_REGION, "eu-central-1")
+  eq(vim.env.AWS_DEFAULT_REGION, "eu-central-1")
+end
+
+-- Starting with nothing exported is a starting environment too, and restoring it
+-- means unsetting rather than leaving the last choice in place.
+T["starting environment"]["restores an environment that was empty"] = function()
+  local aws = require("aws")
+
+  vim.env.AWS_PROFILE = nil
+  vim.env.AWS_REGION = nil
+  vim.env.AWS_DEFAULT_REGION = nil
+  aws.setup({})
+
+  vim.env.AWS_PROFILE = "switched-to"
+  vim.env.AWS_REGION = "us-east-1"
+  aws.setup({})
+  aws.clear()
+
+  eq(vim.env.AWS_PROFILE, nil)
+  eq(vim.env.AWS_REGION, nil)
+end
+
 return T

@@ -223,7 +223,7 @@ AWS ~
 >
     <leader>Ap   Pick profile      <leader>As   Show profile and region
     <leader>Ar   Pick region       <leader>Aw   Who am I (sts get-caller-identity)
-    <leader>Ac   Clear both
+    <leader>Ac   Restore the starting environment
 <
 Sessions ~
 >
@@ -1343,8 +1343,15 @@ them, a subprocess sees the new values.
     :AwsRegion    choose from the account, or type one
     :AwsStatus    what the next subprocess will see
     :AwsWhoami    what those credentials actually resolve to
-    :AwsClear     unset both
+    :AwsClear     put back what Neovim started with
 <
+`:AwsClear` restores rather than unsets. AWS_PROFILE and AWS_REGION are read
+from the environment when the plugin is first set up and put back on demand, so
+starting Neovim with a profile exported and then switching leaves that first
+profile as what "clear" means. The snapshot is taken by the first `setup` only:
+a later one runs after profiles have been switched, and recapturing there would
+make the profile you switched to look like where you began.
+
 Profiles come from the CLI rather than from parsing ~/.aws/config, because the
 CLI already understands config, credentials, SSO sessions and AWS_CONFIG_FILE.
 

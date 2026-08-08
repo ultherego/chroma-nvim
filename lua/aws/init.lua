@@ -8,9 +8,17 @@ local defaults = {
 
 M.options = vim.deepcopy(defaults)
 
---- The environment Neovim was started with, captured once at setup.
+--- The environment Neovim was started with.
 ---@type table<string, string|nil>
 local initial = {}
+
+--- Whether `initial` holds the startup environment yet. A second `setup` happens
+--- after profiles have been switched, so recapturing there would quietly make the
+--- current profile the one `:AwsClear` restores.
+local initial_captured = false
+
+--- What `:AwsClear` restores, and the only variables this module sets.
+local TRACKED = { "AWS_PROFILE", "AWS_REGION", "AWS_DEFAULT_REGION" }
 
 --- Credentials that take precedence over AWS_PROFILE.
 local OVERRIDING = {
@@ -177,14 +185,23 @@ end
 --- Internals exposed for the test suite only.
 M._test = {
   overriding_credentials = overriding_credentials,
+  --- Puts the module back where a fresh Neovim would be, so a case can decide what
+  --- "the environment Neovim started with" is.
+  forget_initial_environment = function()
+    initial = {}
+    initial_captured = false
+  end,
 }
 
 ---@param opts table|nil
 function M.setup(opts)
   M.options = vim.tbl_deep_extend("force", vim.deepcopy(defaults), opts or {})
 
-  for _, name in ipairs({ "AWS_PROFILE", "AWS_REGION", "AWS_DEFAULT_REGION" }) do
-    initial[name] = vim.env[name]
+  if not initial_captured then
+    for _, name in ipairs(TRACKED) do
+      initial[name] = vim.env[name]
+    end
+    initial_captured = true
   end
 
   local commands = {
@@ -204,7 +221,8 @@ function M.setup(opts)
     vim.keymap.set("n", "<leader>Ar", M.pick_region, { desc = "AWS region" })
     vim.keymap.set("n", "<leader>As", M.status, { desc = "AWS status" })
     vim.keymap.set("n", "<leader>Aw", M.whoami, { desc = "AWS caller identity" })
-    vim.keymap.set("n", "<leader>Ac", M.clear, { desc = "Clear AWS profile and region" })
+    -- Not "clear": it puts back what Neovim started with, which may well be a profile.
+    vim.keymap.set("n", "<leader>Ac", M.clear, { desc = "Restore the starting AWS environment" })
   end
 end
 
