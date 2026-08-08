@@ -7,7 +7,17 @@ return {
     config = function()
       local lint = require("lint")
 
-      lint.linters_by_ft = {
+      -- Which linters exist at all is the enabled components' business: a
+      -- selection without Docker registers nothing for dockerfiles rather than
+      -- registering hadolint and failing to find it.
+      local enabled = require("chroma.state").enabled_ids()
+      local available = {}
+      for _, name in ipairs(require("chroma.components").contributions("linters", enabled)) do
+        available[name] = true
+      end
+
+      lint.linters_by_ft = {}
+      local by_ft = {
         yaml = { "yamllint" },
         dockerfile = { "hadolint" },
 
@@ -15,6 +25,15 @@ return {
         -- so it is not one of the fast linters below.
         ["yaml.ansible"] = { "ansible_lint" },
       }
+
+      for filetype, names in pairs(by_ft) do
+        local kept = vim.tbl_filter(function(name)
+          return available[name]
+        end, names)
+        if #kept > 0 then
+          lint.linters_by_ft[filetype] = kept
+        end
+      end
 
       -- Cheap enough to run while typing; everything else waits for a write.
       local fast = { yamllint = true, hadolint = true }
@@ -43,7 +62,7 @@ return {
         -- Workflows keep the plain `yaml` filetype, so actionlint is chosen by path.
         if not only_fast then
           local path = vim.api.nvim_buf_get_name(buf)
-          if path:match("/%.github/workflows/[^/]+%.ya?ml$") then
+          if path:match("/%.github/workflows/[^/]+%.ya?ml$") and available["actionlint"] then
             table.insert(names, "actionlint")
           end
         end

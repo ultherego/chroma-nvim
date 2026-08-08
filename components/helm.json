@@ -1,5 +1,5 @@
 {
-  "contract": 2,
+  "contract": 3,
   "id": "helm",
   "name": "Helm",
   "description": "Chart templates: filetype detection, language server, rendering.",
@@ -15,8 +15,15 @@
     ]
   },
   "nvim": {
+    "servers": [
+      "helm_ls"
+    ],
     "plugins": [
-      "plugins.lsp"
+      "vim-helm"
+    ],
+    "parsers": [
+      "helm",
+      "gotmpl"
     ]
   }
 }

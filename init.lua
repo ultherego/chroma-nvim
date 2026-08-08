@@ -19,6 +19,16 @@ require("config.lazy")
 -- vault — a pair of autocmds, so there is nothing to gain from deferring them.
 -- The vault's write hook in particular must exist before any vault file is
 -- opened, which rules out lazy loading it.
-require("chroma-vault").setup({ keymaps = true })
-require("chroma-terraform").setup({ keymaps = true })
-require("chroma-aws").setup({ keymaps = true })
+-- Each only if its component is enabled. With no selection ever written that is
+-- all three, exactly as before; see :help chroma-nvim-components.
+local enabled = require("chroma.state")
+
+if enabled.is_enabled("vault") then
+  require("chroma-vault").setup({ keymaps = true })
+end
+if enabled.is_enabled("terraform") then
+  require("chroma-terraform").setup({ keymaps = true })
+end
+if enabled.is_enabled("aws") then
+  require("chroma-aws").setup({ keymaps = true })
+end

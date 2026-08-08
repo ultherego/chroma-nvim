@@ -27,9 +27,9 @@ T["shipped"]["resolves: no unknown dependency, no cycle"] = function()
   eq(components.resolve_problems(loaded), {})
 end
 
--- The installer's plan is built from this: a component whose Neovim side names
--- a module that does not exist would install something that cannot load.
-T["shipped"]["names modules that exist"] = function()
+-- Everything a component claims on the Neovim side has to exist somewhere, or
+-- enabling the component installs a name and nothing happens.
+T["shipped"]["names modules that can be required"] = function()
   local loaded = components.load()
   local missing = {}
 
@@ -39,9 +39,45 @@ T["shipped"]["names modules that exist"] = function()
         table.insert(missing, ("%s: %s"):format(id, module))
       end
     end
+  end
+
+  eq(missing, {})
+end
+
+T["shipped"]["names plugins the lockfile pins"] = function()
+  local root = vim.fn.fnamemodify(vim.fn.resolve(debug.getinfo(1, "S").source:sub(2)), ":p:h:h")
+  local lockfile = vim.json.decode(table.concat(vim.fn.readfile(vim.fs.joinpath(root, "lazy-lock.json")), "\n"))
+
+  local missing = {}
+  for id, component in pairs(components.load()) do
     for _, plugin in ipairs(component.nvim.plugins or {}) do
-      if not pcall(require, plugin) then
+      if lockfile[plugin] == nil then
         table.insert(missing, ("%s: %s"):format(id, plugin))
+      end
+    end
+  end
+
+  eq(missing, {})
+end
+
+-- A server or Mason package a component asks for, that nothing pins, would be
+-- enabled and never installed.
+T["shipped"]["names servers and packages the LSP layer pins"] = function()
+  local root = vim.fn.fnamemodify(vim.fn.resolve(debug.getinfo(1, "S").source:sub(2)), ":p:h:h")
+  local source = table.concat(vim.fn.readfile(vim.fs.joinpath(root, "lua", "plugins", "lsp.lua")), "\n")
+
+  local pinned = {}
+  for name in source:gmatch('"([%w_%-%.]+)@[^"]+"') do
+    pinned[name] = true
+  end
+
+  local missing = {}
+  for id, component in pairs(components.load()) do
+    for _, kind in ipairs({ "servers", "mason" }) do
+      for _, name in ipairs(component.nvim[kind] or {}) do
+        if not pinned[name] then
+          table.insert(missing, ("%s: %s (%s)"):format(id, name, kind))
+        end
       end
     end
   end
@@ -126,7 +162,7 @@ end
 -- a typo that means "install less than asked".
 T["reader"]["refuses a field it does not know"] = function()
   with_contract({
-    ["typo.json"] = '{ "contract": 2, "id": "typo", "require": ["core"] }',
+    ["typo.json"] = '{ "contract": 3, "id": "typo", "require": ["core"] }',
   }, function(module)
     local loaded, problems = module.load()
     eq(loaded, {})
@@ -137,7 +173,7 @@ end
 
 T["reader"]["refuses an unknown field inside a tool"] = function()
   with_contract({
-    ["deep.json"] = '{ "contract": 2, "id": "deep", "tools": { "required": [ { "id": "x", "reason": "y", "min": "1.0" } ] } }',
+    ["deep.json"] = '{ "contract": 3, "id": "deep", "tools": { "required": [ { "id": "x", "reason": "y", "min": "1.0" } ] } }',
   }, function(module)
     local _, problems = module.load()
     eq(#problems, 1)
@@ -148,7 +184,7 @@ end
 -- With both set the reader picks one and drops the other in silence.
 T["reader"]["refuses a tool with both id and any"] = function()
   with_contract({
-    ["both.json"] = '{ "contract": 2, "id": "both", "tools": { "required": [ { "id": "x", "any": ["y"], "reason": "z" } ] } }',
+    ["both.json"] = '{ "contract": 3, "id": "both", "tools": { "required": [ { "id": "x", "any": ["y"], "reason": "z" } ] } }',
   }, function(module)
     local _, problems = module.load()
     eq(#problems, 1)
@@ -158,7 +194,7 @@ end
 
 T["reader"]["refuses a tool with neither, and one with no reason"] = function()
   with_contract({
-    ["neither.json"] = '{ "contract": 2, "id": "neither", "tools": { "required": [ { "reason": "z" } ] } }',
+    ["neither.json"] = '{ "contract": 3, "id": "neither", "tools": { "required": [ { "reason": "z" } ] } }',
   }, function(module)
     local _, problems = module.load()
     eq(#problems, 1)
@@ -166,7 +202,7 @@ T["reader"]["refuses a tool with neither, and one with no reason"] = function()
   end)
 
   with_contract({
-    ["silent.json"] = '{ "contract": 2, "id": "silent", "tools": { "required": [ { "id": "x" } ] } }',
+    ["silent.json"] = '{ "contract": 3, "id": "silent", "tools": { "required": [ { "id": "x" } ] } }',
   }, function(module)
     local _, problems = module.load()
     eq(#problems, 1)
@@ -176,13 +212,13 @@ end
 
 -- Contract 1 had no version field; a file that carries one is describing a
 -- schema this does not know, whatever else it says.
-T["reader"]["refuses a version under contract 1"] = function()
+T["reader"]["refuses a document written for an older contract"] = function()
   with_contract({
-    ["old.json"] = '{ "contract": 1, "id": "old", "tools": { "required": [ { "id": "x", "reason": "y", "version": { "min": "1.0" } } ] } }',
+    ["old.json"] = '{ "contract": 2, "id": "old" }',
   }, function(module)
     local _, problems = module.load()
     eq(#problems, 1)
-    eq(problems[1]:find("declares contract 1") ~= nil, true)
+    eq(problems[1]:find("declares contract 2") ~= nil, true)
   end)
 end
 
@@ -197,7 +233,7 @@ T["reader"]["refuses a version that says two things or nothing"] = function()
 
   for _, case in ipairs(cases) do
     with_contract({
-      ["v.json"] = ('{ "contract": 2, "id": "v", "tools": { "required": [ { "id": "x", "reason": "y", "version": %s } ] } }'):format(
+      ["v.json"] = ('{ "contract": 3, "id": "v", "tools": { "required": [ { "id": "x", "reason": "y", "version": %s } ] } }'):format(
         case.json
       ),
     }, function(module)
@@ -224,7 +260,7 @@ T["reader"]["compares versions the way the Go reader does"] = function()
 end
 
 T["reader"]["reports two components claiming one id"] = function()
-  local one = '{ "contract": 2, "id": "same", "requires": [] }'
+  local one = '{ "contract": 3, "id": "same", "requires": [] }'
   with_contract({ ["a.json"] = one, ["b.json"] = one }, function(module)
     local loaded, problems = module.load()
     eq(vim.tbl_count(loaded), 1)
@@ -235,7 +271,7 @@ end
 
 T["reader"]["reports a dependency that is not declared"] = function()
   with_contract({
-    ["orphan.json"] = '{ "contract": 2, "id": "orphan", "requires": ["nothing"] }',
+    ["orphan.json"] = '{ "contract": 3, "id": "orphan", "requires": ["nothing"] }',
   }, function(module)
     local problems = module.resolve_problems(module.load())
     eq(#problems, 1)
@@ -247,8 +283,8 @@ end
 -- resolver would notice: every dependency in one exists.
 T["reader"]["reports a dependency cycle"] = function()
   with_contract({
-    ["a.json"] = '{ "contract": 2, "id": "a", "requires": ["b"] }',
-    ["b.json"] = '{ "contract": 2, "id": "b", "requires": ["a"] }',
+    ["a.json"] = '{ "contract": 3, "id": "a", "requires": ["b"] }',
+    ["b.json"] = '{ "contract": 3, "id": "b", "requires": ["a"] }',
   }, function(module)
     local problems = module.resolve_problems(module.load())
     eq(#problems > 0, true)
@@ -258,9 +294,9 @@ end
 
 T["reader"]["accepts a component that reaches core through another"] = function()
   with_contract({
-    ["core.json"] = '{ "contract": 2, "id": "core", "requires": [] }',
-    ["mid.json"] = '{ "contract": 2, "id": "mid", "requires": ["core"] }',
-    ["leaf.json"] = '{ "contract": 2, "id": "leaf", "requires": ["mid", "core"] }',
+    ["core.json"] = '{ "contract": 3, "id": "core", "requires": [] }',
+    ["mid.json"] = '{ "contract": 3, "id": "mid", "requires": ["core"] }',
+    ["leaf.json"] = '{ "contract": 3, "id": "leaf", "requires": ["mid", "core"] }',
   }, function(module)
     -- A diamond is not a cycle, and a resolver that cannot tell them apart
     -- refuses perfectly ordinary contracts.

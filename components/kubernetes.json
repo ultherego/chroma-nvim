@@ -1,5 +1,5 @@
 {
-  "contract": 2,
+  "contract": 3,
   "id": "kubernetes",
   "name": "Kubernetes",
   "description": "Cluster views, contexts, namespaces, logs.",
@@ -16,7 +16,7 @@
   },
   "nvim": {
     "plugins": [
-      "plugins.devops"
+      "kubectl.nvim"
     ]
   }
 }

@@ -1,5 +1,5 @@
 {
-  "contract": 2,
+  "contract": 3,
   "id": "ansible",
   "name": "Ansible",
   "description": "Playbooks and roles: running them, and the language server.",
@@ -15,9 +15,17 @@
     ]
   },
   "nvim": {
+    "servers": [
+      "ansiblels"
+    ],
+    "mason": [
+      "ansible-lint"
+    ],
     "plugins": [
-      "plugins.devops",
-      "plugins.lint"
+      "nvim-ansible"
+    ],
+    "linters": [
+      "ansible_lint"
     ]
   }
 }

@@ -1,5 +1,5 @@
 {
-  "contract": 2,
+  "contract": 3,
   "id": "core",
   "name": "Core editor",
   "description": "The editor itself: plugin management, treesitter, pickers.",
@@ -78,8 +78,45 @@
     ]
   },
   "nvim": {
-    "modules": [
-      "chroma.health"
+    "servers": [
+      "yamlls",
+      "jsonls",
+      "bashls",
+      "lua_ls"
+    ],
+    "mason": [
+      "yamllint",
+      "stylua",
+      "shfmt",
+      "jq"
+    ],
+    "parsers": [
+      "yaml",
+      "bash",
+      "python",
+      "lua",
+      "json",
+      "toml",
+      "ini",
+      "xml",
+      "sql",
+      "make",
+      "ssh_config",
+      "go",
+      "gomod",
+      "git_config",
+      "gitcommit",
+      "gitignore",
+      "diff",
+      "markdown",
+      "markdown_inline",
+      "regex",
+      "query",
+      "vim",
+      "vimdoc"
+    ],
+    "linters": [
+      "yamllint"
     ]
   }
 }

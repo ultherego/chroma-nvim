@@ -35,10 +35,11 @@ return {
     "WhoIsSethDaniel/mason-tool-installer.nvim",
     event = "VeryLazy",
     dependencies = { "mason-org/mason.nvim" },
-    opts = {
-      -- lazy-lock.json pins plugins, not the binaries Mason fetches. Raised by
-      -- hand; `:MasonVersions` prints them in this form.
-      ensure_installed = {
+    opts = function()
+      -- Pinned by hand here; which of them are wanted comes from the enabled
+      -- components, so a machine that never selected Ansible does not fetch
+      -- ansible-lint. `:MasonVersions` prints them in this form.
+      local pins = {
         -- Runs as a language server, so plugins/lint.lua must not register it
         -- with nvim-lint as well.
         "tflint@v0.64.0",
@@ -51,9 +52,19 @@ return {
         "stylua@v2.5.2",
         "shfmt@v3.13.1",
         "jq@jq-1.7",
-      },
-      run_on_start = true,
-    },
+      }
+
+      local wanted = require("chroma.components").contributions("mason", require("chroma.state").enabled_ids())
+      local keep = {}
+      for _, pin in ipairs(pins) do
+        local name = pin:match("^([^@]+)")
+        if vim.tbl_contains(wanted, name) then
+          table.insert(keep, pin)
+        end
+      end
+
+      return { ensure_installed = keep, run_on_start = true }
+    end,
   },
 
   -- SchemaStore: JSON and YAML schemas, consumed by after/lsp/yamlls.lua
@@ -68,6 +79,9 @@ return {
   -- attaches and yamlls parses Go templates as YAML. Licence unspecified.
   {
     "towolf/vim-helm",
+    enabled = function()
+      return require("chroma.state").is_enabled("helm")
+    end,
     -- Not lazy. Its whole job is detection, and detection cannot be triggered by
     -- the filetype it is there to decide. Loading it on `ft` meant a chart file
     -- opened as the first file of a session never loaded it, so nothing detected
@@ -91,9 +105,9 @@ return {
       { "mason-org/mason.nvim", opts = {} },
       "neovim/nvim-lspconfig",
     },
-    opts = {
+    opts = function()
       -- nvim-lspconfig config names; the version after `@` is the Mason package's.
-      ensure_installed = {
+      local pins = {
         "terraformls@v0.39.0",
         "helm_ls@v0.5.4",
         "dockerls@0.15.0",
@@ -103,22 +117,23 @@ return {
         "bashls@5.6.0",
         "jsonls@4.10.0",
         "lua_ls@3.18.2",
-      },
+      }
+
       -- An allow-list, not `true`: that would enable every server Mason has ever
-      -- installed, including stylua, which would then compete with conform.
-      automatic_enable = {
-        "terraformls",
-        "tflint",
-        "helm_ls",
-        "dockerls",
-        "docker_compose_language_service",
-        "yamlls",
-        "ansiblels",
-        "bashls",
-        "jsonls",
-        "lua_ls",
-      },
-    },
+      -- installed, including stylua, which would then compete with conform. The
+      -- list is now the enabled components' own, so a selection without
+      -- Kubernetes never installs helm_ls and never enables it.
+      local wanted = require("chroma.components").contributions("servers", require("chroma.state").enabled_ids())
+
+      local install = {}
+      for _, pin in ipairs(pins) do
+        if vim.tbl_contains(wanted, pin:match("^([^@]+)")) then
+          table.insert(install, pin)
+        end
+      end
+
+      return { ensure_installed = install, automatic_enable = wanted }
+    end,
     config = function(_, opts)
       -- Defaults applied to every server, set before anything is enabled.
       vim.lsp.config("*", {

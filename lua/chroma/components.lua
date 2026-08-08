@@ -13,7 +13,7 @@ local M = {}
 --- declaring a higher one was written for a newer Chroma than this, and reading
 --- it as though the difference did not matter is how the two sides drift apart
 --- quietly. See cli/DESIGN.md, "The component contract".
-M.CONTRACT = 2
+M.CONTRACT = 3
 
 ---Dotted numbers, with an optional leading v and whatever suffix a release
 ---carries: 0.26.1, v1.14.3, 2.51.0-rc1.
@@ -85,7 +85,14 @@ local KNOWN = {
   tools = { required = true, recommended = true, optional = true },
   tool = { id = true, any = true, reason = true, version = true },
   version = { min = true, max = true, exact = true },
-  nvim = { modules = true, plugins = true },
+  nvim = {
+    servers = true,
+    mason = true,
+    linters = true,
+    parsers = true,
+    plugins = true,
+    modules = true,
+  },
 }
 
 ---The first field name that does not belong, anywhere in the component.
@@ -343,6 +350,29 @@ function M.tools(component)
     end
   end
   return tools
+end
+
+---Everything the enabled components contribute of one kind, deduplicated and
+---sorted. The answer to "which servers should be enabled", asked once per kind
+---rather than by each spec inventing its own filter.
+---@param kind string one of servers, mason, linters, parsers, plugins, modules
+---@param enabled string[] component ids
+---@return string[]
+function M.contributions(kind, enabled)
+  local set = M.load()
+  local seen, out = {}, {}
+
+  for _, id in ipairs(enabled) do
+    for _, name in ipairs(((set[id] or {}).nvim or {})[kind] or {}) do
+      if not seen[name] then
+        seen[name] = true
+        table.insert(out, name)
+      end
+    end
+  end
+
+  table.sort(out)
+  return out
 end
 
 ---Whether any of a tool's accepted names is on PATH.

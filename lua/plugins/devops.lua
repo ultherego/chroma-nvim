@@ -3,6 +3,9 @@
 return {
   {
     "ramilito/kubectl.nvim",
+    enabled = function()
+      return require("chroma.state").is_enabled("kubernetes")
+    end,
     -- A release tag selects the prebuilt binaries rather than a source build.
     version = "2.*",
     dependencies = { "saghen/blink.download" },
@@ -45,6 +48,9 @@ return {
 
   {
     "mfussenegger/nvim-ansible",
+    enabled = function()
+      return require("chroma.state").is_enabled("ansible")
+    end,
     -- ft alone is not enough: the plugin's own ftdetect has to load before a
     -- file can be detected as yaml.ansible in the first place.
     lazy = false,

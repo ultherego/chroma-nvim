@@ -1,5 +1,5 @@
 {
-  "contract": 2,
+  "contract": 3,
   "id": "docker",
   "name": "Docker and Compose",
   "description": "Dockerfiles and compose files: language servers and linting.",
@@ -15,9 +15,18 @@
     ]
   },
   "nvim": {
-    "plugins": [
-      "plugins.lsp",
-      "plugins.lint"
+    "servers": [
+      "dockerls",
+      "docker_compose_language_service"
+    ],
+    "mason": [
+      "hadolint"
+    ],
+    "linters": [
+      "hadolint"
+    ],
+    "parsers": [
+      "dockerfile"
     ]
   }
 }

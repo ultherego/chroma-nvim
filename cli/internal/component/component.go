@@ -20,7 +20,7 @@ import (
 // Contract is the version this CLI understands. A component declaring a higher
 // one was written for a newer Chroma; reading it anyway is how the two sides
 // drift apart quietly. See cli/DESIGN.md, "The component contract".
-const Contract = 2
+const Contract = 3
 
 // Version is what a tool has to be, when being present is not enough. Either
 // Exact, or a Min and/or Max — never both kinds, because "exactly 1.2, and at
@@ -67,10 +67,18 @@ type Tools struct {
 	Optional    []Tool `json:"optional"`
 }
 
-// Nvim is what the configuration loads for this component.
+// Nvim is what the configuration loads for this component: the language servers
+// it enables, the Mason packages it needs, the linters it registers, the
+// treesitter parsers it installs, the plugins it brings and the modules it sets
+// up. The CLI does not act on any of it — this is the editor's half of the
+// contract, and it is here so that both halves are one document.
 type Nvim struct {
-	Modules []string `json:"modules"`
+	Servers []string `json:"servers"`
+	Mason   []string `json:"mason"`
+	Linters []string `json:"linters"`
+	Parsers []string `json:"parsers"`
 	Plugins []string `json:"plugins"`
+	Modules []string `json:"modules"`
 }
 
 // Component is one file in components/.

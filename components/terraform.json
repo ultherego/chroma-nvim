@@ -1,5 +1,5 @@
 {
-  "contract": 2,
+  "contract": 3,
   "id": "terraform",
   "name": "Terraform / OpenTofu",
   "description": "Plan, review and apply from the editor, and formatting.",
@@ -24,13 +24,19 @@
     ]
   },
   "nvim": {
+    "servers": [
+      "terraformls",
+      "tflint"
+    ],
+    "mason": [
+      "tflint"
+    ],
+    "parsers": [
+      "terraform",
+      "hcl"
+    ],
     "modules": [
       "chroma-terraform"
-    ],
-    "plugins": [
-      "plugins.lsp",
-      "plugins.formatting",
-      "plugins.lint"
     ]
   }
 }
