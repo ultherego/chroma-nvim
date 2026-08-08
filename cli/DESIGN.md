@@ -278,17 +278,28 @@ refused.
 One tag, one release, two kinds of artefact. The existing Lua jobs are
 untouched; Go gets its own, and the release job runs only when both are green.
 
-- `cli-lint` — `gofmt -l`, `go vet`, and a pinned `golangci-lint`
-- `cli-test` — `go test ./...`
-- `cli-build` — a matrix of `linux/amd64`, `linux/arm64`, `darwin/amd64`,
-  `darwin/arm64`, and on a tag, attaching the binaries plus a `SHA256SUMS` to
-  the GitHub release
+Implemented now:
 
-The Go toolchain version is pinned in `go.mod` and in the workflow, the same way
-Neovim, Ansible and selene already are.
+- `cli-lint` — `gofmt -l` as a check rather than a rewrite, and `go vet`
+- `cli-test` — `go test ./...`, which reads the shipped contract
+- `cli-build` — cross-compiles for `linux/amd64`, `linux/arm64` and
+  `darwin/arm64`
 
-A cross-cutting check belongs here too: **the components in `components/` must
-resolve** — no unknown `requires`, no cycles, no tool listed with neither `id`
+Planned, and deliberately absent until there is something to release: a pinned
+`golangci-lint`, `darwin/amd64`, and attaching binaries plus a `SHA256SUMS` to a
+GitHub release. A release job that publishes an installer which cannot install
+anything would be worse than not having one.
+
+`go.mod` carries `go 1.24`, which is a floor rather than a pin — the directive
+states the minimum language and toolchain version, and a newer toolchain will
+happily build it. That is weaker than the pinning this project applies to
+Neovim, Ansible and selene, and it is a deliberate difference for now: the
+module has no dependencies, so what a newer Go changes is its own behaviour
+rather than a resolved graph. When the module grows dependencies, this becomes a
+`toolchain` line and a `go.sum`, and CI stops being allowed to pick.
+
+A cross-cutting check belongs here, and exists: **the components in
+`components/` must resolve** — no unknown `requires`, no cycles, no tool listed with neither `id`
 nor `any`. That is a Go test, and it protects the Lua side as much as the CLI.
 
 ---

@@ -25,6 +25,86 @@ local function directory()
   return vim.fs.joinpath(vim.fn.fnamemodify(here, ":h:h:h"), "components")
 end
 
+--- The fields each level of the contract may carry. Anything else is a mistake
+--- worth reporting rather than ignoring.
+local KNOWN = {
+  component = {
+    contract = true,
+    id = true,
+    name = true,
+    description = true,
+    requires = true,
+    tools = true,
+    nvim = true,
+  },
+  tools = { required = true, recommended = true, optional = true },
+  tool = { id = true, any = true, reason = true },
+  nvim = { modules = true, plugins = true },
+}
+
+---The first field name that does not belong, anywhere in the component.
+---@param decoded table
+---@return string|nil
+local function unknown_fields(decoded)
+  for key in pairs(decoded) do
+    if not KNOWN.component[key] then
+      return key
+    end
+  end
+
+  for key, level in pairs(decoded.tools or {}) do
+    if not KNOWN.tools[key] then
+      return ("tools.%s"):format(key)
+    end
+    for _, tool in ipairs(level) do
+      for field in pairs(tool) do
+        if not KNOWN.tool[field] then
+          return ("tools.%s[].%s"):format(key, field)
+        end
+      end
+    end
+  end
+
+  for key in pairs(decoded.nvim or {}) do
+    if not KNOWN.nvim[key] then
+      return ("nvim.%s"):format(key)
+    end
+  end
+
+  return nil
+end
+
+---Whether every tool names exactly one thing to look for.
+---@param tools table|nil
+---@return string|nil problem
+local function tool_problem(tools)
+  for _, level in ipairs({ "required", "recommended", "optional" }) do
+    for _, tool in ipairs((tools or {})[level] or {}) do
+      local named = type(tool.id) == "string" and tool.id ~= ""
+      local alternatives = type(tool.any) == "table" and #tool.any > 0
+
+      -- Exactly one, not at least one: with both set a reader picks a winner and
+      -- drops the other, and whoever wrote the file never finds out.
+      if named and alternatives then
+        return ("has a %s tool with both id and any"):format(level)
+      end
+      if not named and not alternatives then
+        return ("has a %s tool with neither id nor any"):format(level)
+      end
+      if type(tool.reason) ~= "string" or tool.reason == "" then
+        return ("has a %s tool with no reason"):format(level)
+      end
+      for _, name in ipairs(tool.any or {}) do
+        if name == "" then
+          return ("has a %s tool with an empty name in any"):format(level)
+        end
+      end
+    end
+  end
+
+  return nil
+end
+
 ---@param path string
 ---@return table|nil component, string|nil err
 local function read_one(path)
@@ -41,6 +121,20 @@ local function read_one(path)
 
   if type(decoded.id) ~= "string" or decoded.id == "" then
     return nil, "has no id"
+  end
+
+  -- Strict, and for the same reason the Go reader is: `require` written for
+  -- `requires` decodes cleanly and leaves a component with no dependencies,
+  -- which is the worst way to be wrong about a file that decides what an
+  -- installer installs.
+  local unknown = unknown_fields(decoded)
+  if unknown then
+    return nil, ("has an unknown field %q"):format(unknown)
+  end
+
+  local tools_problem = tool_problem(decoded.tools)
+  if tools_problem then
+    return nil, tools_problem
   end
 
   if decoded.contract ~= M.CONTRACT then

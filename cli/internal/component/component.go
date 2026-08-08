@@ -8,11 +8,13 @@
 package component
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 )
 
 // Contract is the version this CLI understands. A component declaring a higher
@@ -110,8 +112,18 @@ func readOne(path string) (*Component, string) {
 		return nil, fmt.Sprintf("could not be read: %v", err)
 	}
 
+	// Strict. A field this does not know is a field somebody meant to matter:
+	// `require` for `requires` parses cleanly and silently leaves a component
+	// with no dependencies, which is the worst possible way to be wrong about a
+	// contract that decides what gets installed.
+	decoder := json.NewDecoder(bytes.NewReader(contents))
+	decoder.DisallowUnknownFields()
+
 	var component Component
-	if err := json.Unmarshal(contents, &component); err != nil {
+	if err := decoder.Decode(&component); err != nil {
+		if strings.Contains(err.Error(), "unknown field") {
+			return nil, fmt.Sprintf("has an %v", err)
+		}
 		return nil, "is not valid JSON"
 	}
 
@@ -123,7 +135,44 @@ func readOne(path string) (*Component, string) {
 		return nil, fmt.Sprintf("declares contract %d; this CLI understands %d", component.Contract, Contract)
 	}
 
+	if problem := validateTools(component.Tools); problem != "" {
+		return nil, problem
+	}
+
 	return &component, ""
+}
+
+func validateTools(tools Tools) string {
+	levels := []struct {
+		name  string
+		tools []Tool
+	}{
+		{"required", tools.Required},
+		{"recommended", tools.Recommended},
+		{"optional", tools.Optional},
+	}
+
+	for _, level := range levels {
+		for _, tool := range level.tools {
+			// Exactly one, not "at least one": with both set the reader picks a
+			// winner and drops the other, and nobody writing the file finds out.
+			switch {
+			case tool.ID != "" && len(tool.Any) > 0:
+				return fmt.Sprintf("has a %s tool with both id and any", level.name)
+			case tool.ID == "" && len(tool.Any) == 0:
+				return fmt.Sprintf("has a %s tool with neither id nor any", level.name)
+			case tool.Reason == "":
+				return fmt.Sprintf("has a %s tool with no reason", level.name)
+			}
+			for _, name := range tool.Any {
+				if name == "" {
+					return fmt.Sprintf("has a %s tool with an empty name in any", level.name)
+				}
+			}
+		}
+	}
+
+	return ""
 }
 
 // ResolveProblems reports dependencies that are not declared, and cycles. A

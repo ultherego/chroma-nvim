@@ -90,6 +90,36 @@ func TestLoadReportsBadFiles(t *testing.T) {
 			contains: "declares contract 99",
 		},
 		{
+			name:     "a field it does not know",
+			files:    map[string]string{"typo.json": `{"contract": 1, "id": "typo", "require": ["core"]}`},
+			problems: 1,
+			contains: "unknown field",
+		},
+		{
+			name:     "an unknown field inside a tool",
+			files:    map[string]string{"deep.json": `{"contract": 1, "id": "deep", "tools": {"required": [{"id": "x", "reason": "y", "min": "1.0"}]}}`},
+			problems: 1,
+			contains: "unknown field",
+		},
+		{
+			name:     "a tool with both id and any",
+			files:    map[string]string{"both.json": `{"contract": 1, "id": "both", "tools": {"required": [{"id": "x", "any": ["y"], "reason": "z"}]}}`},
+			problems: 1,
+			contains: "both id and any",
+		},
+		{
+			name:     "a tool with neither",
+			files:    map[string]string{"neither.json": `{"contract": 1, "id": "neither", "tools": {"required": [{"reason": "z"}]}}`},
+			problems: 1,
+			contains: "neither id nor any",
+		},
+		{
+			name:     "a tool with no reason",
+			files:    map[string]string{"silent.json": `{"contract": 1, "id": "silent", "tools": {"required": [{"id": "x"}]}}`},
+			problems: 1,
+			contains: "no reason",
+		},
+		{
 			name: "two files, one id",
 			files: map[string]string{
 				"a.json": `{"contract": 1, "id": "same"}`,

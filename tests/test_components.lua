@@ -121,6 +121,59 @@ T["reader"]["refuses a contract version it does not understand"] = function()
   end)
 end
 
+-- `require` for `requires` decodes cleanly and leaves the component with no
+-- dependencies at all. A contract that decides what gets installed cannot have
+-- a typo that means "install less than asked".
+T["reader"]["refuses a field it does not know"] = function()
+  with_contract({
+    ["typo.json"] = '{ "contract": 1, "id": "typo", "require": ["core"] }',
+  }, function(module)
+    local loaded, problems = module.load()
+    eq(loaded, {})
+    eq(#problems, 1)
+    eq(problems[1]:find("unknown field") ~= nil, true)
+  end)
+end
+
+T["reader"]["refuses an unknown field inside a tool"] = function()
+  with_contract({
+    ["deep.json"] = '{ "contract": 1, "id": "deep", "tools": { "required": [ { "id": "x", "reason": "y", "min": "1.0" } ] } }',
+  }, function(module)
+    local _, problems = module.load()
+    eq(#problems, 1)
+    eq(problems[1]:find("unknown field") ~= nil, true)
+  end)
+end
+
+-- With both set the reader picks one and drops the other in silence.
+T["reader"]["refuses a tool with both id and any"] = function()
+  with_contract({
+    ["both.json"] = '{ "contract": 1, "id": "both", "tools": { "required": [ { "id": "x", "any": ["y"], "reason": "z" } ] } }',
+  }, function(module)
+    local _, problems = module.load()
+    eq(#problems, 1)
+    eq(problems[1]:find("both id and any") ~= nil, true)
+  end)
+end
+
+T["reader"]["refuses a tool with neither, and one with no reason"] = function()
+  with_contract({
+    ["neither.json"] = '{ "contract": 1, "id": "neither", "tools": { "required": [ { "reason": "z" } ] } }',
+  }, function(module)
+    local _, problems = module.load()
+    eq(#problems, 1)
+    eq(problems[1]:find("neither id nor any") ~= nil, true)
+  end)
+
+  with_contract({
+    ["silent.json"] = '{ "contract": 1, "id": "silent", "tools": { "required": [ { "id": "x" } ] } }',
+  }, function(module)
+    local _, problems = module.load()
+    eq(#problems, 1)
+    eq(problems[1]:find("no reason") ~= nil, true)
+  end)
+end
+
 T["reader"]["reports two components claiming one id"] = function()
   local one = '{ "contract": 1, "id": "same", "requires": [] }'
   with_contract({ ["a.json"] = one, ["b.json"] = one }, function(module)

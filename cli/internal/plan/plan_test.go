@@ -20,9 +20,7 @@ func fixture() component.Set {
 			Recommended: []component.Tool{{ID: "terragrunt", Reason: "stacks"}},
 		}},
 		"kubernetes": {ID: "kubernetes", Name: "Kubernetes", Requires: []string{"core"}, Tools: component.Tools{
-			Required: []component.Tool{{ID: "kubectl", Reason: "views"}},
-			// Deliberately the same tool terraform recommends, at a level that
-			// disagrees, to pin which one wins.
+			Required:    []component.Tool{{ID: "kubectl", Reason: "views"}},
 			Recommended: []component.Tool{{ID: "helm", Reason: "charts"}},
 		}},
 	}
@@ -106,6 +104,71 @@ func TestToolsAreListedOnce(t *testing.T) {
 	}
 }
 
+// One component recommends a tool, another cannot work without it. The stricter
+// level has to win, or a plan reports as complete while something required is
+// missing. Verified by mutation: removing the rule used to break nothing,
+// because the fixture claimed a conflict it did not contain.
+func TestRequiredBeatsRecommended(t *testing.T) {
+	// Components are processed in sorted order, so the one that only recommends
+	// has to sort first — otherwise the required level is set by the first writer
+	// and the branch that raises it never runs. That is what made the first
+	// version of this test pass with the rule deleted.
+	set := component.Set{
+		"a-recommends": {ID: "a-recommends", Tools: component.Tools{
+			Recommended: []component.Tool{{ID: "terragrunt", Reason: "nice to have here"}},
+		}},
+		"b-requires": {ID: "b-requires", Tools: component.Tools{
+			Required: []component.Tool{{ID: "terragrunt", Reason: "cannot work without it here"}},
+		}},
+	}
+
+	p := Build(set, []string{"a-recommends", "b-requires"}, has())
+
+	var found *Tool
+	for i := range p.Tools {
+		if p.Tools[i].Names[0] == "terragrunt" {
+			if found != nil {
+				t.Fatal("terragrunt is listed twice")
+			}
+			found = &p.Tools[i]
+		}
+	}
+	if found == nil {
+		t.Fatal("terragrunt is not in the plan at all")
+	}
+	if found.Level != "required" {
+		t.Errorf("level = %q, want required: the other component cannot work without it", found.Level)
+	}
+
+	// And the consequence that matters: a missing tool at the stricter level
+	// makes the plan incomplete.
+	if p.Complete() {
+		t.Error("terragrunt is required and absent, so the plan is not complete")
+	}
+}
+
+// The other direction: required first, recommended second, must not downgrade.
+func TestRecommendedDoesNotWeakenRequired(t *testing.T) {
+	set := component.Set{
+		"a-requires": {ID: "a-requires", Tools: component.Tools{
+			Required: []component.Tool{{ID: "terragrunt", Reason: "cannot work without it"}},
+		}},
+		"b-recommends": {ID: "b-recommends", Tools: component.Tools{
+			Recommended: []component.Tool{{ID: "terragrunt", Reason: "nice to have"}},
+		}},
+	}
+
+	p := Build(set, []string{"a-requires", "b-recommends"}, has())
+	if len(p.Tools) != 1 {
+		t.Fatalf("tools = %v, want one entry", p.Tools)
+	}
+	if p.Tools[0].Level != "required" {
+		t.Errorf("level = %q, want required", p.Tools[0].Level)
+	}
+}
+
+// The same tool at the same level, from two components, is still one thing to
+// install; saying it twice reads as two.
 func TestRenderNamesWhatIsMissing(t *testing.T) {
 	var buffer bytes.Buffer
 	Build(fixture(), []string{"terraform"}, has("git")).Render(&buffer)

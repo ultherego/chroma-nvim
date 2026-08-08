@@ -313,7 +313,10 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: cli/go.mod
-          cache-dependency-path: cli/go.sum
+          # No cache-dependency-path: the module has no external dependencies,
+          # so there is no go.sum to point at and naming one produces a warning
+          # on every run for a cache that would hold nothing.
+          cache: false
 
       - name: gofmt
         # `gofmt -l` prints what it would change and exits 0 either way, so the
@@ -340,7 +343,10 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: cli/go.mod
-          cache-dependency-path: cli/go.sum
+          # No cache-dependency-path: the module has no external dependencies,
+          # so there is no go.sum to point at and naming one produces a warning
+          # on every run for a cache that would hold nothing.
+          cache: false
 
       # These read ../../../components, so they check the contract this
       # repository ships as well as the reader. A component that does not
@@ -366,7 +372,10 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: cli/go.mod
-          cache-dependency-path: cli/go.sum
+          # No cache-dependency-path: the module has no external dependencies,
+          # so there is no go.sum to point at and naming one produces a warning
+          # on every run for a cache that would hold nothing.
+          cache: false
 
       # Cross-compiles only. Attaching binaries to a release is a separate step
       # that does not exist yet, and inventing it before there is anything to
