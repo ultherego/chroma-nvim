@@ -54,6 +54,10 @@ local initializing = {}
 ---@type table<string, boolean>
 local applying = {}
 
+--- How long the identity lookup may take before it is treated as unanswered. The
+--- directory is already claimed when it runs, so an unbounded wait would hold it.
+local STS_TIMEOUT_MS = 10000
+
 --- What the next subprocess will authenticate as, recorded with a plan and compared before apply.
 ---@param identity table|nil what STS said, when it was asked
 ---@return table
@@ -89,7 +93,11 @@ local function aws_identity(callback)
   local started, err = pcall(
     vim.system,
     { "aws", "sts", "get-caller-identity", "--output", "json" },
-    { text = true },
+    -- Bounded. The claim on the directory is taken before this runs, so an `aws`
+    -- that never returns — an SSO login, a credential process waiting on a key —
+    -- would hold planning or applying for the rest of the session. Measured: the
+    -- timeout delivers code 124 to the callback, which is already a refusal.
+    { text = true, timeout = STS_TIMEOUT_MS },
     function(result)
       vim.schedule(function()
         if result.code ~= 0 then
@@ -98,7 +106,10 @@ local function aws_identity(callback)
         end
 
         local ok, decoded = pcall(vim.json.decode, result.stdout or "")
-        if not ok or type(decoded) ~= "table" or not decoded.Account then
+        -- Both, not just the account: the comparison before an apply uses the ARN
+        -- as well, and an identity missing one of them would compare equal to any
+        -- other identity missing it.
+        if not ok or type(decoded) ~= "table" or not decoded.Account or not decoded.Arn then
           callback(nil, "could not read the STS response")
           return
         end

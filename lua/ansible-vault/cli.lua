@@ -39,6 +39,10 @@ end
 
 local unlink_checked = require("ansible-vault.fs").unlink_checked
 
+--- How long a single ansible call may hold the editor. Ansible resolves vault
+--- ids by running programs, and a program can wait on a person.
+local TIMEOUT_MS = 10000
+
 ---Writes a typed password where ansible can read it, and returns a cleanup function.
 ---@param password string
 ---@return string|nil path, function|nil cleanup, string|nil err
@@ -139,7 +143,7 @@ local function run(args, opts)
         -- No terminal for a prompt nobody could see, so a misconfiguration fails fast.
         env = vim.tbl_extend("force", vim.fn.environ(), { ANSIBLE_NOCOLOR = "1" }),
       })
-      :wait()
+      :wait(TIMEOUT_MS)
   end)
 
   if cleanup then
@@ -159,6 +163,16 @@ local function run(args, opts)
 
   if not ran then
     return nil, ("could not run ansible-vault: %s"):format(result)
+  end
+
+  -- Two shapes, one meaning: a killed process answers with code 124, but a child
+  -- that outlives the kill and holds the pipes open answers nil. The staged
+  -- password has already been removed above either way, which is the part that
+  -- mattered — a hang used to leave it on disk for as long as the hang lasted.
+  if not result or result.code == 124 then
+    return nil,
+      ("ansible-vault did not answer within %d seconds and was stopped.\n"):format(TIMEOUT_MS / 1000)
+        .. "A vault id that runs a program — a password manager, a hardware key — will do that."
   end
 
   if result.code ~= 0 then

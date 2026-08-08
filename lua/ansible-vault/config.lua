@@ -3,6 +3,10 @@
 
 local M = {}
 
+--- Bound on the configuration lookup, matching the one in cli.lua: this call
+--- blocks the editor and ansible's configuration can name programs to run.
+local TIMEOUT_MS = 10000
+
 ---@class ansible_vault.Resolved
 ---@field password_file string|nil     absolute path, from ansible's own config
 ---@field identities string[]          vault ids from vault_identity_list
@@ -20,11 +24,17 @@ local function dump(cwd)
   -- Raises rather than returns when `cwd` has been removed or is not a directory, and
   -- an unanswerable question about the configuration is an error like any other.
   local ran, result = pcall(function()
-    return vim.system({ "ansible-config", "dump" }, { cwd = cwd, text = true }):wait()
+    -- Bounded for the same reason as every other ansible call here: it resolves
+    -- configuration that can name programs, and this one blocks the editor.
+    return vim.system({ "ansible-config", "dump" }, { cwd = cwd, text = true }):wait(TIMEOUT_MS)
   end)
 
   if not ran then
     return nil, ("could not run ansible-config in %s: %s"):format(cwd, result)
+  end
+
+  if not result or result.code == 124 then
+    return nil, ("ansible-config did not answer within %d seconds and was stopped"):format(TIMEOUT_MS / 1000)
   end
 
   if result.code ~= 0 then

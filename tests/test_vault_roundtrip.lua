@@ -288,6 +288,35 @@ end
 
 -- pcall around a synchronous libuv call answers true whether or not the file went
 -- away, so a failure to remove the password used to be indistinguishable from success.
+-- Ansible resolves vault ids by running programs, and a program can wait on a
+-- person. Unbounded, that was the editor frozen with the staged password still
+-- on disk for as long as the freeze lasted.
+T["staged password"]["a command that never answers is stopped, and the password goes"] = function()
+  local h = prompting_project()
+
+  -- Replaces the fake with one that hangs rather than answering.
+  local bin = vim.fs.dirname(vim.fn.exepath("ansible-vault"))
+  vim.fn.writefile({ "#!/bin/sh", "sleep 120" }, bin .. "/ansible-vault")
+  vim.fn.setfperm(bin .. "/ansible-vault", "rwxr-xr-x")
+
+  local notices = {}
+  vim.notify = function(message, _)
+    table.insert(notices, tostring(message))
+  end
+
+  local started = vim.uv.hrtime()
+  h.focus()
+  local ok = pcall(vim.cmd, "VaultView")
+  local elapsed = (vim.uv.hrtime() - started) / 1e9
+  h.restore()
+
+  eq(ok, true)
+  -- Bounded, with room for the kill of a child that outlives it.
+  eq(elapsed < 60, true)
+  eq(table.concat(notices, " "):find("did not answer within") ~= nil, true)
+  eq(h.staged(), {})
+end
+
 T["staged password"]["one that cannot be removed is reported with its path"] = function()
   local h = prompting_project()
 
