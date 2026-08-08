@@ -419,7 +419,10 @@ T["write_atomically"]["refuses a file with more than one link"] = function()
 
   eq(ok, false)
   eq(err:match("2 hard links") ~= nil, true)
-  eq(err:match("saveas") ~= nil, true)
+  -- Not `:saveas`, which the writer forbids for a decrypted vault: the advice
+  -- used to send the user at the one door that is locked.
+  eq(err:match("Remove the other links") ~= nil, true)
+  eq(err:match("saveas"), nil)
   -- Neither name may have moved.
   eq(vim.fn.readfile(first)[1], "shared")
   eq(vim.fn.readfile(second)[1], "shared")
