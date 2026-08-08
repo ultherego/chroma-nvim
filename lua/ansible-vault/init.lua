@@ -855,17 +855,69 @@ local writer_group = vim.api.nvim_create_augroup("ansible_vault_writer", { clear
 ---@param buf integer
 function M.attach_writer(buf)
   -- Cleared first: every `:edit!` decrypts again, and each attach would otherwise stack.
-  pcall(vim.api.nvim_clear_autocmds, {
-    group = writer_group,
-    event = "BufWriteCmd",
-    buffer = buf,
-  })
+  for _, event in ipairs({ "BufWriteCmd", "FileWriteCmd", "FileAppendCmd" }) do
+    pcall(vim.api.nvim_clear_autocmds, {
+      group = writer_group,
+      event = event,
+      buffer = buf,
+    })
+  end
+
+  -- `:write` is not one command. Writing part of a buffer, or appending, is
+  -- FileWriteCmd and FileAppendCmd, and a BufWriteCmd does not cover either — so
+  -- taking over `:w` and stopping there leaves `:1,10w elsewhere` to Neovim's own
+  -- writer, with whatever the buffer holds. Refused rather than implemented: a
+  -- decrypted vault has no partial form, and vaulting a fragment is not what
+  -- anyone typing that meant.
+  for _, event in ipairs({ "FileWriteCmd", "FileAppendCmd" }) do
+    vim.api.nvim_create_autocmd(event, {
+      group = writer_group,
+      buffer = buf,
+      callback = function(ev)
+        if not vim.b[ev.buf].ansible_vault_plain then
+          -- Ciphertext is public, so writing part of it is ordinary editing. `'[` and
+          -- `']` are the range Neovim set for this command.
+          local lines = vim.api.nvim_buf_get_lines(ev.buf, vim.fn.line("'[") - 1, vim.fn.line("']"), false)
+          if vim.fn.writefile(lines, ev.file, event == "FileAppendCmd" and "a" or "") ~= 0 then
+            vim.notify(("Could not write %s"):format(ev.file), vim.log.levels.ERROR)
+          end
+          return
+        end
+
+        vim.notify(
+          "Refusing to write part of a decrypted vault to another file: it would be plaintext on disk.\n"
+            .. "Write the vault itself, or use :VaultEncryptFile on a buffer of its own.",
+          vim.log.levels.ERROR
+        )
+      end,
+    })
+  end
+
+  -- The file this buffer may be written back to, fixed now. `:saveas` renames the
+  -- buffer before the write runs, so its own name cannot answer that question later.
+  vim.b[buf].ansible_vault_path = vim.api.nvim_buf_get_name(buf)
 
   vim.api.nvim_create_autocmd("BufWriteCmd", {
     group = writer_group,
     buffer = buf,
     callback = function(ev)
       local name = vim.fn.fnamemodify(vim.api.nvim_buf_get_name(ev.buf), ":t")
+
+      -- `:w elsewhere` arrives here with ev.file naming the target rather than this
+      -- buffer, and `:saveas elsewhere` renames the buffer before the write, so by
+      -- now both it and ev.file are the new name. The vault this buffer was opened
+      -- from is the only file it can be written back to; anything else would either
+      -- put plaintext there or make a second vault nothing is tracking.
+      local vault = vim.b[ev.buf].ansible_vault_path
+      local target = ev.file ~= "" and ev.file or vim.api.nvim_buf_get_name(ev.buf)
+      if vault and vim.fs.normalize(target) ~= vim.fs.normalize(vault) then
+        vim.notify(
+          ("Refusing to write %s to %s.\n"):format(vim.fn.fnamemodify(vault, ":t"), vim.fn.fnamemodify(target, ":t"))
+            .. "A decrypted vault is written by re-encrypting it into the file it came from, and nothing else.",
+          vim.log.levels.ERROR
+        )
+        return
+      end
 
       -- `:edit!` reloads the ciphertext but keeps buffer variables, and ansible-vault
       -- refuses input that is already encrypted: measured, every `:w` then failed.

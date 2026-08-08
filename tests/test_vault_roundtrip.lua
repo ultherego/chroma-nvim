@@ -771,6 +771,50 @@ T["a file that appears before the first write refuses it"] = function()
   eq(vim.bo.modified, true)
 end
 
+-- `:write` is several commands. Taking over BufWriteCmd covers `:w`, and leaves
+-- `:1,10w elsewhere` (FileWriteCmd) and `:1,10w >> elsewhere` (FileAppendCmd) to
+-- Neovim's own writer — which would put the plaintext in the buffer on disk. The
+-- whole-buffer forms reach BufWriteCmd but name a different target, which the
+-- writer ignored: it re-encrypted into the vault's own file and said nothing.
+T["a decrypted vault refuses every write that is not its own file"] = function()
+  local dir, vault = project("---\napi_key: SUPERSECRET\n")
+
+  local notices, real_notify = {}, vim.notify
+  open_with(vault, { transparent = true })
+  vim.wait(15000, function()
+    return vim.b.ansible_vault_plain == true
+  end, 100)
+  eq(vim.b.ansible_vault_plain, true)
+
+  ---@param command string
+  ---@param target string
+  local function refuses(command, target)
+    notices = {}
+    vim.notify = function(message, _)
+      table.insert(notices, tostring(message))
+    end
+    pcall(vim.cmd, command)
+    vim.wait(2000)
+    vim.notify = real_notify
+
+    local said = table.concat(notices, " "):gsub("\n", " ")
+    eq({ command, said:find("Refusing") ~= nil }, { command, true })
+    -- And nothing of it reached the disk, whatever the message said.
+    if vim.uv.fs_stat(target) then
+      eq({ command, vim.fn.readfile(target) }, { command, {} })
+    end
+  end
+
+  refuses("silent write " .. dir .. "/elsewhere", dir .. "/elsewhere")
+  refuses("silent 1,2write " .. dir .. "/part", dir .. "/part")
+  refuses("silent 1,2write >> " .. dir .. "/appended", dir .. "/appended")
+  refuses("silent saveas! " .. dir .. "/renamed", dir .. "/renamed")
+
+  -- The vault itself is untouched by all of that.
+  eq(is_ciphertext(vault), true)
+  eq(decrypt_externally(dir, vault):find("SUPERSECRET") ~= nil, true)
+end
+
 T["repeated writes keep working"] = function()
   -- The guard above was first written without refreshing the remembered state, which
   -- made the second save impossible.
