@@ -335,22 +335,45 @@ local reserved = {
   apply = { ["-input"] = true },
 }
 
----Drops `-chdir`, which would move terraform away from the directory all bookkeeping is keyed by.
+--- Every way the CLIs can be told to work somewhere else. `-chdir` is terraform's;
+--- terragrunt calls it `--working-dir` (v0.96 was checked) and `--terragrunt-working-dir`
+--- in the versions before its CLI was redesigned. Both terragrunt spellings take a
+--- value, so they also appear split from it.
+local WORKING_DIRECTORY_OPTIONS = {
+  ["-chdir"] = false,
+  ["--working-dir"] = true,
+  ["--terragrunt-working-dir"] = true,
+}
+
+---Drops anything that would move a CLI away from the directory all bookkeeping is
+---keyed by: the claims, the saved plan, the AWS context and the plan file's path.
 ---@param args string[]|nil
 ---@return string[]
 local function sanitize_global_args(args)
   local kept = {}
+  local skip_value = false
+
   for _, arg in ipairs(args or {}) do
-    if option_name(arg) == "-chdir" then
+    local name = option_name(arg)
+    local takes_value = WORKING_DIRECTORY_OPTIONS[name]
+
+    if skip_value then
+      -- The path belonging to a flag already dropped. Kept, it would arrive as a
+      -- positional argument instead.
+      skip_value = false
+    elseif takes_value ~= nil then
+      -- Split form only when the value is not already attached with `=`.
+      skip_value = takes_value and arg == name
       vim.notify(
-        "terraform.nvim: -chdir was ignored in global_args. The runner owns the working directory — "
-          .. "terraform running elsewhere would leave the saved plan and its lifecycle pointing at a directory nothing ran in.",
+        ("terraform.nvim: %s was ignored in global_args. The runner owns the working directory — "):format(name)
+          .. "a CLI running elsewhere would leave the saved plan and its lifecycle pointing at a directory nothing ran in.",
         vim.log.levels.ERROR
       )
     else
       table.insert(kept, arg)
     end
   end
+
   return kept
 end
 

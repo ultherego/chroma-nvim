@@ -767,6 +767,58 @@ T["arguments"]["-chdir is dropped from global arguments"] = function()
   eq(args:find("-chdir", 1, true), nil)
 end
 
+-- Terragrunt has its own way of working somewhere else, and the sanitizer only
+-- knew terraform's. The lifecycle is keyed by directory throughout — the claims,
+-- the saved plan, the AWS context, the plan file — so a CLI running elsewhere
+-- makes the runner and the process it started talk about different places.
+T["arguments"]["terragrunt working-directory options are dropped"] = function()
+  local h = harness()
+  fake_terraform_by_mode(h)
+  h.fake("terragrunt", { "exit 0" })
+  start(h)
+  configure({ global_args = { "--working-dir=/somewhere/else", "-no-color" } })
+
+  -- Escaped: a bare `-` is a quantifier in a Lua pattern, and the assertion would
+  -- then be about a message nothing produces.
+  eq(said("%-%-working%-dir was ignored"), true)
+  notices = {}
+
+  next_plan(h, "changes", "first")
+  terraform.plan()
+  settle("Plan saved", "Plan failed")
+
+  local args = invocation(h, "-no-color")
+  eq(args ~= nil, true)
+  eq(args:find("working-dir", 1, true), nil)
+end
+
+-- Both terragrunt spellings take a value, so they also arrive split from it. The
+-- path has to go with the flag: left behind it becomes a positional argument,
+-- which for `plan` is the directory terragrunt runs in — the same escape by
+-- another route.
+T["arguments"]["a working-directory option takes its value with it"] = function()
+  local h = harness()
+  fake_terraform_by_mode(h)
+  start(h)
+  configure({
+    global_args = { "--working-dir", "/somewhere/else", "-no-color", "--terragrunt-working-dir", "/elsewhere" },
+  })
+
+  eq(said("%-%-working%-dir was ignored"), true)
+  eq(said("%-%-terragrunt%-working%-dir was ignored"), true)
+  notices = {}
+
+  next_plan(h, "changes", "first")
+  terraform.plan()
+  settle("Plan saved", "Plan failed")
+
+  local args = invocation(h, "-no-color")
+  eq(args ~= nil, true)
+  eq(args:find("working-dir", 1, true), nil)
+  eq(args:find("/somewhere/else", 1, true), nil)
+  eq(args:find("/elsewhere", 1, true), nil)
+end
+
 -- The runner's headline promise is that a destroy is visible: the review window is
 -- marked and the confirmation has to be typed out.
 T["arguments"]["-destroy in plan_args is dropped"] = function()

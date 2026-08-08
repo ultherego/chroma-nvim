@@ -1331,11 +1331,27 @@ per-command lists go after the runner's own flags, so a later flag wins where
 terraform lets it. Positional arguments stay last, because `terraform apply`
 expects its options before the plan file.
 
-One global option is not passed on. `-chdir` is dropped with an error, because
-the runner decides which directory each command runs in and everything it
-remembers hangs off that decision — the saved plan, the generation counter, the
-concurrency claims. terraform running elsewhere would leave all of it pointing
-at a directory nothing ran in.
+The options that move a command somewhere else are not passed on. The runner
+decides which directory each command runs in, and everything it remembers hangs
+off that decision — the saved plan, the generation counter, the concurrency
+claims, the AWS context, the path the plan file is written to. A CLI running
+elsewhere would leave all of it pointing at a directory nothing ran in. Dropped
+with an error: >
+
+    -chdir                     terraform
+    --working-dir              terragrunt
+    --terragrunt-working-dir   terragrunt, before its CLI was redesigned
+<
+The terragrunt spellings take a value, so a split `--working-dir /elsewhere` has
+its path dropped as well; left behind it would arrive as a positional argument,
+which for `plan` is the directory terragrunt runs in — the same escape by
+another route.
+
+The environment is a different matter. `TG_WORKING_DIR` and terraform's own
+`TF_*` variables reach the subprocess through the environment this Neovim was
+started with, and nothing here filters that. If a directory has to be
+overridden, the honest place is the shell you launched the editor from, where
+it applies to everything rather than silently to this runner alone.
 
 Four per-command options are dropped for the same kind of reason — the runner
 sets them and relies on their values:
