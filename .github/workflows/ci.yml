@@ -277,7 +277,7 @@ jobs:
               local ok, err = pcall(require, mod)
               if not ok then table.insert(failed, mod .. ": " .. tostring(err)) end
             end
-            for _, mod in ipairs({ "ansible-vault", "terraform", "aws", "chroma.health" }) do
+            for _, mod in ipairs({ "chroma-vault", "chroma-terraform", "chroma-aws", "chroma.health" }) do
               local ok, err = pcall(require, mod)
               if not ok then table.insert(failed, mod .. ": " .. tostring(err)) end
             end

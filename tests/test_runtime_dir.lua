@@ -4,8 +4,8 @@ local new_set = MiniTest.new_set
 local eq = MiniTest.expect.equality
 
 local COPIES = {
-  { label = "ansible-vault", module = "chroma-vault.runtime", subdirectory = "chroma-vault.nvim" },
-  { label = "terraform", module = "chroma-terraform.runtime", subdirectory = "chroma-terraform.nvim" },
+  { label = "chroma-vault", module = "chroma-vault.runtime", subdirectory = "chroma-vault.nvim" },
+  { label = "chroma-terraform", module = "chroma-terraform.runtime", subdirectory = "chroma-terraform.nvim" },
 }
 
 local OWNER_ONLY = tonumber("700", 8)
