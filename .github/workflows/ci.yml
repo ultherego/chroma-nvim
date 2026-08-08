@@ -118,13 +118,26 @@ jobs:
           ansible-vault --version
 
       - name: Fetch mini.test
-        # The suite needs nothing else: tests/minimal_init.lua loads this
+        # The suite needs nothing else to run: tests/minimal_init.lua loads this
         # repository's lua/ directory and mini.test, not the configuration.
         run: |
           set -euo pipefail
           commit=$(python3 -c "import json; print(json.load(open('lazy-lock.json'))['mini.test']['commit'])")
           target="${HOME}/.local/share/nvim/lazy/mini.test"
           git clone --filter=blob:none https://github.com/nvim-mini/mini.test "$target"
+          git -C "$target" checkout --quiet "$commit"
+
+      - name: Fetch conform.nvim
+        # Not to run the formatting tests — those stub conform — but for the one
+        # case that checks the stub is not lying: that `terraform_fmt` and
+        # `tofu_fmt` are formatters the pinned conform actually ships. It reads
+        # the installed plugin, and skipped itself when nothing was installed,
+        # which is precisely when a rename upstream would go unnoticed.
+        run: |
+          set -euo pipefail
+          commit=$(python3 -c "import json; print(json.load(open('lazy-lock.json'))['conform.nvim']['commit'])")
+          target="${HOME}/.local/share/nvim/lazy/conform.nvim"
+          git clone --filter=blob:none https://github.com/stevearc/conform.nvim "$target"
           git -C "$target" checkout --quiet "$commit"
 
       - name: Run tests
