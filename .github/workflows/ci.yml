@@ -303,3 +303,76 @@ jobs:
 
       - name: Lockfile is valid JSON
         run: python3 -c "import json; json.load(open('lazy-lock.json'))"
+
+  cli-lint:
+    name: CLI formatting and vet
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: cli/go.mod
+          cache-dependency-path: cli/go.sum
+
+      - name: gofmt
+        # `gofmt -l` prints what it would change and exits 0 either way, so the
+        # output is the check.
+        run: |
+          set -euo pipefail
+          cd cli
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "::error::not gofmt'd: $unformatted"
+            exit 1
+          fi
+          echo "gofmt clean."
+
+      - name: go vet
+        run: cd cli && go vet ./...
+
+  cli-test:
+    name: CLI test suite
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: cli/go.mod
+          cache-dependency-path: cli/go.sum
+
+      # These read ../../../components, so they check the contract this
+      # repository ships as well as the reader. A component that does not
+      # resolve fails the build rather than an install on somebody's machine.
+      - name: go test
+        run: cd cli && go test ./...
+
+  cli-build:
+    name: CLI build
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+          - goos: linux
+            goarch: arm64
+          - goos: darwin
+            goarch: arm64
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: cli/go.mod
+          cache-dependency-path: cli/go.sum
+
+      # Cross-compiles only. Attaching binaries to a release is a separate step
+      # that does not exist yet, and inventing it before there is anything to
+      # install would be pretending.
+      - name: build
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+        run: cd cli && go build -o /dev/null ./cmd/chroma

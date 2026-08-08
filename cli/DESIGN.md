@@ -1,8 +1,9 @@
 # `chroma` — installer and CLI, V1 architecture
 
-Design only. No code exists yet, and none should be written from this document
-without the usual rule applying to it as well: read the current documentation of
-every Go library before using it.
+The architecture. A skeleton of it exists — the component reader, `version`,
+`components` and `doctor`; everything that writes to a disk does not. Rule #1
+applies here as it does everywhere else: read the current documentation of every
+Go library before using it.
 
 This describes what the CLI is, what it refuses to do, and the one interface it
 shares with the Lua side. It does not describe how to write Go.
@@ -94,14 +95,24 @@ other. The files are data, not configuration to be edited by users.
 }
 ```
 
-Both sides read the same files:
+Both sides read the same files, from a tree, at runtime:
 
-- **Go** embeds them at build time. The CLI therefore knows the components of
-  the release it was built from, which is what lets it validate a plan before
-  fetching anything.
-- **Lua** reads them at runtime from the installed configuration, so
-  `:checkhealth chroma` reports per component, and the plugin layer can skip
-  what is not enabled.
+- **Lua** reads them from the configuration it is part of, so
+  `:checkhealth chroma` reports per component and the plugin layer can skip what
+  is not enabled.
+- **Go** reads them from whichever tree it is working on: the release it has
+  just fetched, or the configuration already installed.
+
+An earlier draft of this document had the CLI embed them at build time. That is
+not possible as laid out here and the constraint is worth recording rather than
+discovering twice: `go:embed` cannot reach outside its own package directory —
+`../..` is rejected as invalid pattern syntax, measured, not assumed — and
+`components/` sits at the repository root while the module is in `cli/`.
+
+Copying them into the module at build time would work and is exactly the kind of
+duplication this contract exists to prevent. Reading from a tree costs nothing:
+every command that needs the contract already has a tree, because fetching
+happens before any of them decides anything.
 
 **`contract` is a version, and it is checked in both directions.** A CLI refuses
 a configuration whose `contract` is higher than it understands and says to update

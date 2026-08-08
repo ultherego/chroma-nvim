@@ -13,3 +13,6 @@ sessions/
 *.swp
 *~
 .direnv/
+
+# Go build output (the CLI is built by CI and by releases, never committed)
+cli/chroma
