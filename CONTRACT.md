@@ -96,6 +96,9 @@ about a tool — the health check.
 │   └── chroma
 │       └── health.lua            :checkhealth chroma
 ├── after
+├── components                  component contract, read by Lua and by the CLI
+├── cli                         Go module: the installer and CLI (cli/DESIGN.md)
+├── assets
 ├── README.md
 └── LICENSE
 ```
@@ -181,6 +184,11 @@ Terraform · Terragrunt · Helm · Docker · Kubernetes · YAML · Ansible
   route for running it beside an existing configuration.
 - **Terraform:** the stack also covers `terragrunt`.
 - **Language:** all project files — docs, comments, commit messages — are in English.
+- **Two languages, one repository.** The configuration is Lua; the installer and
+  CLI are Go, in `cli/`, as a module of their own with its own toolchain and its
+  own CI jobs. They share one release lifecycle and exactly one interface: the
+  component contract in `components/`. Nothing in `lua/` imports Go and nothing
+  in `cli/` parses Lua. Rule #1 applies to the Go ecosystem in full.
 
 ---
 
@@ -285,3 +293,4 @@ not an inconvenience.
 | 2026-08-06 | Added `persisted.nvim` for Sessions and a own `lua/chroma-aws/` module for the AWS group | both groups were reserved but unfilled; no adoptable AWS plugin exists |
 | 2026-08-08 | `chroma-vault.nvim` and `chroma-terraform.nvim` promoted from beta to stable | fifth external audit closed, every finding dispositioned; release gate met on 97050e1 with CI green |
 | 2026-08-08 | Renamed DevOps nVim → Chroma Neovim: repository, `$NVIM_APPNAME`, help file and tag prefix, `:checkhealth chroma`, and the own modules to `chroma-vault` / `chroma-terraform` / `chroma-aws` | owner decision; the project has a name and a logo of its own rather than a description |
+| 2026-08-08 | Added a Go module in `cli/` for the installer and CLI, and a `components/` contract read by both languages | distribution is the next stage; the component list must exist once, not once per consumer |
