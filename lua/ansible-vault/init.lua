@@ -733,6 +733,10 @@ function M.decrypt_file()
     return
   end
 
+  -- Before the plaintext: detaching flushes pending changes, so a client still
+  -- attached when the buffer changes is told what it changed to.
+  keep_language_servers_off(buf)
+
   vim.api.nvim_buf_set_lines(buf, 0, -1, false, vim.split(plaintext:gsub("\n$", ""), "\n"))
   vim.b[buf].ansible_vault_plain = true
   keep_language_servers_off(buf)
@@ -1064,6 +1068,11 @@ local function enable_transparent_editing()
         return
       end
 
+      -- Before the plaintext, not after. Detaching a client flushes its pending
+      -- changes first — measured: a server attached to the ciphertext received a
+      -- didChange carrying the decrypted text, sent by the detach itself.
+      keep_language_servers_off(ev.buf)
+
       vim.api.nvim_buf_set_lines(ev.buf, 0, -1, false, vim.split(plaintext:gsub("\n$", ""), "\n"))
       vim.b[ev.buf].ansible_vault_plain = true
       vim.bo[ev.buf].modified = false
@@ -1075,8 +1084,7 @@ local function enable_transparent_editing()
       -- one loaded by `bufload()`. So the two are the same buffer here.
       vim.cmd("filetype detect")
 
-      -- After the filetype, not before: setting it is what invites a language
-      -- server to attach, so detaching first would be undone a line later.
+      -- Again, because setting the filetype is an invitation of its own.
       keep_language_servers_off(ev.buf)
     end,
   })

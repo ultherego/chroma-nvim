@@ -868,6 +868,72 @@ T["gitsigns cannot stage a decrypted vault"] = function()
   eq(staged:find("$ANSIBLE_VAULT", 1, true) ~= nil, true)
 end
 
+-- Detaching a language server is not silent: `reset_buf` flushes the client's
+-- pending changes before it removes the tracking, so a client attached while the
+-- buffer held ciphertext was told, by the detach itself, what the buffer had
+-- changed to. Measured against an in-process server: didOpen carried the
+-- ciphertext and didChange carried the secret.
+T["a language server is never told what a decrypted vault says"] = function()
+  local dir, vault = project("---\npassword: LSP_SENTINEL\n")
+
+  local seen = {}
+  local function server(dispatchers)
+    local closing = false
+    return {
+      request = function(method, _, callback)
+        if method == "initialize" then
+          callback(nil, { capabilities = { textDocumentSync = 1 } })
+        elseif method == "shutdown" then
+          callback(nil, nil)
+        end
+        return true, 1
+      end,
+      notify = function(method, params)
+        local text
+        if method == "textDocument/didOpen" then
+          text = params.textDocument.text
+        elseif method == "textDocument/didChange" then
+          text = (params.contentChanges[1] or {}).text
+        end
+        table.insert(seen, text or "")
+        return true
+      end,
+      is_closing = function()
+        return closing
+      end,
+      terminate = function()
+        closing = true
+        dispatchers.on_exit(0, 0)
+      end,
+    }
+  end
+
+  -- Attached the way a real server is: by filetype, which is decided before the
+  -- decrypt handler runs.
+  local group = vim.api.nvim_create_augroup("vault_test_lsp", { clear = true })
+  vim.api.nvim_create_autocmd("FileType", {
+    group = group,
+    pattern = "yaml",
+    callback = function(ev)
+      vim.lsp.start({ name = "vault-test", cmd = server, root_dir = dir }, { bufnr = ev.buf })
+    end,
+  })
+
+  open_with(vault, { transparent = true })
+  vim.wait(15000, function()
+    return vim.b.ansible_vault_plain == true
+  end, 100)
+  vim.wait(2000)
+  pcall(vim.api.nvim_del_augroup_by_id, group)
+
+  eq(vim.b.ansible_vault_plain, true)
+  -- It was attached at some point, or the case proves nothing.
+  eq(#seen > 0, true)
+  for _, text in ipairs(seen) do
+    eq(text:find("LSP_SENTINEL", 1, true), nil)
+  end
+end
+
 T["repeated writes keep working"] = function()
   -- The guard above was first written without refreshing the remembered state, which
   -- made the second save impossible.
