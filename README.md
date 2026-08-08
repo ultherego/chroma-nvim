@@ -333,7 +333,10 @@ being persisted through swap files, persistent undo, the Vault write paths, and
 password staging outside the validated runtime directory. A prompted password is
 staged in `$XDG_RUNTIME_DIR`, which is checked first — absolute, a directory,
 owned by you, mode 0700 — with a private subdirectory inside it; if that check
-fails the operation is refused rather than falling back to `/tmp`. Decrypted
+fails the operation is refused rather than falling back to `/tmp`. Removing that
+file is attempted whether the command succeeded, failed or never started, and
+the removal is checked rather than assumed; if it cannot be removed you get an
+error naming the path. Decrypted
 buffers get `noundofile`, `noswapfile` and `nomodeline`. The same
 runtime-directory validation guards terraform plan files, which quote variable
 values.

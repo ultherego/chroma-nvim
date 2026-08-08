@@ -871,6 +871,16 @@ refuses with "The vault-ids default,default are available to encrypt".
 
 With nothing configured, you are prompted; the password is then written to
 $XDG_RUNTIME_DIR with mode 0600 and unlinked as soon as the command returns.
+
+Removing it is attempted whether the command succeeded, failed, or never
+started at all. Starting is the case that used to be missed: `vim.system`
+raises before it spawns anything if the directory the command would run in has
+been removed, and that exception skipped the removal, leaving the password
+staged for the rest of the session. The removal is also checked rather than
+assumed — the synchronous libuv calls report failures by returning `nil, err`
+rather than raising, so wrapping one in `pcall` answers "removed" whether or
+not it was. If it cannot be removed you get an error naming the exact path, so
+you can delete it yourself.
 That directory is tmpfs, so the staged password file itself never reaches
 persistent storage.
 

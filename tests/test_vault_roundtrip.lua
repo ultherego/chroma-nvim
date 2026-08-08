@@ -159,6 +159,169 @@ T["a prompted password still runs in the project directory"] = function()
 end
 
 -- ---------------------------------------------------------------------------
+-- The password typed at the prompt, and the file it is staged in
+
+T["staged password"] = new_set()
+
+--- A project whose ansible.cfg names no password source, so every command prompts,
+--- with a fake `ansible-vault` on PATH and a runtime directory of its own.
+---@return table
+local function prompting_project()
+  local dir = vim.fn.tempname()
+  local bin = vim.fn.tempname()
+  local runtime = vim.fn.tempname()
+  vim.fn.mkdir(dir, "p")
+  vim.fn.mkdir(bin, "p")
+  vim.fn.mkdir(runtime, "p")
+  -- secure_dir refuses anything that is not 0700, and mkdir under the ambient
+  -- umask does not produce that.
+  vim.fn.setfperm(runtime, "rwx------")
+
+  vim.fn.writefile({ "[defaults]" }, dir .. "/ansible.cfg")
+  local vault = dir .. "/secrets.yml"
+  vim.fn.writefile({ "$ANSIBLE_VAULT;1.1;AES256", "3132333435" }, vault)
+
+  vim.fn.writefile({ "#!/bin/sh", 'echo "secret: value"', "exit 0" }, bin .. "/ansible-vault")
+  vim.fn.setfperm(bin .. "/ansible-vault", "rwxr-xr-x")
+
+  local h = {
+    dir = dir,
+    vault = vault,
+    runtime = runtime,
+    saved = {
+      path = vim.env.PATH,
+      config = vim.env.ANSIBLE_CONFIG,
+      runtime_dir = vim.env.XDG_RUNTIME_DIR,
+      inputsecret = vim.fn.inputsecret,
+      unlink = vim.uv.fs_unlink,
+      notify = vim.notify,
+    },
+  }
+
+  vim.env.PATH = bin .. ":" .. vim.env.PATH
+  vim.env.ANSIBLE_CONFIG = dir .. "/ansible.cfg"
+  vim.env.XDG_RUNTIME_DIR = runtime
+  vim.fn.inputsecret = function()
+    return PASSWORD
+  end
+
+  ---Password files still staged in the runtime directory.
+  ---@return string[]
+  function h.staged()
+    return vim.fn.glob(runtime .. "/ansible-vault.nvim/password.*", false, true)
+  end
+
+  function h.restore()
+    vim.env.PATH = h.saved.path
+    vim.env.ANSIBLE_CONFIG = h.saved.config
+    vim.env.XDG_RUNTIME_DIR = h.saved.runtime_dir
+    vim.fn.inputsecret = h.saved.inputsecret
+    vim.uv.fs_unlink = h.saved.unlink
+    vim.notify = h.saved.notify
+  end
+
+  require("ansible-vault").setup({ transparent = false })
+  require("ansible-vault").reload()
+  vim.cmd.edit({ args = { vault } })
+  h.buf = vim.api.nvim_get_current_buf()
+
+  ---`:VaultView` opens its float focused, so getting back to the vault buffer is
+  ---part of asking for a second one.
+  function h.focus()
+    vim.api.nvim_set_current_buf(h.buf)
+  end
+
+  return h
+end
+
+-- The staged file holds the password in the clear. It used to be removed after the
+-- process returned, on a path an exception could skip entirely.
+T["staged password"]["a spawn that cannot start still removes it"] = function()
+  local h = prompting_project()
+
+  -- Runs once with the project intact, which also caches what ansible-config said
+  -- about it: the second attempt then reaches the spawn rather than stopping earlier.
+  h.focus()
+  vim.cmd("VaultView")
+  vim.wait(5000)
+  eq(h.staged(), {})
+
+  -- Measured: vim.system raises ENOENT before starting anything when its cwd is gone.
+  vim.fn.delete(h.dir, "rf")
+
+  local notices = {}
+  vim.notify = function(message, _)
+    table.insert(notices, tostring(message))
+  end
+  h.focus()
+  local ok, err = pcall(vim.cmd, "VaultView")
+  vim.wait(5000)
+  h.restore()
+
+  eq(ok, true, err)
+  eq(table.concat(notices, " "):find("could not run ansible%-vault") ~= nil, true)
+  eq(h.staged(), {})
+end
+
+-- The configuration lookup runs in the same directory and raises the same way, before
+-- any password is staged. It is a message about the project, not a stack trace.
+T["staged password"]["a configuration lookup that cannot run is reported"] = function()
+  local h = prompting_project()
+
+  -- Nothing cached, so the lookup itself has to run in the directory that is gone.
+  require("ansible-vault").reload()
+  vim.fn.delete(h.dir, "rf")
+
+  local notices = {}
+  vim.notify = function(message, _)
+    table.insert(notices, tostring(message))
+  end
+  h.focus()
+  local ok, err = pcall(vim.cmd, "VaultView")
+  vim.wait(5000)
+  h.restore()
+
+  eq(ok, true, err)
+  eq(table.concat(notices, " "):find("could not run ansible%-config") ~= nil, true)
+  eq(h.staged(), {})
+end
+
+-- pcall around a synchronous libuv call answers true whether or not the file went
+-- away, so a failure to remove the password used to be indistinguishable from success.
+T["staged password"]["one that cannot be removed is reported with its path"] = function()
+  local h = prompting_project()
+
+  local real_unlink = vim.uv.fs_unlink
+  vim.uv.fs_unlink = function(path)
+    if path:find("/password%.") then
+      return nil, "EPERM: operation not permitted"
+    end
+    return real_unlink(path)
+  end
+
+  local notices = {}
+  vim.notify = function(message, _)
+    table.insert(notices, tostring(message))
+  end
+
+  h.focus()
+  vim.cmd("VaultView")
+  vim.wait(5000)
+  h.restore()
+
+  local said = table.concat(notices, "\n")
+  eq(said:find("SECURITY") ~= nil, true)
+  eq(said:find("EPERM") ~= nil, true)
+
+  -- The path is in the message because removing it by hand is what is left to do.
+  local leftover = h.staged()
+  eq(#leftover, 1)
+  eq(said:find(leftover[1], 1, true) ~= nil, true)
+
+  real_unlink(leftover[1])
+end
+
+-- ---------------------------------------------------------------------------
 -- Converting an existing plaintext file into a vault
 
 --- A project whose ansible.cfg has a password file, holding a plaintext file

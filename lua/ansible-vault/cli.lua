@@ -37,6 +37,25 @@ local function auth_args(auth, password_path)
   return args
 end
 
+---Removes a file and says whether it is gone. The synchronous libuv calls report
+---ordinary failures by returning `nil, err`, so `pcall` around one answers true even
+---when the file is still there.
+---@param path string
+---@return boolean removed, string|nil err
+local function unlink_checked(path)
+  local ok, err = vim.uv.fs_unlink(path)
+  if ok then
+    return true
+  end
+
+  -- Already gone is what this was for.
+  if not vim.uv.fs_stat(path) then
+    return true
+  end
+
+  return false, err or "unlink failed"
+end
+
 ---Writes a typed password where ansible can read it, and returns a cleanup function.
 ---@param password string
 ---@return string|nil path, function|nil cleanup, string|nil err
@@ -58,10 +77,25 @@ local function stage_password(password)
   -- truncated password — which it reports as "decryption failed".
   local payload = password .. "\n"
 
+  ---Gives up on a file that may already hold part of the password.
+  ---@param reason string
+  local function abandon(reason)
+    local removed, unlink_err = unlink_checked(path)
+    if removed then
+      return nil, nil, ("could not stage the password: %s"):format(reason)
+    end
+    return nil,
+      nil,
+      ("could not stage the password: %s\nSECURITY: it was left behind and may hold what you typed (%s):\n%s"):format(
+        reason,
+        unlink_err,
+        path
+      )
+  end
+
   local function fail(reason)
     vim.uv.fs_close(fd)
-    pcall(vim.uv.fs_unlink, path)
-    return nil, nil, ("could not stage the password: %s"):format(reason)
+    return abandon(reason)
   end
 
   local written, write_err = vim.uv.fs_write(fd, payload)
@@ -77,12 +111,11 @@ local function stage_password(password)
 
   local closed, close_err = vim.uv.fs_close(fd)
   if not closed then
-    pcall(vim.uv.fs_unlink, path)
-    return nil, nil, ("could not stage the password: %s"):format(close_err or "close failed")
+    return abandon(close_err or "close failed")
   end
 
   return path, function()
-    pcall(vim.uv.fs_unlink, path)
+    return unlink_checked(path)
   end
 end
 
@@ -111,18 +144,38 @@ local function run(args, opts)
   vim.list_extend(cmd, args)
   vim.list_extend(cmd, auth_args(opts.auth or {}, password_path))
 
-  local result = vim
-    .system(cmd, {
-      cwd = opts.cwd,
-      stdin = opts.stdin,
-      text = true,
-      -- No terminal for a prompt nobody could see, so a misconfiguration fails fast.
-      env = vim.tbl_extend("force", vim.fn.environ(), { ANSIBLE_NOCOLOR = "1" }),
-    })
-    :wait()
+  -- vim.system raises before it starts anything when `cwd` has been removed or is not
+  -- a directory. Raising past this point would skip the cleanup below and leave the
+  -- password staged for the rest of the session.
+  local ran, result = pcall(function()
+    return vim
+      .system(cmd, {
+        cwd = opts.cwd,
+        stdin = opts.stdin,
+        text = true,
+        -- No terminal for a prompt nobody could see, so a misconfiguration fails fast.
+        env = vim.tbl_extend("force", vim.fn.environ(), { ANSIBLE_NOCOLOR = "1" }),
+      })
+      :wait()
+  end)
 
   if cleanup then
-    cleanup()
+    local removed, cleanup_err = cleanup()
+    if not removed then
+      -- Not folded into the return value: rekey may already have rewritten the file,
+      -- and calling a finished operation failed would be the worse lie of the two.
+      vim.notify(
+        ("SECURITY: the staged Vault password file could not be removed (%s).\nIt holds the password you typed — remove it yourself:\n%s"):format(
+          cleanup_err,
+          password_path
+        ),
+        vim.log.levels.ERROR
+      )
+    end
+  end
+
+  if not ran then
+    return nil, ("could not run ansible-vault: %s"):format(result)
   end
 
   if result.code ~= 0 then

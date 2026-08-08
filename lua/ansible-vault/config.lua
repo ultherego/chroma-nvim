@@ -17,7 +17,15 @@ local function dump(cwd)
     return nil, "ansible-config not found — is ansible installed and on PATH?"
   end
 
-  local result = vim.system({ "ansible-config", "dump" }, { cwd = cwd, text = true }):wait()
+  -- Raises rather than returns when `cwd` has been removed or is not a directory, and
+  -- an unanswerable question about the configuration is an error like any other.
+  local ran, result = pcall(function()
+    return vim.system({ "ansible-config", "dump" }, { cwd = cwd, text = true }):wait()
+  end)
+
+  if not ran then
+    return nil, ("could not run ansible-config in %s: %s"):format(cwd, result)
+  end
 
   if result.code ~= 0 then
     -- A malformed ansible.cfg is worth surfacing, not reading as "no password file".
