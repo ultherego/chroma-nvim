@@ -24,6 +24,16 @@ return {
       local function linters_for(buf, only_fast)
         local names = {}
 
+        -- A decrypted vault is plaintext secrets in a buffer that looks like
+        -- ordinary YAML. Every linter here is a subprocess fed on stdin, so
+        -- linting one hands the secret to another program — the guarantee this
+        -- configuration makes is about persistence, not about how many local
+        -- processes get to see it, and that is a boundary worth not crossing by
+        -- accident. See :help devops-nvim-vault-tools.
+        if vim.b[buf].ansible_vault_plain then
+          return names
+        end
+
         for _, name in ipairs(lint.linters_by_ft[vim.bo[buf].filetype] or {}) do
           if not only_fast or fast[name] then
             table.insert(names, name)

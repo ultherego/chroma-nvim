@@ -546,6 +546,9 @@ local function write_atomically(path, contents)
   return true
 end
 
+--- Keeps what attaches to a plaintext buffer out of the way of the write hook's group.
+local tools_group = vim.api.nvim_create_augroup("ansible_vault_tools", { clear = true })
+
 --- Stops a file buffer persisting its contents, whether it currently holds plaintext
 --- or the ciphertext it was just converted into. 'backup' and 'writebackup' are global
 --- options and cannot be set here; M.attach_writer is what takes their place.
@@ -554,6 +557,37 @@ local function harden_sensitive_buffer(buf)
   vim.bo[buf].undofile = false
   vim.bo[buf].swapfile = false
   vim.bo[buf].modeline = false
+end
+
+--- Language servers that attached to a buffer now holding plaintext are stopped
+--- for it. A decrypted vault looks like ordinary YAML once its filetype is
+--- detected, and a server is handed the whole buffer on didOpen — see
+--- :help devops-nvim-vault-tools for what this does and does not close.
+---@param buf integer
+local function detach_language_servers(buf)
+  for _, client in ipairs(vim.lsp.get_clients({ bufnr = buf })) do
+    pcall(vim.lsp.buf_detach_client, buf, client.id)
+  end
+end
+
+--- Keeps language servers off a buffer for as long as it holds plaintext. Setting
+--- the filetype is what invites them, so this has to survive that and anything
+--- later that tries again.
+---@param buf integer
+local function keep_language_servers_off(buf)
+  detach_language_servers(buf)
+
+  pcall(vim.api.nvim_clear_autocmds, { group = tools_group, event = "LspAttach", buffer = buf })
+  vim.api.nvim_create_autocmd("LspAttach", {
+    group = tools_group,
+    buffer = buf,
+    callback = function(ev)
+      if not vim.b[ev.buf].ansible_vault_plain then
+        return
+      end
+      pcall(vim.lsp.buf_detach_client, ev.buf, ev.data.client_id)
+    end,
+  })
 end
 
 --- Removes the undo file for a path. Turning 'undofile' off stops new ones appearing;
@@ -690,6 +724,7 @@ function M.decrypt_file()
 
   vim.api.nvim_buf_set_lines(buf, 0, -1, false, vim.split(plaintext:gsub("\n$", ""), "\n"))
   vim.b[buf].ansible_vault_plain = true
+  keep_language_servers_off(buf)
 
   vim.notify("Decrypted buffer — it will be re-encrypted on write", vim.log.levels.INFO)
 end
@@ -1028,6 +1063,10 @@ local function enable_transparent_editing()
       -- is reading current for the duration of BufReadPost, including a hidden
       -- one loaded by `bufload()`. So the two are the same buffer here.
       vim.cmd("filetype detect")
+
+      -- After the filetype, not before: setting it is what invites a language
+      -- server to attach, so detaching first would be undone a line later.
+      keep_language_servers_off(ev.buf)
     end,
   })
 end

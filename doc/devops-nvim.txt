@@ -1029,6 +1029,25 @@ Verified by searching for a known secret after a full encrypt/edit/write/reopen
 cycle: nothing under stdpath("state"), nothing in the undo directory, nothing
 beside the file, and no leftover staged password in $XDG_RUNTIME_DIR.
 
+What the tools see                                   *devops-nvim-vault-tools*
+
+A decrypted vault is an ordinary buffer with a detected filetype, which is what
+makes editing it ordinary — and also what invites everything this configuration
+attaches to a YAML file. A language server is handed the whole buffer on
+didOpen, and nvim-lint feeds linters on stdin, so without a rule the plaintext
+would reach yamlls and yamllint as a matter of course.
+
+So while a buffer holds plaintext: linters are not run for it, formatting on
+save does not touch it, and language servers are detached from it — including
+any that attach later, because setting the filetype is what invites them and it
+happens after the plaintext is in place.
+
+What that does not close: a server can be handed the buffer between the filetype
+being set and the detach, which is the same event loop iteration but not the
+same instant. The plugin cannot veto an attach, only undo one. If that matters
+for your threat model, the answer is the stricter workflow below rather than a
+setting — and note that this is about local subprocesses, not the network.
+
 What it does not protect against                     *devops-nvim-vault-limits*
 
 Registers, ShaDa, the system clipboard and external clipboard managers are all

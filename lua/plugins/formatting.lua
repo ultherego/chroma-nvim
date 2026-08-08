@@ -61,6 +61,13 @@ return {
           return
         end
 
+        -- A decrypted vault holds plaintext secrets and formatters are
+        -- subprocesses fed the buffer. Reformatting one would also rewrite the
+        -- plaintext before this plugin's own writer re-encrypts it.
+        if vim.b[bufnr].ansible_vault_plain then
+          return
+        end
+
         -- Past timeout_ms conform gives up silently, so large files are skipped
         -- audibly instead. Measured: 900 KB of YAML saved unformatted, no message.
         -- <leader>xf still formats them, asynchronously.
