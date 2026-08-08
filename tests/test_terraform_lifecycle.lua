@@ -687,7 +687,7 @@ end
 
 -- The identity lookup is asked after the directory is claimed, so a spawn raising
 -- there strands it just as one in the runner would.
-T["spawn failure"]["an identity lookup that cannot spawn leaves the plan working"] = function()
+T["spawn failure"]["an identity lookup that cannot spawn refuses the plan and releases it"] = function()
   local h = harness()
   fake_terraform_by_mode(h)
   -- Written so the executable check ahead of the spawn answers from this fake
@@ -710,9 +710,10 @@ T["spawn failure"]["an identity lookup that cannot spawn leaves the plan working
   eq(ok, true, err)
   settle("Plan saved", "Plan failed", "Could not start")
 
-  -- An unknown identity is a warning, not a reason to abandon the plan.
-  eq(said("Could not determine the AWS identity"), true)
-  eq(said("Plan saved"), true)
+  -- Under strict, an identity that cannot be established is a refusal. The claim
+  -- still has to come back, or the directory stays blocked for the session.
+  eq(said("Refusing to plan"), true)
+  eq(said("Plan saved"), false)
   notices = {}
 
   terraform.init()
@@ -1390,7 +1391,11 @@ T["strict identity"]["refuses when STS stops answering after a bound plan"] = fu
   eq(#h.calls("apply"), 0)
 end
 
-T["strict identity"]["treats a missing aws CLI as a quiet skip"] = function()
+-- The AWS provider reads ~/.aws/credentials and the environment itself, so a
+-- machine without the CLI can still be planning against AWS. "No aws" means the
+-- identity cannot be checked, which under strict is a refusal — it used to be a
+-- silent pass, and the option then guaranteed nothing at all.
+T["strict identity"]["refuses when the aws CLI is missing"] = function()
   local h = harness()
   fake_terraform(h)
   -- No fake aws, and a PATH that contains nothing else.
@@ -1402,10 +1407,116 @@ T["strict identity"]["treats a missing aws CLI as a quiet skip"] = function()
 
   eq(vim.fn.executable("aws"), 0)
   terraform.plan()
+  settle("Refusing to plan", "Plan saved", "Plan failed")
+
+  eq(said("Refusing to plan"), true)
+  eq(said("Plan saved"), false)
+  eq(#h.plan_files(), 0)
+end
+
+-- The same for every other way the question goes unanswered.
+T["strict identity"]["refuses when STS exits non-zero"] = function()
+  local h = harness()
+  fake_terraform(h)
+  fake_aws(h)
+  vim.fn.writefile({ "fail" }, h.sts)
+  start(h, { strict_aws_identity = true })
+
+  terraform.plan()
+  settle("Refusing to plan", "Plan saved", "Plan failed")
+
+  eq(said("Refusing to plan"), true)
+  eq(said("Plan saved"), false)
+  eq(#h.plan_files(), 0)
+end
+
+T["strict identity"]["refuses when the STS answer cannot be read"] = function()
+  local h = harness()
+  fake_terraform(h)
+  h.fake("aws", { "echo 'not json at all'", "exit 0" })
+  start(h, { strict_aws_identity = true })
+
+  terraform.plan()
+  settle("Refusing to plan", "Plan saved", "Plan failed")
+
+  eq(said("could not read the STS response"), true)
+  eq(said("Plan saved"), false)
+end
+
+-- Asserted on the strict wording, not on "Refusing to apply": a plan bound to an
+-- account also drifts away from an unknown one, and matching that message would
+-- pass whether or not this guard exists.
+T["strict identity"]["refuses an apply whose identity cannot be established"] = function()
+  local h = harness()
+  fake_terraform(h)
+  fake_aws(h)
+  vim.fn.writefile({ "a" }, h.sts)
+  start(h, { strict_aws_identity = true })
+
+  terraform.plan()
   settle("Plan saved", "Plan failed")
+  eq(said("Plan saved"), true)
+  notices = {}
+
+  vim.fn.writefile({ "fail" }, h.sts)
+  terraform.apply()
+  settle("Refusing to apply", "Applied", "Apply failed")
+
+  eq(said("the AWS identity could not be determined"), true)
+  eq(#h.calls("apply"), 0)
+
+  -- Still there: fix the credentials and apply again.
+  notices = {}
+  vim.fn.writefile({ "a" }, h.sts)
+  terraform.apply()
+  settle("Applied", "Apply failed", "No reviewed plan")
+  eq(said("Applied"), true)
+end
+
+-- The case the comparison alone cannot catch, and the reason the guard runs
+-- before it: a plan made with strict off carries no identity, so an apply that
+-- also cannot establish one compares equal — nil against nil — and proceeds.
+-- Turning the option on between the two is all it takes to get there.
+T["strict identity"]["refuses an unidentified apply of an unidentified plan"] = function()
+  local h = harness()
+  fake_terraform(h)
+  fake_aws(h)
+  vim.fn.writefile({ "a" }, h.sts)
+  start(h, {})
+
+  terraform.plan()
+  settle("Plan saved", "Plan failed")
+  eq(said("Plan saved"), true)
+  eq(#h.calls("sts"), 0)
+  notices = {}
+
+  -- Strict is turned on, and now nothing can answer.
+  configure({ strict_aws_identity = true })
+  vim.fn.writefile({ "fail" }, h.sts)
+
+  terraform.apply()
+  settle("Refusing to apply", "Applied", "Apply failed")
+
+  eq(said("the AWS identity could not be determined"), true)
+  eq(#h.calls("apply"), 0)
+end
+
+-- Off by default, and off means the old behaviour exactly: no lookup, no refusal.
+T["strict identity"]["plans without an identity when it is off"] = function()
+  local h = harness()
+  fake_terraform(h)
+  -- Nothing on PATH could answer even if it were asked.
+  vim.env.PATH = h.bin
+  vim.env.XDG_RUNTIME_DIR = h.runtime
+  terraform.setup({})
+  vim.cmd.edit({ args = { h.work .. "/main.tf" } })
+  notices = {}
+
+  terraform.plan()
+  settle("Plan saved", "Plan failed", "Refusing to plan")
 
   eq(said("Plan saved"), true)
-  eq(said("Could not determine"), false)
+  eq(said("Refusing"), false)
 end
 
 -- The identity lookup is an await between the "already running" guard and the start

@@ -1213,8 +1213,24 @@ The second closes that, and is off by default: >
 <
 `strict_aws_identity` is disabled by default. When enabled, `aws sts
 get-caller-identity` is executed during plan and again before apply. Both the
-AWS account ID and principal ARN must match. If identity cannot be verified
-before apply after the plan was identity-bound, apply is refused.
+AWS account ID and principal ARN must match.
+
+It fails closed. Every way the question can go unanswered — no `aws` on PATH, a
+spawn that never starts, a non-zero exit, an answer that is not JSON, an answer
+without an account — refuses the operation rather than continuing without a
+binding. A plan that cannot be bound to an identity is the plan this option
+exists to prevent: it compares equal to any other unidentified plan, so the
+check at apply time would pass by knowing nothing on both sides.
+
+A missing `aws` is not read as "this is not an AWS project". The AWS provider
+reads ~/.aws/credentials and the environment by itself and needs no CLI, so the
+absence of one says nothing about what terraform is about to talk to. If a
+directory genuinely has nothing to do with AWS, turn the option off for it
+rather than relying on the check to skip itself.
+
+A refused apply keeps the reviewed plan: nothing about the plan has been shown
+to be wrong, so fixing the credentials and applying again is the whole
+remedy.
 
 The answer is never cached. A cache is a way of being told which credentials
 were in effect earlier, which is exactly what this is guarding against — so the

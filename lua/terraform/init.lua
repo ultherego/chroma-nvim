@@ -64,15 +64,18 @@ local function aws_identity(callback)
     return
   end
 
-  -- No `aws` at all most likely means this is not an AWS project, so it passes without comment.
+  -- Not "this is probably not an AWS project": the AWS provider reads
+  -- ~/.aws/credentials and the environment itself and needs no CLI at all, so a
+  -- missing `aws` means the question cannot be answered, not that there is no
+  -- question. Under strict that is a refusal like any other.
   if vim.fn.executable("aws") ~= 1 then
-    callback(nil)
+    callback(nil, "`aws` is not on PATH, so the identity cannot be verified")
     return
   end
 
   -- Callers claim the directory before asking, so a spawn that raises here would leak
-  -- the claim just as one in `run` would. An unanswerable question is an ordinary
-  -- unknown identity: plan says so and continues, apply refuses on the difference.
+  -- the claim just as one in `run` would. Under strict every path that cannot name
+  -- the identity reports an error, and the callers stop on it.
   local started, err = pcall(
     vim.system,
     { "aws", "sts", "get-caller-identity", "--output", "json" },
@@ -487,12 +490,19 @@ local function plan(destroy)
       return
     end
 
-    -- Said out loud: with the option on, a plan without an identity lacks the protection asked for.
+    -- Strict means strict. A plan that cannot be bound to an identity is exactly the
+    -- plan this option exists to prevent: it would compare equal to any other
+    -- unidentified plan at apply time, so the check would pass by knowing nothing.
     if identity_err then
+      -- Nothing to clean up: the plan file is terraform's to create and it has not run.
+      finish_planning(dir, mine)
       vim.notify(
-        ("Could not determine the AWS identity, so this plan will not be bound to one:\n%s"):format(identity_err),
-        vim.log.levels.WARN
+        ("Refusing to plan: strict_aws_identity is on and the AWS identity could not be determined.\n%s\n"):format(
+          identity_err
+        ) .. "Fix the credentials, or turn strict_aws_identity off for this project.",
+        vim.log.levels.ERROR
       )
+      return
     end
 
     local context = aws_context(identity)
@@ -670,8 +680,17 @@ function M.apply()
   end
 
   aws_identity(function(identity, identity_err)
+    -- Before the comparison, because an unanswerable question compares equal to
+    -- itself: an unidentified apply against an unidentified plan produced no
+    -- difference and passed, which is the check succeeding by knowing nothing.
     if identity_err then
-      vim.notify(("Could not determine the AWS identity:\n%s"):format(identity_err), vim.log.levels.WARN)
+      vim.notify(
+        ("Refusing to apply: strict_aws_identity is on and the AWS identity could not be determined.\n%s\n"):format(
+          identity_err
+        ) .. "The reviewed plan is kept. Fix the credentials and apply again.",
+        vim.log.levels.ERROR
+      )
+      return release()
     end
 
     -- The plan fixes what terraform does, not who it does it as.

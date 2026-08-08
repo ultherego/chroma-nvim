@@ -247,11 +247,15 @@ entirely. Those need `strict_aws_identity`.
 
 With `strict_aws_identity = true`, `aws sts get-caller-identity` runs during
 plan and again before apply. Both the account ID and the principal ARN must
-match. If identity cannot be verified before an apply whose plan was
-identity-bound, the apply is refused. The result is never cached: a cache is a
-way of being told which credentials were in effect earlier, which is the thing
-being guarded against. It is off by default because it costs a network round
-trip on every plan and every apply.
+match. It fails closed: an identity that cannot be established — no `aws` on
+PATH, a failed lookup, an unreadable answer — refuses the plan or the apply
+instead of continuing unbound, because an unbound plan compares equal to any
+other unbound plan and the check would then pass by knowing nothing. A missing
+`aws` is not treated as "not an AWS project"; the provider needs no CLI, so
+turn the option off for directories that are genuinely not AWS. The result is
+never cached: a cache is a way of being told which credentials were in effect
+earlier, which is the thing being guarded against. It is off by default because
+it costs a network round trip on every plan and every apply.
 
 **The reviewed plan is bound to its contents.** A SHA-256 is taken after the
 plan file is protected and again after the review window has been shown; they
