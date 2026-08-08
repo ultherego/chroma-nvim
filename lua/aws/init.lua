@@ -20,6 +20,11 @@ local initial_captured = false
 --- What `:AwsClear` restores, and the only variables this module sets.
 local TRACKED = { "AWS_PROFILE", "AWS_REGION", "AWS_DEFAULT_REGION" }
 
+--- How long a single `aws` call may hold the editor. Long enough for a slow
+--- network round trip, short enough that a hung credential process is an error
+--- message rather than a frozen Neovim.
+local TIMEOUT_MS = 10000
+
 --- Credentials that take precedence over AWS_PROFILE.
 local OVERRIDING = {
   "AWS_ACCESS_KEY_ID",
@@ -52,10 +57,26 @@ local function capture(cmd)
   -- a message. There is no custom cwd here, so it is far less reachable than the
   -- same call in the terraform runner — the contract is the same either way.
   local ran, result = pcall(function()
-    return vim.system(cmd, { text = true }):wait()
+    -- Bounded. `wait()` with no timeout waits forever, and the AWS CLI waits on
+    -- things that can take forever themselves: an SSO login in another window, a
+    -- credential_process prompting for a hardware key, DNS to an endpoint that
+    -- does not answer. Neovim is single-threaded here, so "forever" means the
+    -- editor, not just the picker. Measured: a timeout kills the process and
+    -- comes back with code 124.
+    return vim.system(cmd, { text = true }):wait(TIMEOUT_MS)
   end)
   if not ran then
     return nil, ("could not run aws: %s"):format(result)
+  end
+
+  -- Two shapes mean the same thing. Measured: `wait(timeout)` answers a result
+  -- with code 124 when it kills the process, but nil when a child outlives the
+  -- kill and holds the pipes open — a shell wrapper around the real command does
+  -- exactly that, and it took twice the timeout to come back.
+  if not result or result.code == 124 then
+    return nil,
+      ("`%s` did not answer within %d seconds and was stopped. "):format(table.concat(cmd, " "), TIMEOUT_MS / 1000)
+        .. "An SSO session or a credential process waiting for input will do that; finish it and try again."
   end
 
   if result.code ~= 0 then

@@ -618,6 +618,45 @@ T["aws spawn"]["a lookup that cannot start is reported, not raised"] = function(
   eq(table.concat(notices, " "):find("could not run aws") ~= nil, true)
 end
 
+-- A `wait()` with no timeout waits forever, and the AWS CLI waits on things that
+-- can take forever: an SSO login in another window, a credential process asking
+-- for a hardware key. Neovim is single-threaded here, so forever means the editor.
+T["aws spawn"]["a lookup that never answers is stopped and reported"] = function()
+  local saved_system, saved_notify, saved_exec = vim.system, vim.notify, vim.fn.executable
+  local notices, waited = {}, nil
+
+  vim.fn.executable = function(name)
+    return name == "aws" and 1 or saved_exec(name)
+  end
+  vim.system = function(cmd, opts)
+    if cmd[1] ~= "aws" then
+      return saved_system(cmd, opts)
+    end
+    return {
+      wait = function(_, timeout)
+        waited = timeout
+        -- The shape a killed process with a surviving child comes back as.
+        return nil
+      end,
+    }
+  end
+  vim.notify = function(message, _)
+    table.insert(notices, tostring(message))
+  end
+
+  local ok, err = pcall(require("aws").whoami)
+
+  vim.system = saved_system
+  vim.notify = saved_notify
+  vim.fn.executable = saved_exec
+
+  eq(ok, true, tostring(err))
+  -- Bounded, and the bound is what was asked for rather than "some number".
+  eq(type(waited), "number")
+  eq(waited > 0, true)
+  eq(table.concat(notices, " "):find("did not answer within") ~= nil, true)
+end
+
 -- ---------------------------------------------------------------------------
 -- What :AwsClear puts back
 
