@@ -151,7 +151,7 @@ func cmdComponents(args []string, out, errOut *os.File) int {
 		if len(one.Requires) > 0 {
 			requires = "requires " + strings.Join(one.Requires, ", ")
 		}
-		fmt.Fprintf(out, "%-12s %-28s %s\n", one.ID, one.Name, requires)
+		fmt.Fprintf(out, "%-16s %-24s %s\n", one.ID, one.Name, requires)
 	}
 	return exitOK
 }
@@ -177,12 +177,12 @@ func cmdDoctor(args []string, out, errOut *os.File) int {
 		one := set[id]
 		missing := one.Missing(onPath)
 		if len(missing) == 0 {
-			fmt.Fprintf(out, "ok      %-12s %s\n", one.ID, one.Name)
+			fmt.Fprintf(out, "ok      %-16s %s\n", one.ID, one.Name)
 			continue
 		}
 
 		incomplete = true
-		fmt.Fprintf(out, "missing %-12s %s\n", one.ID, one.Name)
+		fmt.Fprintf(out, "missing %-16s %s\n", one.ID, one.Name)
 		for _, tool := range missing {
 			fmt.Fprintf(out, "          %s — %s\n", strings.Join(tool.Names(), " or "), tool.Reason)
 		}

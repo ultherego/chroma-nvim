@@ -1,0 +1,15 @@
+{
+  "contract": 1,
+  "id": "docker",
+  "name": "Docker and Compose",
+  "description": "Dockerfiles and compose files: language servers and linting.",
+  "requires": ["core"],
+  "tools": {
+    "recommended": [
+      { "id": "docker", "reason": "the language servers read files without it; running anything needs it" }
+    ]
+  },
+  "nvim": {
+    "plugins": ["plugins.lsp", "plugins.lint"]
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "contract": 1,
+  "id": "github-actions",
+  "name": "GitHub Actions",
+  "description": "Workflow files: linting, and the schema that validates them.",
+  "requires": ["core"],
+  "tools": {},
+  "nvim": {
+    "plugins": ["plugins.lint"]
+  }
+}

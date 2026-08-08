@@ -1,17 +1,15 @@
 {
   "contract": 1,
   "id": "ansible",
-  "name": "Ansible and Vault",
-  "description": "Playbooks, and editing vault-encrypted files in place.",
+  "name": "Ansible",
+  "description": "Playbooks and roles: running them, and the language server.",
   "requires": ["core"],
   "tools": {
     "required": [
-      { "id": "ansible", "reason": "running playbooks" },
-      { "id": "ansible-vault", "reason": "every encrypt, decrypt and rekey; ships with ansible-core" }
+      { "id": "ansible", "reason": "running a playbook or a role from the buffer" }
     ]
   },
   "nvim": {
-    "modules": ["chroma-vault"],
-    "plugins": ["plugins.devops"]
+    "plugins": ["plugins.devops", "plugins.lint"]
   }
 }

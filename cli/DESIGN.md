@@ -123,6 +123,48 @@ project has been bitten by before.
 
 ---
 
+## The components, and why they divide where they do
+
+Nine, each requiring nothing but `core`. The boundary is what a person would
+tick, not which Lua file the code currently sits in — those two disagree today,
+and it is the code that has to move.
+
+```
+core             the editor: pickers, treesitter, yaml/json/shell/lua
+terraform        Terraform or OpenTofu, terraformls, tflint
+kubernetes       kubectl and the cluster views
+helm             charts: helm, helm_ls, filetype detection
+ansible          playbooks and roles
+vault            editing vault-encrypted files
+aws              profile and region for the session
+docker           Dockerfiles and compose
+github-actions   workflow linting and its schema
+```
+
+Two of those divisions were argued rather than assumed.
+
+**Helm does not require kubernetes.** `helm template` and `helm lint` work
+against a chart on disk, with no cluster and no kubectl. Someone developing a
+chart needs the filetype detection and the language server; they do not need the
+cluster views. Making it a dependency would install kubectl for a job that never
+touches a cluster.
+
+**Vault does not require ansible.** `chroma-vault` is about files that happen to
+be encrypted with Ansible Vault; it does not use nvim-ansible or ansiblels, and
+someone who only edits encrypted variables has no reason to carry playbook
+tooling. That both binaries arrive from ansible-core is a packaging fact, and
+packaging is the resolver's problem, not a reason to couple two features.
+
+**Docker and GitHub Actions are separate from each other**, for the same reason:
+neither implies the other. A TUI may group them on one screen; the manifests
+must not.
+
+Terragrunt stays a recommended tool of `terraform` rather than a component,
+because it drives the same runner and the same formatter — there is no separate
+feature to switch on.
+
+---
+
 ## Two layers that are not the same question
 
 The distinction that keeps the TUI honest:

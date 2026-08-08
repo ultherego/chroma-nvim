@@ -2,14 +2,11 @@
   "contract": 1,
   "id": "kubernetes",
   "name": "Kubernetes",
-  "description": "Cluster views, logs and manifests.",
+  "description": "Cluster views, contexts, namespaces, logs.",
   "requires": ["core"],
   "tools": {
     "required": [
-      { "id": "kubectl", "reason": "every cluster view" }
-    ],
-    "recommended": [
-      { "id": "helm", "reason": "the Helm view, and chart templates" }
+      { "id": "kubectl", "reason": "every cluster view, and the context and namespace pickers" }
     ]
   },
   "nvim": {
