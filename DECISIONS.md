@@ -318,6 +318,11 @@ The threshold sits below where that starts happening rather than being a round
 number chosen for looks. Manual formatting runs async and is not bound by the
 timeout at all.
 
+What is measured is the buffer, not the file. The decision is made before the
+write, so the file on disk is the previous version and a buffer that has never
+been saved has no file at all — measuring that was how a buffer grown past the
+ceiling got formatted synchronously anyway.
+
 **What would change it.** A formatter fast enough that the ceiling stops
 mattering.
 
@@ -507,6 +512,33 @@ A second path is not a shortcut, it is a copy of the safety rules that nobody
 maintains. Merging them means a guard cannot be added to one and forgotten in
 the other.
 
+### Inline encryption gets documentation, not the whole-file writer
+
+**Decision.** `:VaultEncrypt` encrypts a value and leaves the file an ordinary
+buffer written by Neovim. Its limits are written down (`:help
+devops-nvim-vault-inline`) rather than closed.
+
+**Why.** An audit observed, correctly, that the guarantees this plugin makes for
+Vault files do not hold for a value encrypted inside `group_vars/all.yml`: the
+plaintext was in that file before the command ran, so its persistent undo, an
+earlier backup copy, a register or the clipboard may hold it, and nothing here
+scrubs them.
+
+Attaching the whole-file writer would not be a smaller version of
+`:VaultEncryptFile`. That command performs a security transition — it discards
+the file's undo history, takes over `:write`, and normalises the result to a new
+inode with mode 0600. Doing all of that to an ordinary variables file because
+one value in it is now encrypted changes properties the user did not ask to
+change, and the surprising part would arrive later, at some unrelated `:w`.
+
+The two commands are different operations: one encrypts a value, the other
+converts a file. A guarantee for mixed files would be its own design — a writer
+that knows which regions are sensitive — not a line of setup borrowed from the
+whole-file path.
+
+**What would change it.** A sensitive-region-aware writer, designed and tested
+as a feature rather than added as a side effect of an encrypt command.
+
 ### One write hook per buffer
 
 **Decision.** `attach_writer` clears any existing `BufWriteCmd` for the buffer
@@ -559,9 +591,18 @@ same holds for `fs_write`, `fs_close`, `fs_fsync`, `fs_rename` and `fs_unlink`,
 and it is why several of them are checked one after another rather than run as a
 block.
 
-`pcall` still appears where the failure genuinely does not matter — unlinking a
-file that may already be gone — and there it is doing something else: keeping a
-cleanup path from raising.
+Unlinking used to be the exception to this: a file that may already be gone was
+removed under `pcall`, on the grounds that failing to remove it did not matter.
+It did — a staged password or a plan file that stayed behind was reported as
+removed. Every one of those now goes through an `unlink_checked` that treats
+"already gone" as success and anything else as the failure it is, and says so
+with the path.
+
+The one `pcall` around a libuv call that remains is the `fs_chmod` each
+`runtime.lua` applies to the subdirectory it just created, and it is not
+standing in for a check: the directory's mode is read back and validated
+immediately afterwards, so the chmod is an attempt and the validation is the
+answer.
 
 **What would change it.** Nothing likely. It is a property of luv's synchronous
 API, checked rather than assumed after it produced one real defect.

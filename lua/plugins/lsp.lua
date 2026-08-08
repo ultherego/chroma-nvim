@@ -15,6 +15,9 @@ return {
       vim.api.nvim_create_user_command("MasonVersions", function()
         local lines = {}
         for _, pkg in ipairs(require("mason-registry").get_installed_packages()) do
+          -- `_value` is the receipt's internal table, not a promised interface.
+          -- The pcall is why a Mason release reshaping it prints `?` instead of
+          -- breaking the command; check the shape after upgrading Mason.
           local ok, id = pcall(function()
             return pkg:get_receipt()._value.source.id
           end)
