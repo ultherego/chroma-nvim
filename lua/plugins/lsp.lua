@@ -69,6 +69,26 @@ return {
   {
     "towolf/vim-helm",
     ft = { "helm", "yaml" },
+    init = function()
+      -- The plugin brings its own detection for chart templates, but it is an
+      -- autocommand the plugin installs — and the plugin is loaded by filetype.
+      -- Measured: Neovim calls `templates/_helpers.tpl` smarty, so opening one as
+      -- the first file of a session never loads vim-helm, never installs the
+      -- autocommand, and leaves it smarty with no helm_ls and no helm parser.
+      -- Opening a chart's YAML first hid this, which is why it looked like it
+      -- worked.
+      --
+      -- Decided here instead, before anything is loaded, so the answer does not
+      -- depend on what was opened first.
+      vim.filetype.add({
+        pattern = {
+          [".*/templates/.*%.tpl"] = function(path)
+            -- A `.tpl` under `templates/` is Helm's only if a chart says so.
+            return vim.fs.root(path, "Chart.yaml") and "helm" or nil
+          end,
+        },
+      })
+    end,
   },
 
   {
