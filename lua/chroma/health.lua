@@ -191,12 +191,54 @@ local function check_terminal()
   end
 end
 
+--- One line per component: whether the machine can actually run it. The checks
+--- above ask "is this tool here"; this asks "is this feature usable", which is
+--- the question the installer will ask too, from the same files.
+local function check_components()
+  health.start("Components")
+
+  local contract = require("chroma.components")
+  local components, problems = contract.load()
+
+  for _, problem in ipairs(problems) do
+    health.error(("component contract: %s"):format(problem))
+  end
+
+  for _, problem in ipairs(contract.resolve_problems(components)) do
+    health.error(("component contract: %s"):format(problem))
+  end
+
+  local ids = vim.tbl_keys(components)
+  table.sort(ids)
+
+  for _, id in ipairs(ids) do
+    local component = components[id]
+    local missing = {}
+
+    for _, tool in ipairs(contract.tools(component)) do
+      if tool.level == "required" and not contract.satisfied(tool) then
+        table.insert(missing, table.concat(tool.names, " or "))
+      end
+    end
+
+    if #missing == 0 then
+      health.ok(("%s — ready"):format(component.name))
+    else
+      health.warn(
+        ("%s — missing %s"):format(component.name, table.concat(missing, ", ")),
+        ("nothing else is affected; the rest of the editor works without %s"):format(component.name)
+      )
+    end
+  end
+end
+
 function M.check()
   check_neovim()
   check_core()
   check_lockfile()
   check_pickers()
   check_devops()
+  check_components()
   check_terminal()
 end
 

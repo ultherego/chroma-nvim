@@ -1,0 +1,31 @@
+{
+  "contract": 1,
+  "id": "core",
+  "name": "Core editor",
+  "description": "The editor itself: plugin management, treesitter, pickers.",
+  "requires": [],
+  "tools": {
+    "required": [
+      { "id": "git", "reason": "lazy.nvim clones plugins; 2.19 or newer for partial clones" },
+      { "id": "curl", "reason": "downloading parsers and prebuilt binaries" },
+      { "id": "tar", "reason": "unpacking treesitter grammars" },
+      { "id": "unzip", "reason": "Mason unpacks packages with it and fails without it" },
+      { "id": "gzip", "reason": "Mason unpacks packages with it and fails without it" },
+      { "any": ["cc", "gcc", "clang"], "reason": "treesitter parsers are compiled locally" },
+      { "id": "tree-sitter", "reason": "compiling parsers; 0.26.1 or newer, from a package manager rather than npm" }
+    ],
+    "recommended": [
+      { "id": "fzf", "reason": "every picker; 0.36 or newer" },
+      { "id": "rg", "reason": "the grep pickers" },
+      { "id": "fd", "reason": "project detection" },
+      { "id": "bat", "reason": "file previews in the fzf-native profile" }
+    ],
+    "optional": [
+      { "id": "yazi", "reason": "the file manager on <leader>fy" },
+      { "id": "lazygit", "reason": "the git UI on <leader>gg" }
+    ]
+  },
+  "nvim": {
+    "modules": ["chroma.health"]
+  }
+}

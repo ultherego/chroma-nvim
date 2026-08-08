@@ -1,0 +1,17 @@
+{
+  "contract": 1,
+  "id": "ansible",
+  "name": "Ansible and Vault",
+  "description": "Playbooks, and editing vault-encrypted files in place.",
+  "requires": ["core"],
+  "tools": {
+    "required": [
+      { "id": "ansible", "reason": "running playbooks" },
+      { "id": "ansible-vault", "reason": "every encrypt, decrypt and rekey; ships with ansible-core" }
+    ]
+  },
+  "nvim": {
+    "modules": ["chroma-vault"],
+    "plugins": ["plugins.devops"]
+  }
+}

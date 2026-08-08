@@ -1,0 +1,18 @@
+{
+  "contract": 1,
+  "id": "kubernetes",
+  "name": "Kubernetes",
+  "description": "Cluster views, logs and manifests.",
+  "requires": ["core"],
+  "tools": {
+    "required": [
+      { "id": "kubectl", "reason": "every cluster view" }
+    ],
+    "recommended": [
+      { "id": "helm", "reason": "the Helm view, and chart templates" }
+    ]
+  },
+  "nvim": {
+    "plugins": ["plugins.devops"]
+  }
+}
