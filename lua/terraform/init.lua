@@ -242,24 +242,28 @@ local function file_sha256(path)
     return nil, open_err or "open failed"
   end
 
-  -- fstat on the descriptor, so the size describes the same file the bytes come from.
-  local stat, stat_err = vim.uv.fs_fstat(fd)
-  if not stat then
-    vim.uv.fs_close(fd)
-    return nil, stat_err or "fstat failed"
+  -- Read to the end rather than to a size measured beforehand: a read returning fewer
+  -- bytes than asked for would otherwise be hashed as though it were the whole file.
+  local chunks, offset = {}, 0
+  while true do
+    local chunk, read_err = vim.uv.fs_read(fd, 1024 * 1024, offset)
+    if chunk == nil then
+      vim.uv.fs_close(fd)
+      return nil, read_err or "read failed"
+    end
+    if #chunk == 0 then
+      break
+    end
+    table.insert(chunks, chunk)
+    offset = offset + #chunk
   end
 
-  local data, read_err = vim.uv.fs_read(fd, stat.size, 0)
   local closed, close_err = vim.uv.fs_close(fd)
-
-  if data == nil then
-    return nil, read_err or "read failed"
-  end
   if not closed then
     return nil, close_err or "close failed"
   end
 
-  return vim.fn.sha256(data)
+  return vim.fn.sha256(table.concat(chunks))
 end
 
 ---The option a token sets: `-out=x` and `-out` both name `-out`.
@@ -620,6 +624,32 @@ function M.apply()
     if answer ~= want then
       vim.notify("Cancelled", vim.log.levels.INFO)
       return release()
+    end
+
+    -- The first digest was taken before the identity lookup and the prompt, which is
+    -- where the time goes. This one covers that window, so what terraform is handed is
+    -- what was reviewed rather than what was reviewed some seconds ago.
+    local final, final_err = file_sha256(saved.path)
+    if not final then
+      release()
+      discard_plan(dir)
+      vim.notify(
+        ("Refusing to apply: the reviewed plan could not be read after confirmation (%s).\nRun :TerraformPlan again."):format(
+          final_err
+        ),
+        vim.log.levels.ERROR
+      )
+      return
+    end
+
+    if final ~= saved.sha256 then
+      release()
+      discard_plan(dir)
+      vim.notify(
+        "Refusing to apply: the reviewed plan changed while identity verification or confirmation was in progress.\nRun :TerraformPlan again.",
+        vim.log.levels.ERROR
+      )
+      return
     end
 
     local process = run(

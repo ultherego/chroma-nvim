@@ -991,6 +991,105 @@ T["integrity"]["a plan that vanished is refused"] = function()
   eq(said("Applied"), false)
 end
 
+-- The first digest is taken before the identity lookup and the confirmation prompt,
+-- which is where the seconds go. Everything between the two used to be unguarded.
+T["integrity"]["a plan replaced while the prompt is open is refused"] = function()
+  local h = harness()
+  fake_terraform_by_mode(h)
+  start(h)
+
+  next_plan(h, "changes", "first")
+  terraform.plan()
+  settle("Plan saved")
+  notices = {}
+
+  vim.fn.input = function()
+    for _, file in ipairs(h.plan_files()) do
+      vim.fn.writefile({ "swapped-while-you-were-deciding" }, file)
+    end
+    return "yes"
+  end
+
+  terraform.apply()
+  settle("Refusing to apply", "Applied", "Apply failed")
+
+  eq(said("while identity verification or confirmation was in progress"), true)
+  eq(applied_marker(h), nil)
+  -- Discarded, so the next attempt has nothing to reuse.
+  eq(#h.plan_files(), 0)
+end
+
+T["integrity"]["a plan removed while the prompt is open is refused"] = function()
+  local h = harness()
+  fake_terraform_by_mode(h)
+  start(h)
+
+  next_plan(h, "changes", "first")
+  terraform.plan()
+  settle("Plan saved")
+  notices = {}
+
+  vim.fn.input = function()
+    for _, file in ipairs(h.plan_files()) do
+      vim.fn.delete(file)
+    end
+    return "yes"
+  end
+
+  terraform.apply()
+  settle("Refusing to apply", "Applied", "Apply failed")
+
+  eq(said("could not be read after confirmation"), true)
+  eq(applied_marker(h), nil)
+end
+
+-- A plan larger than one read: the digest has to cover the part of the file that
+-- a single read would have stopped short of.
+T["integrity"]["a change past the first megabyte is still seen"] = function()
+  local h = harness()
+  -- Two megabytes of plan, with the marker at the very end of it.
+  h.mode = h.root .. "/mode"
+  h.marker = h.root .. "/marker"
+  h.fake("terraform", {
+    ("marker=$(cat %s 2>/dev/null)"):format(vim.fn.shellescape(h.marker)),
+    'if [ "$1" = "apply" ]; then',
+    ('  for a in "$@"; do case "$a" in *.tfplan) printf "applied %%s\\n" "$(tail -c 32 "$a")" >> %s;; esac; done'):format(
+      vim.fn.shellescape(h.log)
+    ),
+    "  exit 0",
+    "fi",
+    'if [ "$1" = "plan" ]; then',
+    '  for a in "$@"; do case "$a" in -out=*)',
+    '    yes xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx | head -c 2000000 > "${a#-out=}"',
+    '    printf "%s" "$marker" >> "${a#-out=}";;',
+    "  esac; done",
+    "  exit 2",
+    "fi",
+    "exit 0",
+  })
+  start(h)
+
+  next_plan(h, "changes", "first")
+  terraform.plan()
+  settle("Plan saved", "Plan failed")
+  eq(said("Plan saved"), true)
+  notices = {}
+
+  local plan_file = h.plan_files()[1]
+  eq(vim.uv.fs_stat(plan_file).size > 1024 * 1024, true)
+
+  -- Only the tail changes; everything a first read would have covered is identical.
+  local fd = vim.uv.fs_open(plan_file, "r+", tonumber("600", 8))
+  vim.uv.fs_write(fd, "tampered", vim.uv.fs_stat(plan_file).size - 8)
+  vim.uv.fs_close(fd)
+
+  terraform.apply()
+  settle("Refusing to apply", "Applied", "Apply failed")
+
+  eq(said("has changed on disk"), true)
+  eq(applied_marker(h), nil)
+end
+
 -- ---------------------------------------------------------------------------
 -- init against the rest of the lifecycle
 

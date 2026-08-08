@@ -1167,8 +1167,16 @@ an apply the file is hashed once more and compared against the recorded digest.
 A difference refuses the apply and discards the plan; so does a file that can
 no longer be read.
 
-This is checked before the identity lookup and before the confirmation prompt,
-because there is nothing to approve if the artefact is already invalid.
+That check runs before the identity lookup and before the confirmation prompt,
+because there is nothing to approve if the artefact is already invalid. It runs
+again immediately after you confirm, and that is the one that closes the gap:
+the lookup waits on the network and the prompt waits on a person, and a check
+made only before them says nothing about the seconds that follow. A difference
+there refuses the apply, discards the plan and names the window it happened in.
+
+The digest covers the whole file. It is read to the end rather than to a size
+measured beforehand, so a read that returns fewer bytes than asked for cannot
+be hashed as though it were everything.
 
 What this is: an exact statement that the bytes handed to apply are the bytes
 that were reviewed, and detection of accidental replacement or corruption.
