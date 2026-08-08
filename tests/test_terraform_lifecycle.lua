@@ -547,6 +547,55 @@ T["superseding"]["the claim is released when the process cannot start"] = functi
   eq(applied_marker(h), nil)
 end
 
+-- Two plans may overlap: the generation counter decides whose result becomes the
+-- reviewed plan. The claim on the directory is a different question, and it used
+-- to hold one generation — so the newer plan finishing released the directory
+-- while the older terraform was still running in it, and `init`, which exists to
+-- refuse exactly that, let itself through.
+T["ordering"]["a finished newer plan does not release a running older one"] = function()
+  local h = harness()
+  local release = h.root .. "/release"
+  h.fake("terraform", {
+    'if [ "$1" = "plan" ]; then',
+    '  for a in "$@"; do case "$a" in -out=*) echo plan > "${a#-out=}";; esac; done',
+    -- The first plan waits; every later one returns at once.
+    ("  if [ ! -f %s ]; then while [ ! -f %s ]; do sleep 0.05; done; fi"):format(
+      vim.fn.shellescape(h.counter),
+      vim.fn.shellescape(release)
+    ),
+    "  exit 2",
+    "fi",
+    "exit 0",
+  })
+  start(h)
+
+  -- The slow one. It is still running when the next starts.
+  terraform.plan()
+  vim.wait(1000, function()
+    return #h.calls("plan") > 0
+  end, 20)
+
+  vim.fn.writefile({ "second" }, h.counter)
+  terraform.plan()
+  settle("Plan saved", "Plan failed")
+  eq(said("Plan saved"), true)
+  notices = {}
+
+  -- The first terraform has not exited. init would rewrite .terraform underneath it.
+  terraform.init()
+  eq(said("A plan is running"), true)
+  eq(#h.calls("init"), 0)
+
+  -- Let it go, and the directory frees up as usual.
+  vim.fn.writefile({ "" }, release)
+  vim.wait(5000, function()
+    notices = {}
+    terraform.init()
+    return said("Initialised") or said("Init failed")
+  end, 100)
+  eq(said("A plan is running"), false)
+end
+
 -- ---------------------------------------------------------------------------
 -- Spawning that raises rather than fails
 

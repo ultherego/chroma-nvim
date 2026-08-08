@@ -31,9 +31,19 @@ local artifacts = {}
 ---@type table<string, integer>
 local generation = {}
 
---- Directories with a plan in flight, holding the generation that claimed them.
----@type table<string, integer>
+--- Directories with plans in flight, as the set of generations that claimed them.
+--- A set rather than one value: two plans can overlap by design, and the newer one
+--- finishing says nothing about the older process, which is still running terraform
+--- in that directory.
+---@type table<string, table<integer, true>>
 local planning = {}
+
+---@param dir string
+---@return boolean
+local function is_planning(dir)
+  local claims = planning[dir]
+  return claims ~= nil and next(claims) ~= nil
+end
 
 --- Directories with an `init` in flight.
 ---@type table<string, boolean>
@@ -130,7 +140,13 @@ end
 ---@param dir string
 ---@param mine integer the generation that claimed it
 local function finish_planning(dir, mine)
-  if planning[dir] == mine then
+  local claims = planning[dir]
+  if not claims then
+    return
+  end
+
+  claims[mine] = nil
+  if next(claims) == nil then
     planning[dir] = nil
   end
 end
@@ -502,7 +518,8 @@ local function plan(destroy)
   -- Both claimed before the first await, or an apply could slip through it.
   generation[dir] = (generation[dir] or 0) + 1
   local mine = generation[dir]
-  planning[dir] = mine
+  planning[dir] = planning[dir] or {}
+  planning[dir][mine] = true
 
   -- Asking for a new plan supersedes the reviewed one now, not when this one succeeds.
   discard_plan(dir)
@@ -644,7 +661,7 @@ function M.apply()
     return
   end
 
-  if planning[dir] then
+  if is_planning(dir) then
     vim.notify(
       "A new plan is still running for this directory — wait for it, read it, then apply",
       vim.log.levels.WARN
@@ -804,7 +821,7 @@ function M.init()
     return
   end
 
-  if planning[dir] then
+  if is_planning(dir) then
     vim.notify("A plan is running in this directory — init would rewrite .terraform under it", vim.log.levels.WARN)
     return
   end

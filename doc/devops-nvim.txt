@@ -1149,6 +1149,13 @@ One operation at a time                     *devops-nvim-terraform-concurrency*
 At most one of planning, applying and initializing is true for a directory at a
 time.
 
+Planning is the one that can hold several claims at once. Two plans may overlap
+by design — the generation counter decides which of them may become the reviewed
+plan — and the directory is held until the last of them has finished, not the
+newest. It used to hold a single generation, so a newer plan finishing released
+a directory an older terraform was still running in, and `init`, which exists to
+refuse exactly that, let itself through.
+
 An apply cannot be taken back, so while one runs in a directory the plugin
 refuses a second apply, a new plan, an `init` and a `discard` there. The first
 two would hand the running apply's plan file to another process or delete it;

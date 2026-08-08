@@ -286,7 +286,9 @@ after Neovim has gone is out of reach.
 directory. A running apply refuses a second apply, a new plan, an `init` and a
 `discard`; a running `init` refuses a plan, an apply, a second init and a
 `validate`; a running plan refuses an `init`. Two overlapping plans are ordered
-by when they were requested, not by which finished first. A directory is
+by when they were requested, not by which finished first — and the directory
+stays claimed until the last of them has finished, not the newest, because the
+older terraform is still running in it. A directory is
 claimed before the process starts, and released again by every path that fails
 to start one — including the one where starting raises instead of returning,
 which happens when the directory has been removed or replaced by a file while
