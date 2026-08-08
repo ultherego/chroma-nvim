@@ -887,6 +887,14 @@ an interrupted write leaves the old contents rather than a truncated file.
 Symlinks are followed: the link survives and the file it points at is what
 changes.
 
+That sibling is named after the process and the monotonic clock, and created
+with a flag that refuses an existing name. The clock is not decoration: a name
+made from the process id alone comes back once the system reuses that id, and
+a file left behind by a session that crashed would then make every write of
+that vault fail. If a failed write cannot take its sibling away with it, the
+error says so and names the file — it holds ciphertext, not plaintext, so it
+is litter rather than a leak.
+
 Hard links are refused. rename() replaces one name, and every other name for
 that inode would keep the old contents — so instead of letting two names
 silently diverge, the write stops and says how many links there are. Writing in

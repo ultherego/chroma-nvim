@@ -37,24 +37,7 @@ local function auth_args(auth, password_path)
   return args
 end
 
----Removes a file and says whether it is gone. The synchronous libuv calls report
----ordinary failures by returning `nil, err`, so `pcall` around one answers true even
----when the file is still there.
----@param path string
----@return boolean removed, string|nil err
-local function unlink_checked(path)
-  local ok, err = vim.uv.fs_unlink(path)
-  if ok then
-    return true
-  end
-
-  -- Already gone is what this was for.
-  if not vim.uv.fs_stat(path) then
-    return true
-  end
-
-  return false, err or "unlink failed"
-end
+local unlink_checked = require("ansible-vault.fs").unlink_checked
 
 ---Writes a typed password where ansible can read it, and returns a cleanup function.
 ---@param password string

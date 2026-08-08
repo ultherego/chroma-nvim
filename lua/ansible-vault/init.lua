@@ -3,6 +3,7 @@
 
 local cli = require("ansible-vault.cli")
 local vault_config = require("ansible-vault.config")
+local fs = require("ansible-vault.fs")
 
 local M = {}
 
@@ -437,17 +438,36 @@ local function write_atomically(path, contents)
         .. "Remove the other links, or use :saveas to write somewhere else."
   end
 
-  local tmp = ("%s.ansible-vault.nvim.%d.tmp"):format(target, vim.uv.os_getpid())
+  -- `wx` refuses to reuse an existing name, so the name must not repeat: one built
+  -- from the pid alone comes back after a crash once that pid is reused, and every
+  -- write of this vault then fails with EEXIST for the life of the process. Same
+  -- pid-and-hrtime pair the staged password and the terraform plans use.
+  local tmp = ("%s.ansible-vault.nvim.%d.%d.tmp"):format(target, vim.uv.os_getpid(), vim.uv.hrtime())
 
   local fd, open_err = vim.uv.fs_open(tmp, "wx", tonumber("600", 8))
   if not fd then
     return false, ("could not create %s: %s"):format(tmp, open_err or "unknown error")
   end
 
+  ---Adds the temporary file to a failure the caller is already reporting, when it
+  ---could not be taken away with it.
+  ---@param message string
+  ---@return string
+  local function with_leftover(message)
+    local removed, unlink_err = fs.unlink_checked(tmp)
+    if removed then
+      return message
+    end
+
+    return ("%s.\nThe temporary copy could not be removed either (%s). It holds ciphertext, "):format(
+      message,
+      unlink_err
+    ) .. ("not plaintext, and can be deleted:\n%s"):format(tmp)
+  end
+
   local function fail(message)
     vim.uv.fs_close(fd)
-    pcall(vim.uv.fs_unlink, tmp)
-    return false, message
+    return false, with_leftover(message)
   end
 
   local written, write_err = vim.uv.fs_write(fd, contents)
@@ -466,14 +486,12 @@ local function write_atomically(path, contents)
 
   local closed, close_err = vim.uv.fs_close(fd)
   if not closed then
-    pcall(vim.uv.fs_unlink, tmp)
-    return false, close_err or "close failed"
+    return false, with_leftover(close_err or "close failed")
   end
 
   local renamed, rename_err = vim.uv.fs_rename(tmp, target)
   if not renamed then
-    pcall(vim.uv.fs_unlink, tmp)
-    return false, rename_err or "rename failed"
+    return false, with_leftover(rename_err or "rename failed")
   end
 
   return true

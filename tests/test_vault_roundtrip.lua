@@ -754,6 +754,97 @@ T["repeated writes keep working"] = function()
 end
 
 -- ---------------------------------------------------------------------------
+-- The temporary file the replacement goes through
+
+T["atomic replacement"] = new_set()
+
+---Opens a vault transparently and waits for the plaintext to arrive.
+---@param path string
+local function opened_decrypted(path)
+  open_with(path, { transparent = true })
+  vim.wait(15000, function()
+    return vim.api.nvim_buf_get_lines(0, 0, 1, false)[1] == "---"
+  end, 100)
+end
+
+-- Regression: the temporary name was built from the pid alone. A file left behind
+-- by a crashed session came back as soon as that pid was reused, and `wx` refuses
+-- an existing name — so every write of that vault failed with EEXIST for the life
+-- of the process, with the work still only in the buffer.
+T["atomic replacement"]["a leftover temporary file does not block the write"] = function()
+  local dir, vault = project("---\nsecret: value\n")
+  opened_decrypted(vault)
+
+  -- Exactly what the old scheme would have called it, in a session that never got
+  -- to remove it.
+  local stale = ("%s.ansible-vault.nvim.%d.tmp"):format(vim.uv.fs_realpath(vault), vim.uv.os_getpid())
+  vim.fn.writefile({ "leftover" }, stale)
+
+  vim.api.nvim_buf_set_lines(0, -1, -1, false, { "written: yes" })
+  pcall(vim.cmd, "silent write")
+  vim.wait(5000)
+
+  eq(vim.bo.modified, false)
+  eq(decrypt_externally(dir, vault):find("written: yes") ~= nil, true)
+  -- Left alone: it was never this write's file.
+  eq(vim.fn.readfile(stale), { "leftover" })
+end
+
+-- pcall around fs_unlink answers true whether or not the file went away, so a
+-- temporary copy could stay beside the vault with nothing said about it.
+T["atomic replacement"]["a temporary file that cannot be removed is named"] = function()
+  local dir, vault = project("---\nsecret: value\n")
+  opened_decrypted(vault)
+
+  local real_rename, real_unlink, real_notify = vim.uv.fs_rename, vim.uv.fs_unlink, vim.notify
+  local notices = {}
+
+  ---@param path string
+  ---@return boolean
+  local function ours(path)
+    return path:find("%.ansible%-vault%.nvim%.") ~= nil
+  end
+
+  -- The write gets as far as a finished temporary file, and then can neither put it
+  -- in place nor take it away.
+  vim.uv.fs_rename = function(from, to)
+    if ours(from) then
+      return nil, "EXDEV: cross-device link"
+    end
+    return real_rename(from, to)
+  end
+  vim.uv.fs_unlink = function(path)
+    if ours(path) then
+      return nil, "EPERM: operation not permitted"
+    end
+    return real_unlink(path)
+  end
+  vim.notify = function(message, _)
+    table.insert(notices, tostring(message))
+  end
+
+  vim.api.nvim_buf_set_lines(0, -1, -1, false, { "written: no" })
+  pcall(vim.cmd, "silent write")
+  vim.wait(5000)
+
+  vim.uv.fs_rename = real_rename
+  vim.uv.fs_unlink = real_unlink
+  vim.notify = real_notify
+
+  local said = table.concat(notices, " "):gsub("\n", " ")
+  local leftovers = vim.fn.glob(vim.fs.dirname(vim.uv.fs_realpath(vault)) .. "/*.ansible-vault.nvim.*.tmp", false, true)
+
+  eq(#leftovers, 1)
+  eq(said:find("EXDEV") ~= nil, true)
+  eq(said:find("temporary copy could not be removed") ~= nil, true)
+  eq(said:find(leftovers[1], 1, true) ~= nil, true)
+  -- And the vault itself still holds what it held.
+  eq(decrypt_externally(dir, vault):find("written: no"), nil)
+
+  vim.fn.delete(leftovers[1])
+end
+
+-- ---------------------------------------------------------------------------
 -- Rekey
 
 --- A project whose ansible.cfg knows two vault ids, with the file encrypted
