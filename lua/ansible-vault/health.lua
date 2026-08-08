@@ -61,7 +61,7 @@ function M.check()
   -- The same call the staging path makes, so this reports what will actually happen.
   local runtime_dir, runtime_err = require("ansible-vault.runtime").secure_dir("ansible-vault.nvim")
   if runtime_dir then
-    health.ok(("Prompted passwords will be staged in %s (tmpfs, 0700)"):format(runtime_dir))
+    health.ok(("Prompted passwords will be staged in %s (private, 0700)"):format(runtime_dir))
   else
     health.warn(
       runtime_err,

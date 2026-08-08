@@ -60,7 +60,7 @@ end
 ---@param password string
 ---@return string|nil path, function|nil cleanup, string|nil err
 local function stage_password(password)
-  -- /tmp would put the password on persistent storage, so this refuses instead.
+  -- /tmp is neither private nor cleared at logout, so this refuses instead.
   local dir, dir_err = require("ansible-vault.runtime").secure_dir("ansible-vault.nvim")
   if not dir then
     return nil, nil, ("%s\nConfigure vault_password_file in ansible.cfg instead."):format(dir_err)
@@ -103,7 +103,7 @@ local function stage_password(password)
     return fail(write_err or "short write")
   end
 
-  -- A no-op on tmpfs, correct anywhere else.
+  -- Free where the runtime directory is memory-backed, and needed where it is not.
   local synced, sync_err = vim.uv.fs_fsync(fd)
   if synced == nil then
     return fail(sync_err or "fsync failed")

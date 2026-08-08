@@ -345,7 +345,12 @@ being persisted through swap files, persistent undo, the Vault write paths, and
 password staging outside the validated runtime directory. A prompted password is
 staged in `$XDG_RUNTIME_DIR`, which is checked first — absolute, a directory,
 owned by you, mode 0700 — with a private subdirectory inside it; if that check
-fails the operation is refused rather than falling back to `/tmp`. Removing that
+fails the operation is refused rather than falling back to `/tmp`. That check is
+about privacy and lifetime, not about the file system: the XDG specification
+requires a runtime directory to be owner-only, local, and cleared by a reboot or
+a full logout, and says only that it *might* be in memory. Nothing here verifies
+tmpfs, so on a system that puts it on a disk these files are written to that
+disk — private and session-scoped, but not spared the platter. Removing that
 file is attempted whether the command succeeded, failed or never started, and
 the removal is checked rather than assumed; if it cannot be removed you get an
 error naming the path. Decrypted

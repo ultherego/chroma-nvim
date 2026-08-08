@@ -202,13 +202,13 @@ local function root_dir()
   return found and vim.fs.dirname(found) or nil
 end
 
----Somewhere to put a plan that is not persistent storage.
+---Somewhere to put a plan: the validated private runtime directory, or nowhere.
 ---@return string|nil path, string|nil err
 local function plan_path()
   local dir, err = require("terraform.runtime").secure_dir("terraform.nvim")
   if not dir then
     return nil,
-      ("%s\nA plan file can quote sensitive values, so this plugin will not fall back to persistent storage."):format(
+      ("%s\nA plan file can quote sensitive values, so this plugin will not fall back outside $XDG_RUNTIME_DIR."):format(
         err
       )
   end

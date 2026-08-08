@@ -525,15 +525,23 @@ written. An interruption between those moments destroys the vault. The previous
 version also ignored the return values of `fs_write` and `fs_close` while
 reporting success, so a half-written vault would have been announced as saved.
 
-### Prompted passwords go to tmpfs, or nowhere
+### Prompted passwords go to the runtime directory, or nowhere
 
 **Decision.** `$XDG_RUNTIME_DIR`, mode 0600, unlinked immediately. If that
-variable is unset, refuse.
+variable is unset or fails validation, refuse.
 
 **Why.** Ansible only accepts a password as a *file*, so something has to be
-written. `$XDG_RUNTIME_DIR` is tmpfs and user-only, so it never reaches
-persistent storage. Falling back to `/tmp` would quietly do the thing this
+written. The runtime directory is the one place the system promises is yours
+alone and cleared at the end of the session: the XDG specification requires 0700
+and owner-only access, a local file system, and contents that do not survive a
+reboot or a full logout. Falling back to `/tmp` would quietly do the thing this
 module exists to avoid.
+
+It does **not** promise tmpfs. The specification says the directory *might*
+reside in runtime memory, and nothing here checks the file system type, so the
+claim this project makes is privacy and session lifetime — not that the bytes
+never touched a disk. Verifying tmpfs would mean a platform-specific mount
+check, which is a different feature from validating the directory.
 
 This is not a compromise ansible itself avoids: a vault password file on disk
 is the normal, documented setup.

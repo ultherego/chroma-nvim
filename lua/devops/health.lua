@@ -135,9 +135,9 @@ local function check_devops()
   -- a refusal rather than a warning.
   local plan_dir, plan_err = require("terraform.runtime").secure_dir("terraform.nvim")
   if plan_dir then
-    health.ok(("Plan files will be written to %s (tmpfs, 0700)"):format(plan_dir))
+    health.ok(("Plan files will be written to %s (private, 0700)"):format(plan_dir))
   else
-    health.warn(plan_err, ":TerraformPlan will refuse rather than write a plan to persistent storage")
+    health.warn(plan_err, ":TerraformPlan will refuse rather than write a plan outside it")
   end
 
   if vim.fn.executable("kubectl") == 1 then

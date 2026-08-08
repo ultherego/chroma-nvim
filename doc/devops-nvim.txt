@@ -890,8 +890,9 @@ assumed — the synchronous libuv calls report failures by returning `nil, err`
 rather than raising, so wrapping one in `pcall` answers "removed" whether or
 not it was. If it cannot be removed you get an error naming the exact path, so
 you can delete it yourself.
-That directory is tmpfs, so the staged password file itself never reaches
-persistent storage.
+Where that directory is memory-backed the file never reaches a disk at all, but
+that is the platform's doing and is not something checked here. What is checked,
+and what the XDG specification requires, is |devops-nvim-runtime-dir|.
 
 The runtime directory                             *devops-nvim-runtime-dir*
 
@@ -909,6 +910,19 @@ without a word.
 If the check fails, the operation is refused. Neither plugin falls back to
 /tmp. `:checkhealth ansible-vault` and `:checkhealth devops` report the result
 of the same check, so the failure is visible before it is hit.
+
+It is worth being exact about what that directory guarantees, because it is not
+"tmpfs" and it is more useful than that word suggests. The specification
+requires it to be owned by you and mode 0700, to be on a local file system, to
+exist from your first login to your last logout, and — this is the part that
+matters here — its contents MUST NOT survive a reboot or a full logout/login
+cycle. Its files may also be cleaned up periodically. Residence in runtime
+memory is something the specification says the directory *might* have, not
+something it requires, and nothing here checks the file system type.
+
+So on a system that puts the runtime directory on a disk, these files are
+written to that disk. They are still private, still session-scoped, and still
+gone by the next boot; they are not guaranteed to have avoided the platter.
 
 What it protects against                               *devops-nvim-vault-safe*
 
@@ -1159,9 +1173,10 @@ Exit codes and plan files                        *devops-nvim-terraform-plans*
 you are told so, rather than being offered an empty apply.
 
 Plan files can quote sensitive variable values, so they are written to
-$XDG_RUNTIME_DIR — tmpfs, user-only — and chmod'ed to 0600 as soon as terraform
-has created them. Terraform writes them under the ambient umask; they came out
-0644 in testing, which is why this is done explicitly.
+$XDG_RUNTIME_DIR — private, session-scoped, see |devops-nvim-runtime-dir| — and
+chmod'ed to 0600 as soon as terraform has created them. Terraform writes them
+under the ambient umask; they came out 0644 in testing, which is why this is
+done explicitly.
 
 A plan file is removed after the apply that spent it, when a newer plan
 supersedes it, when a review cannot be shown, and on :TerraformDiscard. Every
@@ -1209,7 +1224,7 @@ would stop it. Such a process could also rewrite this plugin.
 
 $XDG_RUNTIME_DIR is validated rather than trusted; see
 |devops-nvim-runtime-dir|. If it fails that check the plugin refuses to plan
-rather than writing a plan to persistent storage.
+rather than writing a plan anywhere else.
 
 Extra arguments                              *devops-nvim-terraform-arguments*
 

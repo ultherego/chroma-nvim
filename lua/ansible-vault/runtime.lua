@@ -46,7 +46,7 @@ end
 function M.secure_dir(name)
   local root = vim.env.XDG_RUNTIME_DIR
   if not root or root == "" then
-    return nil, "XDG_RUNTIME_DIR is not set, so there is no in-memory directory to use."
+    return nil, "XDG_RUNTIME_DIR is not set, so there is no private runtime directory to use."
   end
 
   -- isabsolutepath answers 1 for `~/x`, which nothing here expands.
