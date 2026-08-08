@@ -55,9 +55,9 @@ Startup is ~25 ms with 32 plugins, measured locally with
 `nvim --headless --startuptime` on CachyOS; treat it as an indication, not a
 promise for your machine.
 
-> **Note:** Terraform formatting needs the `terraform` CLI on your PATH.
-> terraform-ls is not a substitute — it shells out to `terraform fmt` itself.
-> See `:help devops-nvim-formatting-tf`.
+> **Note:** Terraform formatting needs `terraform` or `tofu` on your PATH,
+> whichever you have. terraform-ls is not a substitute — it shells out to
+> `terraform fmt` itself. See `:help devops-nvim-formatting-tf`.
 
 ## Requirements
 
@@ -325,6 +325,17 @@ instead of leaving it stale.
 `vault_identity_list`, not to an arbitrary one-off password. A password typed
 once cannot be found again by ansible, which would leave a file nothing can
 open; with no identity configured the command refuses and says what to set up.
+
+**`:VaultEncrypt` encrypts a value, not the file around it.** The file stays an
+ordinary buffer written by Neovim, so the guarantees below belong to the buffers
+this plugin creates or takes over, not to it. The plaintext was in that file
+before you encrypted the value, and encrypting it does not go back for the
+copies that already exist: the file's persistent undo may hold it, so may a
+backup copy from an earlier write, a register, ShaDa or the system clipboard.
+`:VaultEncryptFile` is the other operation — a security transition of a whole
+file, described next. Attaching that file-wide writer to a
+`group_vars/all.yml` because of one value in it would change the whole file's
+properties, so it is documented instead of done.
 
 **Converting a plaintext file discards its undo history.** `:VaultEncryptFile`
 turns off `'undofile'` and deletes the existing undo file, which would otherwise

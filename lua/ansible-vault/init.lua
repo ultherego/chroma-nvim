@@ -954,7 +954,9 @@ function M.setup(opts)
   })
 
   vim.api.nvim_create_user_command("VaultRekey", M.rekey_file, {
-    desc = "Re-encrypt this file with a new password",
+    -- Not "with a new password": the command only offers configured vault ids, and
+    -- refuses outright when there are none.
+    desc = "Re-encrypt this file under another configured vault id",
   })
 
   -- Both branches act: without the else, `transparent = false` left the first call's

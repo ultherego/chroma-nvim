@@ -592,7 +592,7 @@ conform.nvim formats on save, and `<leader>xf` formats on demand.
 Formatters by filetype ~
 >
     lua                 stylua
-    terraform           terraform_fmt
+    terraform           terraform_fmt, or tofu_fmt where only tofu is installed
     hcl                 terragrunt_hclfmt
     sh, bash            shfmt
     json                jq
@@ -608,7 +608,7 @@ not safely handle Go templates interleaved with YAML anyway.
 Adding an opinionated YAML formatter on top of yamlls would only create noise
 in Kubernetes diffs.
 
-Terraform needs the terraform CLI               *devops-nvim-formatting-tf*
+Terraform needs a terraform CLI                 *devops-nvim-formatting-tf*
 
 The fallback does not rescue a missing binary. `terraform_fmt` needs the
 `terraform` executable, and terraform-ls is not a substitute — it shells out to
@@ -617,8 +617,16 @@ The fallback does not rescue a missing binary. `terraform_fmt` needs the
     Terraform (CLI) is required. Please install Terraform or make it
     available in $PATH
 <
-Terraform files therefore stay unformatted until `terraform` is on your PATH.
-That is a machine prerequisite; no editor configuration can work around it.
+Either CLI will do. The formatter is chosen when the buffer is written, by
+asking conform which of `terraform_fmt` and `tofu_fmt` can actually run —
+terraform first, so nothing changes for anyone who has it, and `tofu_fmt` on a
+machine that has only OpenTofu. The question is asked at write time rather than
+at startup, because the answer belongs to the machine and can change while
+Neovim is running.
+
+Terraform files stay unformatted only when neither is on your PATH. That is a
+machine prerequisite; no editor configuration can work around it, and
+`:checkhealth devops` reports it.
 
 Turning it off ~
 >
@@ -740,6 +748,37 @@ Mapped under the Ansible group: >
 Encrypting `db_password: hunter2` gives back `db_password: !vault |` with the
 ciphertext indented beneath it, ready to commit. Revealing opens a float that
 closes with `q`.
+
+Encrypting a value in place                        *devops-nvim-vault-inline*
+
+`:VaultEncrypt` encrypts the selected value and nothing else. The file stays
+what it was — an ordinary buffer, written by Neovim's own `:write` — so the
+protections described under |devops-nvim-vault-safe| are not what is happening
+here. They belong to buffers this plugin creates or takes over.
+
+Said plainly: the plaintext was in that file before you encrypted it, and
+encrypting the value does not go back for the copies that already exist. This
+configuration keeps persistent undo on, so the file's undo history under
+stdpath("state") may hold the value in the clear; so may a backup copy from an
+earlier write, and so may a register, ShaDa or the system clipboard
+(|devops-nvim-vault-limits|). Nothing here scrubs any of them.
+
+The two encrypt commands are different operations, not two sizes of one: >
+
+    :VaultEncrypt      encryption of a value
+    :VaultEncryptFile  a security transition of a whole file
+<
+The second deletes the file's undo history (|devops-nvim-vault-conversion|),
+attaches this plugin's writer and owns every write from then on. Use it when a
+plaintext secrets file is becoming a vault. Use `:VaultEncrypt` for a value
+inside a file that stays what it was — `group_vars/all.yml` holding one secret
+among ordinary variables.
+
+Attaching the whole-file writer to such a file is deliberately not done. It
+would not be a smaller version of that transition: the whole file would get its
+own BufWriteCmd, atomic replacement, a mode normalised to 0600 and a new inode,
+because of one value in it. So the limitation is documented rather than papered
+over.
 
 Transparent editing                             *devops-nvim-vault-transparent*
 
@@ -937,6 +976,9 @@ The encryption is one subprocess call. The work is in everything around it:
   globally, so a revealed secret would otherwise be written verbatim to
   stdpath("state")/undo and survive reboots. Buffers holding plaintext are
   created with 'noundofile', 'noswapfile', buftype=nofile and bufhidden=wipe.
+  This covers the buffers this plugin creates or takes over; a value encrypted
+  in place inside an ordinary file is a different case, stated separately in
+  |devops-nvim-vault-inline|.
 
   Ciphertext is treated as public, because it is. That is what frees stdin for
   the plaintext.
