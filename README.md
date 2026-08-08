@@ -40,16 +40,17 @@ every choice, and what is deliberately absent
 | UI — dashboard, aerial, trouble, markdown | done |
 | DevOps — kubectl.nvim, nvim-ansible | done |
 | Health check, CI, lint config | done |
-| `ansible-vault.nvim` — inline values, whole files, transparent editing, rekey | beta |
-| `terraform.nvim` — plan / review / apply, terragrunt-aware | beta |
+| `ansible-vault.nvim` — inline values, whole files, transparent editing, rekey | stable |
+| `terraform.nvim` — plan / review / apply, terragrunt-aware | stable |
 | Sessions — persisted.nvim | done |
 | AWS — own profile/region switcher | done |
 
-**Beta** means the two own modules that handle secrets and change
-infrastructure are in use and covered by tests, but their safety model has been
-revised three times under external audit and is not yet claimed to be settled.
-What they do and do not guarantee is written out in
-[Safety model](#safety-model) below; nothing there is aspirational.
+**Stable** means the two own modules that handle secrets and change
+infrastructure are in use, covered by tests, and have been through five
+external audits with every finding of the last one answered. It does not mean
+finished: what they do and do not guarantee is written out in
+[Safety model](#safety-model) below, and the limits stated there are real
+limits, not gaps waiting to be closed.
 
 Startup is ~25 ms with 32 plugins, measured locally with
 `nvim --headless --startuptime` on CachyOS; treat it as an indication, not a

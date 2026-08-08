@@ -731,9 +731,9 @@ maintained candidate: every existing one is a single-person project of 0–7
 stars, the most visible untouched since 2023. It depends on nothing else in
 this configuration and can be moved to its own repository unchanged.
 
-Status: BETA. It is in use and covered by the test suite, but its safety model
-has been revised three times under external audit and is not claimed to be
-settled. Everything below describes current behaviour, not intent.
+Status: STABLE. It is in use, covered by the test suite, and its safety model
+has been through five external audits; the findings of the last one are all
+answered. Everything below describes current behaviour, not intent.
 
 Commands ~
 >
@@ -1082,9 +1082,9 @@ the originally planned scope already covered: formatting is conform's
 `terraform_fmt`, validation is tflint running as a language server. What was
 missing was running a plan and applying it without leaving the editor.
 
-Status: BETA. It is in use and covered by the test suite, but its safety model
-has been revised three times under external audit and is not claimed to be
-settled. Everything below describes current behaviour, not intent.
+Status: STABLE. It is in use, covered by the test suite, and its safety model
+has been through five external audits; the findings of the last one are all
+answered. Everything below describes current behaviour, not intent.
 
 The safety model                              *devops-nvim-terraform-safety*
 
