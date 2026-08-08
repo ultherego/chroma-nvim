@@ -971,6 +971,10 @@ local function enable_transparent_editing()
       vim.bo[ev.buf].modified = false
 
       -- Filetype was detected against ciphertext; worth another look now.
+      -- `filetype detect` acts on the current buffer, and this handler is careful
+      -- to say ev.buf everywhere else — but measured: Neovim makes the buffer it
+      -- is reading current for the duration of BufReadPost, including a hidden
+      -- one loaded by `bufload()`. So the two are the same buffer here.
       vim.cmd("filetype detect")
     end,
   })

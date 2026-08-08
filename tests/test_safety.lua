@@ -584,6 +584,41 @@ T["overriding_credentials"]["ignores an empty value"] = function()
 end
 
 -- ---------------------------------------------------------------------------
+-- Spawning that raises rather than fails
+
+-- The terraform runner learned this the hard way: vim.system raises before it
+-- starts anything, and an exception out of a picker callback is a stack trace
+-- where a message belongs.
+T["aws spawn"] = new_set()
+
+T["aws spawn"]["a lookup that cannot start is reported, not raised"] = function()
+  local saved_system, saved_notify, saved_exec = vim.system, vim.notify, vim.fn.executable
+  local notices = {}
+
+  vim.fn.executable = function(name)
+    return name == "aws" and 1 or saved_exec(name)
+  end
+  vim.system = function(cmd, ...)
+    if cmd[1] == "aws" then
+      error("ENOENT: no such file or directory")
+    end
+    return saved_system(cmd, ...)
+  end
+  vim.notify = function(message, _)
+    table.insert(notices, tostring(message))
+  end
+
+  local ok, err = pcall(require("aws").whoami)
+
+  vim.system = saved_system
+  vim.notify = saved_notify
+  vim.fn.executable = saved_exec
+
+  eq(ok, true, tostring(err))
+  eq(table.concat(notices, " "):find("could not run aws") ~= nil, true)
+end
+
+-- ---------------------------------------------------------------------------
 -- What :AwsClear puts back
 
 local saved = {}

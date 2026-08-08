@@ -47,7 +47,17 @@ local function capture(cmd)
     return nil, "`aws` not found on PATH"
   end
 
-  local result = vim.system(cmd, { text = true }):wait()
+  -- vim.system raises before it spawns anything on a bad request, and this one is
+  -- reached from a picker callback where an exception is a stack trace rather than
+  -- a message. There is no custom cwd here, so it is far less reachable than the
+  -- same call in the terraform runner — the contract is the same either way.
+  local ran, result = pcall(function()
+    return vim.system(cmd, { text = true }):wait()
+  end)
+  if not ran then
+    return nil, ("could not run aws: %s"):format(result)
+  end
+
   if result.code ~= 0 then
     return nil, (result.stderr or ""):gsub("%s+$", "")
   end

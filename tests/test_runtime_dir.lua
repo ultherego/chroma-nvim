@@ -100,6 +100,24 @@ T["refuses a world-writable directory"] = function()
   both_refuse(directory("wide", "rwxrwxrwx"), "expected 0700")
 end
 
+-- `mode % 0o1000` keeps the nine permission bits and drops the three special
+-- ones, so 01700 answered 0700 and passed a check that says it compares against
+-- 0700 exactly. Not a way in — the sticky bit lets nobody else read anything —
+-- but the directory is then not the one the specification describes, and the
+-- validator claimed otherwise.
+T["refuses a directory carrying a special mode bit"] = function()
+  local path = directory("sticky", "rwx------")
+  vim.uv.fs_chmod(path, tonumber("1700", 8))
+
+  -- Only meaningful if the filesystem kept the bit.
+  local stat = vim.uv.fs_stat(path)
+  if stat.mode % tonumber("10000", 8) ~= tonumber("1700", 8) then
+    MiniTest.skip("the filesystem did not keep the sticky bit")
+  end
+
+  both_refuse(path, "expected 0700")
+end
+
 T["accepts a private directory and creates a private subdirectory"] = function()
   local root = directory("good", "rwx------")
   local results = ask_both(root)

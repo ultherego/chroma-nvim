@@ -9,7 +9,10 @@
 local M = {}
 
 local OWNER_ONLY = tonumber("700", 8)
-local PERMISSION_BITS = tonumber("1000", 8)
+--- Everything below the file type: the nine permission bits and the three special
+--- ones. Masking to 0777 instead would call 01700 a 0700 directory — the same
+--- answer for a directory the specification does not describe.
+local MODE_BITS = tonumber("10000", 8)
 
 ---Owner and permissions of a directory about to hold something private.
 ---@param path string
@@ -31,8 +34,8 @@ local function directory_is_private(path, label)
     return false, ("%s is owned by uid %d, not by you (uid %d): %s"):format(label, stat.uid, uid, path)
   end
 
-  -- mode carries the file type too, so only the permission bits are compared.
-  local permissions = stat.mode % PERMISSION_BITS
+  -- mode carries the file type too, so only the mode bits are compared.
+  local permissions = stat.mode % MODE_BITS
   if permissions ~= OWNER_ONLY then
     return false, ("%s has mode %04o, expected 0700: %s"):format(label, permissions, path)
   end
