@@ -979,9 +979,9 @@ It is worth being exact about what that directory guarantees, because it is not
 requires it to be owned by you and mode 0700, to be on a local file system, to
 exist from your first login to your last logout, and — this is the part that
 matters here — its contents MUST NOT survive a reboot or a full logout/login
-cycle. Its files may also be cleaned up periodically. Residence in runtime
-memory is something the specification says the directory *might* have, not
-something it requires, and nothing here checks the file system type.
+cycle. Its files may also be cleaned up periodically. Residence in memory is
+not among the requirements: the specification says only that the directory
+"might reside in runtime memory", and nothing here checks the file system type.
 
 So on a system that puts the runtime directory on a disk, these files are
 written to that disk. They are still private, still session-scoped, and still

@@ -39,6 +39,7 @@ devops-nvim-ui-v3	devops-nvim.txt	/*devops-nvim-ui-v3*
 devops-nvim-vault	devops-nvim.txt	/*devops-nvim-vault*
 devops-nvim-vault-conversion	devops-nvim.txt	/*devops-nvim-vault-conversion*
 devops-nvim-vault-ids	devops-nvim.txt	/*devops-nvim-vault-ids*
+devops-nvim-vault-inline	devops-nvim.txt	/*devops-nvim-vault-inline*
 devops-nvim-vault-limits	devops-nvim.txt	/*devops-nvim-vault-limits*
 devops-nvim-vault-pass	devops-nvim.txt	/*devops-nvim-vault-pass*
 devops-nvim-vault-rekey	devops-nvim.txt	/*devops-nvim-vault-rekey*
