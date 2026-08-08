@@ -377,7 +377,11 @@ end
 
 ---@param buf integer
 local function remember_file_state(buf)
-  vim.b[buf].ansible_vault_stat = file_fingerprint(vim.api.nvim_buf_get_name(buf))
+  -- Three states, not two. "There was no file" is something this plugin looked at
+  -- and knows; storing nil for it is indistinguishable from never having looked,
+  -- and the check below reads that as nothing to protect.
+  local fingerprint = file_fingerprint(vim.api.nvim_buf_get_name(buf))
+  vim.b[buf].ansible_vault_stat = fingerprint or { absent = true }
 end
 
 ---@param buf integer
@@ -389,6 +393,16 @@ local function file_changed_since_read(buf)
   end
 
   local current = file_fingerprint(vim.api.nvim_buf_get_name(buf))
+
+  if remembered.absent then
+    -- `:write` on a buffer whose file never existed is Neovim's E13, and E13 tells
+    -- you to add `!`. The bang overrides Neovim's checks, not this one.
+    if current then
+      return "a file has appeared on disk since this buffer was converted"
+    end
+    return nil
+  end
+
   if not current then
     return "the file has been removed"
   end

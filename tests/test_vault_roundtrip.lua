@@ -731,6 +731,46 @@ T["a file changed underneath refuses the write"] = function()
   eq(vim.bo.modified, true)
 end
 
+-- A conversion can start from a buffer whose file does not exist yet. The
+-- baseline was then nil, which the conflict check reads as "nothing remembered,
+-- nothing to protect" — so a file that appeared in between was overwritten.
+-- Neovim's own E13 stops a plain `:write` here and tells you to add `!`; the
+-- bang is meant to override Neovim's checks, not this plugin's.
+T["a file that appears before the first write refuses it"] = function()
+  local dir = vim.fn.tempname()
+  vim.fn.mkdir(dir, "p")
+  vim.fn.writefile({ PASSWORD }, dir .. "/.vault_pass")
+  vim.uv.fs_chmod(dir .. "/.vault_pass", tonumber("600", 8))
+  vim.fn.writefile({ "[defaults]", "vault_password_file = ./.vault_pass" }, dir .. "/ansible.cfg")
+
+  local target = dir .. "/secrets.yml"
+  eq(vim.uv.fs_stat(target), nil)
+
+  require("ansible-vault").setup({ transparent = true })
+  vim.cmd.edit({ args = { target } })
+  vim.api.nvim_buf_set_lines(0, 0, -1, false, { "---", "mine: from-the-buffer" })
+  vim.cmd("VaultEncryptFile")
+  vim.wait(15000, function()
+    return vim.b.ansible_vault_stat ~= nil
+  end, 100)
+
+  -- Somebody else gets there first.
+  vim.fn.writefile({ "$ANSIBLE_VAULT;1.1;AES256", "3031323334" }, target)
+  local theirs = vim.fn.readfile(target)
+
+  local notices, real_notify = {}, vim.notify
+  vim.notify = function(message, _)
+    table.insert(notices, tostring(message))
+  end
+  pcall(vim.cmd, "silent write!")
+  vim.wait(5000)
+  vim.notify = real_notify
+
+  eq(table.concat(notices, " "):find("a file has appeared on disk") ~= nil, true)
+  eq(vim.fn.readfile(target), theirs)
+  eq(vim.bo.modified, true)
+end
+
 T["repeated writes keep working"] = function()
   -- The guard above was first written without refreshing the remembered state, which
   -- made the second save impossible.

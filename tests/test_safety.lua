@@ -323,6 +323,28 @@ T["file_changed_since_read"]["notices a removed file"] = function()
   eq(r, "the file has been removed")
 end
 
+-- "There was no file" is a baseline, not the absence of one. Storing nil for it
+-- made it indistinguishable from a buffer this plugin never touched, so a file
+-- that appeared in between was written over rather than refused.
+T["file_changed_since_read"]["notices a file that appeared where there was none"] = function()
+  local r = with_file("one", function(buf, path)
+    os.remove(path)
+    vault().remember_file_state(buf)
+    vim.fn.writefile({ "written by somebody else" }, path)
+    return vault().file_changed_since_read(buf)
+  end)
+  eq(r, "a file has appeared on disk since this buffer was converted")
+end
+
+T["file_changed_since_read"]["says nothing when the file is still absent"] = function()
+  local r = with_file("one", function(buf, path)
+    os.remove(path)
+    vault().remember_file_state(buf)
+    return vault().file_changed_since_read(buf)
+  end)
+  eq(r, nil)
+end
+
 T["file_changed_since_read"]["says nothing when no state was remembered"] = function()
   -- Buffers this plugin never decrypted must write normally.
   local r = with_file("one", function(buf)
