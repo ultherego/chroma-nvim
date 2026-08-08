@@ -140,6 +140,18 @@ jobs:
           git clone --filter=blob:none https://github.com/stevearc/conform.nvim "$target"
           git -C "$target" checkout --quiet "$commit"
 
+      - name: Fetch gitsigns.nvim
+        # For the case that stages a decrypted vault and checks the git index.
+        # Staging writes `.git/index` rather than the working tree, so it is the
+        # one path to disk that none of the vault write guards can see; the test
+        # reads the shipped on_attach, and skips itself when the plugin is absent.
+        run: |
+          set -euo pipefail
+          commit=$(python3 -c "import json; print(json.load(open('lazy-lock.json'))['gitsigns.nvim']['commit'])")
+          target="${HOME}/.local/share/nvim/lazy/gitsigns.nvim"
+          git clone --filter=blob:none https://github.com/lewis6991/gitsigns.nvim "$target"
+          git -C "$target" checkout --quiet "$commit"
+
       - name: Run tests
         run: |
           set -euo pipefail

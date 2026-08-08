@@ -20,6 +20,15 @@ return {
       current_line_blame = false,
 
       on_attach = function(buf)
+        -- Staging does not write the working tree, it writes `.git/index` and a
+        -- blob object — so a buffer holding a decrypted vault would put the
+        -- plaintext in git, past everything that guards the file itself.
+        -- Measured: `stage_buffer` on such a buffer left the secret in the index
+        -- and the ciphertext gone. Returning false here means never attaching.
+        if vim.b[buf].ansible_vault_plain then
+          return false
+        end
+
         local gs = require("gitsigns")
 
         local function map(mode, lhs, rhs, desc)

@@ -570,12 +570,23 @@ local function detach_language_servers(buf)
   end
 end
 
---- Keeps language servers off a buffer for as long as it holds plaintext. Setting
---- the filetype is what invites them, so this has to survive that and anything
---- later that tries again.
+--- Detaches gitsigns, which stages buffer contents into `.git/index` and a blob
+--- object rather than into the working tree — past everything guarding the file.
+---@param buf integer
+local function detach_gitsigns(buf)
+  local ok, gitsigns = pcall(require, "gitsigns")
+  if ok then
+    pcall(gitsigns.detach, buf)
+  end
+end
+
+--- Keeps the tools that would copy a buffer elsewhere off it for as long as it
+--- holds plaintext. Setting the filetype is what invites language servers, so
+--- this has to survive that and anything later that tries again.
 ---@param buf integer
 local function keep_language_servers_off(buf)
   detach_language_servers(buf)
+  detach_gitsigns(buf)
 
   pcall(vim.api.nvim_clear_autocmds, { group = tools_group, event = "LspAttach", buffer = buf })
   vim.api.nvim_create_autocmd("LspAttach", {

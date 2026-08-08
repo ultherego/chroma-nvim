@@ -815,6 +815,59 @@ T["a decrypted vault refuses every write that is not its own file"] = function()
   eq(decrypt_externally(dir, vault):find("SUPERSECRET") ~= nil, true)
 end
 
+-- Staging does not write the working tree. It writes `.git/index` and a blob
+-- object, so a decrypted vault staged from the buffer puts the plaintext into
+-- git — past the writer, the atomic replacement and everything else that guards
+-- the file. Measured before the guard existed: the index held the secret and the
+-- ciphertext was gone.
+T["gitsigns cannot stage a decrypted vault"] = function()
+  local root = vim.fn.stdpath("data") .. "/lazy/gitsigns.nvim"
+  if not vim.uv.fs_stat(root) then
+    MiniTest.skip("gitsigns.nvim is not installed")
+  end
+  vim.opt.rtp:append(root)
+
+  local dir, vault = project("---\npassword: VAULT_GITSIGNS_SENTINEL\n")
+  vim.fn.system({ "git", "-C", dir, "init", "-q" })
+  vim.fn.system({ "git", "-C", dir, "config", "user.email", "t@example.com" })
+  vim.fn.system({ "git", "-C", dir, "config", "user.name", "T" })
+  vim.fn.system({ "git", "-C", dir, "add", "secrets.yml" })
+  vim.fn.system({ "git", "-C", dir, "-c", "commit.gpgsign=false", "commit", "-qm", "vault" })
+
+  -- The options this configuration ships, on_attach included.
+  local spec
+  for _, entry in ipairs(require("plugins.git")) do
+    if entry[1] == "lewis6991/gitsigns.nvim" then
+      spec = entry
+    end
+  end
+  local gitsigns = require("gitsigns")
+  gitsigns.setup(spec.opts)
+
+  local saved_cwd = vim.fn.getcwd()
+  vim.cmd.cd(dir)
+  open_with(vault, { transparent = true })
+  vim.wait(15000, function()
+    return vim.b.ansible_vault_plain == true
+  end, 100)
+  eq(vim.b.ansible_vault_plain, true)
+
+  -- Hunks are computed asynchronously; staging before they exist stages nothing
+  -- and would pass for the wrong reason.
+  vim.wait(10000, function()
+    return #(gitsigns.get_hunks(0) or {}) > 0
+  end, 100)
+  eq(#(gitsigns.get_hunks(0) or {}), 0)
+
+  pcall(gitsigns.stage_buffer)
+  vim.wait(3000)
+  vim.cmd.cd(saved_cwd)
+
+  local staged = vim.fn.system({ "git", "-C", dir, "show", ":secrets.yml" })
+  eq(staged:find("VAULT_GITSIGNS_SENTINEL", 1, true), nil)
+  eq(staged:find("$ANSIBLE_VAULT", 1, true) ~= nil, true)
+end
+
 T["repeated writes keep working"] = function()
   -- The guard above was first written without refreshing the remembered state, which
   -- made the second save impossible.
