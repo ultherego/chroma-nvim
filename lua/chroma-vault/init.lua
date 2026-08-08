@@ -1,9 +1,9 @@
--- ansible-vault.nvim — Ansible Vault inside the editor.
--- What is kept off disk and what is not: :help devops-nvim-vault.
+-- chroma-vault.nvim — Ansible Vault inside the editor.
+-- What is kept off disk and what is not: :help chroma-nvim-vault.
 
-local cli = require("ansible-vault.cli")
-local vault_config = require("ansible-vault.config")
-local fs = require("ansible-vault.fs")
+local cli = require("chroma-vault.cli")
+local vault_config = require("chroma-vault.config")
+local fs = require("chroma-vault.fs")
 
 local M = {}
 
@@ -160,9 +160,9 @@ function M.status()
   local cwd = context_dir()
   local resolved, err = vault_config.resolve(cwd)
   if not resolved then
-    return ("ansible-vault.nvim: %s"):format(err)
+    return ("chroma-vault.nvim: %s"):format(err)
   end
-  return ("ansible-vault.nvim: %s"):format(vault_config.describe(resolved))
+  return ("chroma-vault.nvim: %s"):format(vault_config.describe(resolved))
 end
 
 --- A scratch buffer holding plaintext: nothing about it is written anywhere.
@@ -476,7 +476,7 @@ local function write_atomically(path, contents)
   -- from the pid alone comes back after a crash once that pid is reused, and every
   -- write of this vault then fails with EEXIST for the life of the process. Same
   -- pid-and-hrtime pair the staged password and the terraform plans use.
-  local tmp = ("%s.ansible-vault.nvim.%d.%d.tmp"):format(target, vim.uv.os_getpid(), vim.uv.hrtime())
+  local tmp = ("%s.chroma-vault.nvim.%d.%d.tmp"):format(target, vim.uv.os_getpid(), vim.uv.hrtime())
 
   local fd, open_err = vim.uv.fs_open(tmp, "wx", tonumber("600", 8))
   if not fd then
@@ -562,7 +562,7 @@ end
 --- Language servers that attached to a buffer now holding plaintext are stopped
 --- for it. A decrypted vault looks like ordinary YAML once its filetype is
 --- detected, and a server is handed the whole buffer on didOpen — see
---- :help devops-nvim-vault-tools for what this does and does not close.
+--- :help chroma-nvim-vault-tools for what this does and does not close.
 ---@param buf integer
 local function detach_language_servers(buf)
   for _, client in ipairs(vim.lsp.get_clients({ bufnr = buf })) do
@@ -624,7 +624,7 @@ end
 ---Ordered so no step leaves the buffer half-converted: encryption first, because
 ---everything after it is destructive; then hardening, the undo file, the remembered
 ---state and the writer; only then the buffer itself. See
----:help devops-nvim-vault-conversion.
+---:help chroma-nvim-vault-conversion.
 function M.encrypt_file()
   local buf = vim.api.nvim_get_current_buf()
 
@@ -696,7 +696,7 @@ end
 ---
 ---Ordered so the plaintext is the last thing to appear: hardening, then the
 ---writer, and only then the contents it protects. See
----:help devops-nvim-vault-transparent.
+---:help chroma-nvim-vault-transparent.
 function M.decrypt_file()
   local buf = vim.api.nvim_get_current_buf()
 
@@ -793,7 +793,7 @@ end
 ---Re-encrypts the current file under a different configured vault id.
 ---
 ---The new password must outlive this command: rekeying to one typed once leaves a
----file ansible cannot open again. See :help devops-nvim-vault-rekey.
+---file ansible cannot open again. See :help chroma-nvim-vault-rekey.
 function M.rekey_file()
   local buf = vim.api.nvim_get_current_buf()
   local path = vim.api.nvim_buf_get_name(buf)

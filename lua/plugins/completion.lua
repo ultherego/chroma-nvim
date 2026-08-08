@@ -12,7 +12,7 @@ return {
         preset = "default",
 
         -- Zellij captures <C-n> and <C-p>, so the default preset's keys never
-        -- arrive; see :help devops-nvim-zellij.
+        -- arrive; see :help chroma-nvim-zellij.
         ["<C-j>"] = { "select_next", "fallback" },
         ["<C-k>"] = { "select_prev", "fallback" },
         ["<C-d>"] = { "scroll_documentation_down", "fallback" },

@@ -31,7 +31,7 @@ return {
       -- Three of kubectl's default mappings never arrive: Zellij captures
       -- <C-p> (pane mode), <C-n> (resize mode) and <M-h> (move focus left).
       vim.api.nvim_create_autocmd("FileType", {
-        group = vim.api.nvim_create_augroup("devops_kubectl_keys", { clear = true }),
+        group = vim.api.nvim_create_augroup("chroma_kubectl_keys", { clear = true }),
         pattern = "k8s_*",
         callback = function(ev)
           local opts = { buffer = ev.buf }

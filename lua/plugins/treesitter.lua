@@ -26,7 +26,7 @@ return {
         installing = require("nvim-treesitter").install(missing)
       end
 
-      local group = vim.api.nvim_create_augroup("devops_treesitter", { clear = true })
+      local group = vim.api.nvim_create_augroup("chroma_treesitter", { clear = true })
 
       -- 'foldmethod' and 'foldexpr' are window options, not buffer options.
       local function set_folding(buf)
@@ -43,7 +43,7 @@ return {
       vim.api.nvim_create_autocmd("BufWinEnter", {
         group = group,
         callback = function(ev)
-          if vim.b[ev.buf].devops_treesitter then
+          if vim.b[ev.buf].chroma_treesitter then
             set_folding(ev.buf)
           end
         end,
@@ -53,7 +53,7 @@ return {
       --- Idempotent: the flag is what stops the retry below repeating the work.
       ---@param buf integer
       local function enable(buf)
-        if not vim.api.nvim_buf_is_valid(buf) or vim.b[buf].devops_treesitter then
+        if not vim.api.nvim_buf_is_valid(buf) or vim.b[buf].chroma_treesitter then
           return
         end
 
@@ -63,7 +63,7 @@ return {
           return
         end
 
-        vim.b[buf].devops_treesitter = true
+        vim.b[buf].chroma_treesitter = true
         set_folding(buf)
 
         -- Treesitter indentation is deliberately NOT enabled.

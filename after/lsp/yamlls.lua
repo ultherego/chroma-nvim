@@ -22,12 +22,12 @@
 -- because it is newer than the cluster.
 --
 -- Override per machine in init.lua, or per project, when the cluster differs:
---   vim.g.devops_k8s_version = "v1.31.4"
+--   vim.g.chroma_k8s_version = "v1.31.4"
 --
 -- For a repository that must match one exact version, a modeline at the top
 -- of the file still wins over everything here:
 --   # yaml-language-server: $schema=<url>
-local k8s_version = vim.g.devops_k8s_version or "v1.34.10"
+local k8s_version = vim.g.chroma_k8s_version or "v1.34.10"
 local k8s = ("https://raw.githubusercontent.com/yannh/kubernetes-json-schema/master/%s-standalone-strict/all.json"):format(
   k8s_version
 )

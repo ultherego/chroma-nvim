@@ -29,7 +29,7 @@ return {
         -- linting one hands the secret to another program — the guarantee this
         -- configuration makes is about persistence, not about how many local
         -- processes get to see it, and that is a boundary worth not crossing by
-        -- accident. See :help devops-nvim-vault-tools.
+        -- accident. See :help chroma-nvim-vault-tools.
         if vim.b[buf].ansible_vault_plain then
           return names
         end
@@ -64,7 +64,7 @@ return {
         end
       end
 
-      local group = vim.api.nvim_create_augroup("devops_lint", { clear = true })
+      local group = vim.api.nvim_create_augroup("chroma_lint", { clear = true })
 
       vim.api.nvim_create_autocmd({ "BufWritePost", "BufReadPost" }, {
         group = group,

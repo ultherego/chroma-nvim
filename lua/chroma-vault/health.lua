@@ -1,13 +1,13 @@
--- `:checkhealth ansible-vault`
+-- `:checkhealth chroma-vault`
 
-local vault_config = require("ansible-vault.config")
+local vault_config = require("chroma-vault.config")
 
 local M = {}
 
 function M.check()
   local health = vim.health
 
-  health.start("ansible-vault.nvim")
+  health.start("chroma-vault.nvim")
 
   if vim.fn.executable("ansible-vault") ~= 1 then
     health.error("`ansible-vault` not found", "install ansible, or put it on PATH")
@@ -59,7 +59,7 @@ function M.check()
   health.start("Plaintext handling")
 
   -- The same call the staging path makes, so this reports what will actually happen.
-  local runtime_dir, runtime_err = require("ansible-vault.runtime").secure_dir("ansible-vault.nvim")
+  local runtime_dir, runtime_err = require("chroma-vault.runtime").secure_dir("chroma-vault.nvim")
   if runtime_dir then
     health.ok(("Prompted passwords will be staged in %s (private, 0700)"):format(runtime_dir))
   else

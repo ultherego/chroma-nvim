@@ -1,6 +1,6 @@
 <div align="center">
 
-# DevOps nVim
+<img src="assets/chroma-neovim.png" alt="Chroma Neovim" width="420">
 
 **The best Neovim environment for DevOps.**
 
@@ -19,7 +19,7 @@ starting point.
 Kitty → Zellij → Yazi → Neovim
 ```
 
-**Full documentation lives in the editor:** `:help devops-nvim`
+**Full documentation lives in the editor:** `:help chroma-nvim`
 **Why it is like this:** [`DECISIONS.md`](./DECISIONS.md) — the reasoning behind
 every choice, and what is deliberately absent
 
@@ -40,8 +40,8 @@ every choice, and what is deliberately absent
 | UI — dashboard, aerial, trouble, markdown | done |
 | DevOps — kubectl.nvim, nvim-ansible | done |
 | Health check, CI, lint config | done |
-| `ansible-vault.nvim` — inline values, whole files, transparent editing, rekey | stable |
-| `terraform.nvim` — plan / review / apply, terragrunt-aware | stable |
+| `chroma-vault.nvim` — inline values, whole files, transparent editing, rekey | stable |
+| `chroma-terraform.nvim` — plan / review / apply, terragrunt-aware | stable |
 | Sessions — persisted.nvim | done |
 | AWS — own profile/region switcher | done |
 
@@ -58,7 +58,7 @@ promise for your machine.
 
 > **Note:** Terraform formatting needs `terraform` or `tofu` on your PATH,
 > whichever you have. terraform-ls is not a substitute — it shells out to
-> `terraform fmt` itself. See `:help devops-nvim-formatting-tf`.
+> `terraform fmt` itself. See `:help chroma-nvim-formatting-tf`.
 
 ## Requirements
 
@@ -87,15 +87,15 @@ runs beside whatever you already have. Nothing is overwritten, and nothing is
 shared — plugins, sessions and Mason packages all live under the new name.
 
 ```sh
-git clone https://github.com/ultherego/dev-nvim.git ~/.config/devops-nvim
-NVIM_APPNAME=devops-nvim nvim
+git clone https://github.com/ultherego/chroma-nvim.git ~/.config/chroma-nvim
+NVIM_APPNAME=chroma-nvim nvim
 ```
 
 Keep it around with an alias in your shell config:
 
 ```sh
-alias dvim='NVIM_APPNAME=devops-nvim nvim'        # bash / zsh
-alias --save dvim 'NVIM_APPNAME=devops-nvim nvim' # fish
+alias dvim='NVIM_APPNAME=chroma-nvim nvim'        # bash / zsh
+alias --save dvim 'NVIM_APPNAME=chroma-nvim nvim' # fish
 ```
 
 ### Adopt it as your main config
@@ -106,7 +106,7 @@ replace a directory, and you'll want the old one back if you change your mind.
 ```sh
 [ -e ~/.config/nvim ] && mv ~/.config/nvim ~/.config/nvim.backup
 
-git clone https://github.com/ultherego/dev-nvim.git ~/.config/nvim
+git clone https://github.com/ultherego/chroma-nvim.git ~/.config/nvim
 nvim
 ```
 
@@ -114,9 +114,9 @@ Prefer to keep the clone with your other projects and symlink it? That works
 too — nothing here depends on where the clone lives:
 
 ```sh
-git clone https://github.com/ultherego/dev-nvim.git ~/src/devops-nvim
+git clone https://github.com/ultherego/chroma-nvim.git ~/src/chroma-nvim
 mkdir -p ~/.config
-ln -s ~/src/devops-nvim ~/.config/nvim
+ln -s ~/src/chroma-nvim ~/.config/nvim
 ```
 
 ### First start
@@ -125,7 +125,7 @@ lazy.nvim bootstraps itself, installs the plugins, and Mason fetches the
 language servers while treesitter compiles parsers. Give it a minute, then:
 
 ```vim
-:checkhealth devops
+:checkhealth chroma
 ```
 
 Read that one first. Most of this config drives external programs, and when
@@ -168,7 +168,7 @@ Most-used:
 Neovim 0.12 already provides `gc`/`gcc`, `]d`/`[d`, `]b`/`[b`, `K`, `grn`, `gra`,
 `grr`, `gri`, `grt`. This config does not redefine them.
 
-Full list: `:help devops-nvim-keymaps`
+Full list: `:help chroma-nvim-keymaps`
 
 ## If you use Zellij
 
@@ -192,7 +192,7 @@ rg 'bind "Ctrl' ~/.config/zellij/config.kdl
 
 Neovim's own `Ctrl-h` and `Ctrl-o` can't be recovered by any editor config —
 lock Zellij with `Ctrl-g` when you need them. Details: `:help
-devops-nvim-zellij`
+chroma-nvim-zellij`
 
 ## The two rules
 
@@ -218,7 +218,7 @@ The distinction between a guarantee and a mitigation is kept deliberately
 sharp, because the earlier version of this section claimed more than the code
 did.
 
-### `terraform.nvim`
+### `chroma-terraform.nvim`
 
 **The saved plan fixes the exact planned action set.** `:TerraformApply`
 applies that file and nothing else, so it cannot execute an action set other
@@ -308,7 +308,7 @@ state may still change independently between plan and apply. Terraform itself
 detects state drift when the apply runs; this runner does not, and does not
 claim to.
 
-### `ansible-vault.nvim`
+### `chroma-vault.nvim`
 
 **Writes are atomic and checked.** A vault is replaced by writing a sibling
 file and renaming over the target, so a crash or a full disk leaves the old
@@ -428,7 +428,7 @@ under a second.
 
 ## Regenerating the help tags
 
-After editing `doc/devops-nvim.txt`:
+After editing `doc/chroma-nvim.txt`:
 
 ```vim
 :helptags doc

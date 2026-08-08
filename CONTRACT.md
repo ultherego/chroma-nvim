@@ -1,4 +1,4 @@
-# DevOps nVim — Contract v1.0
+# Chroma Neovim — Contract v1.0
 
 The governing document: what this configuration is. Changing it requires a
 deliberate decision and an entry in the *Contract changes* section.
@@ -61,10 +61,13 @@ The tree below is what exists. `config/autocmds.lua` is still absent because
 nothing has needed it. `README.md` carries the per-layer status.
 
 The own-code layout diverged from the original plan on purpose: each module is
-a self-contained plugin under its own name rather than a file under a shared
-`lua/devops/` namespace, so any of them can be lifted into its own repository
-without edits. `lua/devops/` kept only what is genuinely about this
-configuration rather than about a tool — the health check.
+a self-contained plugin in a directory of its own rather than a file in one
+shared namespace, so any of them can be lifted into its own repository without
+edits. They carry the project's name — `chroma-vault`, `chroma-terraform`,
+`chroma-aws` — because they are its modules, not because the name says what
+they do; `:help chroma-nvim-vault` and the module headers do that.
+`lua/chroma/` kept only what is genuinely about this configuration rather than
+about a tool — the health check.
 
 ```
 ~/.config/nvim
@@ -87,11 +90,11 @@ configuration rather than about a tool — the health check.
 │   │   ├── lint.lua
 │   │   ├── editing.lua
 │   │   └── devops.lua
-│   ├── ansible-vault             our own plugin
-│   ├── terraform                 our own runner
-│   ├── aws                       our own profile/region switcher
-│   └── devops
-│       └── health.lua            :checkhealth devops
+│   ├── chroma-vault              our own plugin
+│   ├── chroma-terraform          our own runner
+│   ├── chroma-aws                our own profile/region switcher
+│   └── chroma
+│       └── health.lua            :checkhealth chroma
 ├── after
 ├── README.md
 └── LICENSE
@@ -171,7 +174,7 @@ Terraform · Terragrunt · Helm · Docker · Kubernetes · YAML · Ansible
 
 ## Operational decisions
 
-- **Repo:** `https://github.com/ultherego/dev-nvim.git`
+- **Repo:** `https://github.com/ultherego/chroma-nvim.git`
 - **Deployment:** the repository is itself a Neovim configuration directory.
   Clone it to `~/.config/nvim`, or clone it anywhere and symlink — nothing
   depends on the location. `README.md` covers both, plus the `$NVIM_APPNAME`
@@ -201,15 +204,15 @@ Both modules that handle secrets or change infrastructure are **stable**. They
 are in use, covered by the test suite, and have been through five external
 audits, the findings of the last one all answered.
 What they guarantee is written out in `README.md` under *Safety model* and in
-`:help devops-nvim-vault` and `:help devops-nvim-terraform`. Nothing there
+`:help chroma-nvim-vault` and `:help chroma-nvim-terraform`. Nothing there
 describes an intention; every line describes current behaviour.
 
-### `ansible-vault.nvim` — stable, in `lua/ansible-vault/`
+### `chroma-vault.nvim` — stable, in `lua/chroma-vault/`
 The one genuine gap. Every existing candidate is a single-person project with
 0–7 stars, the most visible one abandoned since 2023. Nothing meets the bar of
 "actively maintained + properly documented", so this is ours to build.
 
-### `terraform.nvim` — stable, a thin runner, in `lua/terraform/`
+### `chroma-terraform.nvim` — stable, a thin runner, in `lua/chroma-terraform/`
 Most of the originally planned scope is already covered by plugins this config
 installs anyway:
 
@@ -223,7 +226,7 @@ What remains is a `plan` / `apply` / `destroy` runner. Existing options were
 rejected: `mvaldes14/terraform.nvim` had no push for a year, and
 `telescope-terraform.nvim` is built on telescope, which this config does not use.
 
-### `aws` — built, in `lua/aws/`
+### `aws` — built, in `lua/chroma-aws/`
 Not in the original plan, but the contract reserved an AWS keymap group and
 the survey found nothing to fill it with: `nvim-aws-cli` has no stars and no
 commit since March 2025, `nvimawscli` has twelve and manages EC2 instances.
@@ -275,9 +278,10 @@ not an inconvenience.
 | Date | Change | Reason |
 |---|---|---|
 | 2026-08-06 | v1.0 — contract established | project start |
-| 2026-08-06 | Renamed UltherNvim → DevOps nVim; all project files switched to English; `lua/ulther/` → `lua/devops/` | owner decision |
-| 2026-08-06 | Added rule #2 (survey before building); dropped `kube.nvim` for `kubectl.nvim`; narrowed `terraform.nvim` to a plan/apply/destroy runner | plugin survey showed the planned scope was partly already solved |
+| 2026-08-06 | Renamed UltherNvim → Chroma Neovim; all project files switched to English; `lua/ulther/` → `lua/chroma/` | owner decision |
+| 2026-08-06 | Added rule #2 (survey before building); dropped `kube.nvim` for `kubectl.nvim`; narrowed `chroma-terraform.nvim` to a plan/apply/destroy runner | plugin survey showed the planned scope was partly already solved |
 | 2026-08-06 | `lazygit.nvim` replaced by the `snacks.nvim` lazygit module | upstream stale and has no colourscheme integration; snacks was already a dependency |
 | 2026-08-06 | `alpha` replaced by the `snacks.nvim` dashboard module | snacks was already a dependency; alpha remains maintained, so this is deduplication, not rejection |
-| 2026-08-06 | Added `persisted.nvim` for Sessions and a own `lua/aws/` module for the AWS group | both groups were reserved but unfilled; no adoptable AWS plugin exists |
-| 2026-08-08 | `ansible-vault.nvim` and `terraform.nvim` promoted from beta to stable | fifth external audit closed, every finding dispositioned; release gate met on 97050e1 with CI green |
+| 2026-08-06 | Added `persisted.nvim` for Sessions and a own `lua/chroma-aws/` module for the AWS group | both groups were reserved but unfilled; no adoptable AWS plugin exists |
+| 2026-08-08 | `chroma-vault.nvim` and `chroma-terraform.nvim` promoted from beta to stable | fifth external audit closed, every finding dispositioned; release gate met on 97050e1 with CI green |
+| 2026-08-08 | Renamed DevOps nVim → Chroma Neovim: repository, `$NVIM_APPNAME`, help file and tag prefix, `:checkhealth chroma`, and the own modules to `chroma-vault` / `chroma-terraform` / `chroma-aws` | owner decision; the project has a name and a logo of its own rather than a description |

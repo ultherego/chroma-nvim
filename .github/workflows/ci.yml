@@ -189,7 +189,7 @@ jobs:
           sudo apt-get update
           # unzip and gzip are what Mason unpacks its packages with, and this is
           # the job that boots the real configuration. They are in README's
-          # requirements and in `:checkhealth devops`; installing them here
+          # requirements and in `:checkhealth chroma`; installing them here
           # keeps the three saying the same thing.
           sudo apt-get install -y --no-install-recommends \
             build-essential curl tar unzip gzip ripgrep fd-find
@@ -277,7 +277,7 @@ jobs:
               local ok, err = pcall(require, mod)
               if not ok then table.insert(failed, mod .. ": " .. tostring(err)) end
             end
-            for _, mod in ipairs({ "ansible-vault", "terraform", "aws", "devops.health" }) do
+            for _, mod in ipairs({ "ansible-vault", "terraform", "aws", "chroma.health" }) do
               local ok, err = pcall(require, mod)
               if not ok then table.insert(failed, mod .. ": " .. tostring(err)) end
             end

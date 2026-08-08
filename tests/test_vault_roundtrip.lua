@@ -1,4 +1,4 @@
--- Integration tests for ansible-vault.nvim, against the real CLI.
+-- Integration tests for chroma-vault.nvim, against the real CLI.
 
 local new_set = MiniTest.new_set
 local eq = MiniTest.expect.equality
@@ -48,7 +48,7 @@ end
 ---@param opts table
 ---@return integer
 local function open_with(path, opts)
-  require("ansible-vault").setup(opts)
+  require("chroma-vault").setup(opts)
   vim.cmd.edit({ args = { path } })
   vim.wait(15000, function()
     return not vim.b.ansible_vault_pending
@@ -63,11 +63,11 @@ local T = new_set({
         MiniTest.skip("ansible-vault is not installed")
       end
       -- Each case starts from the plugin's default configuration.
-      require("ansible-vault").setup({ transparent = true })
-      require("ansible-vault").reload()
+      require("chroma-vault").setup({ transparent = true })
+      require("chroma-vault").reload()
     end,
     post_case = function()
-      require("ansible-vault").setup({ transparent = true })
+      require("chroma-vault").setup({ transparent = true })
       vim.cmd("silent! %bwipeout!")
     end,
   },
@@ -80,7 +80,7 @@ T["encrypting a whole buffer produces a decryptable file"] = function()
   vim.fn.delete(vault)
   vim.fn.writefile({ "---", "secret: plain-value" }, vault)
 
-  require("ansible-vault").setup({ transparent = false })
+  require("chroma-vault").setup({ transparent = false })
   vim.cmd.edit({ args = { vault } })
   vim.cmd("VaultEncryptFile")
   vim.wait(15000, function()
@@ -138,8 +138,8 @@ T["a prompted password still runs in the project directory"] = function()
   end
 
   vim.cmd.cd(elsewhere)
-  require("ansible-vault").setup({ transparent = false })
-  require("ansible-vault").reload()
+  require("chroma-vault").setup({ transparent = false })
+  require("chroma-vault").reload()
   vim.cmd.edit({ args = { vault } })
   vim.cmd("VaultView")
   vim.wait(15000, function()
@@ -208,7 +208,7 @@ local function prompting_project()
   ---Password files still staged in the runtime directory.
   ---@return string[]
   function h.staged()
-    return vim.fn.glob(runtime .. "/ansible-vault.nvim/password.*", false, true)
+    return vim.fn.glob(runtime .. "/chroma-vault.nvim/password.*", false, true)
   end
 
   function h.restore()
@@ -220,8 +220,8 @@ local function prompting_project()
     vim.notify = h.saved.notify
   end
 
-  require("ansible-vault").setup({ transparent = false })
-  require("ansible-vault").reload()
+  require("chroma-vault").setup({ transparent = false })
+  require("chroma-vault").reload()
   vim.cmd.edit({ args = { vault } })
   h.buf = vim.api.nvim_get_current_buf()
 
@@ -269,7 +269,7 @@ T["staged password"]["a configuration lookup that cannot run is reported"] = fun
   local h = prompting_project()
 
   -- Nothing cached, so the lookup itself has to run in the directory that is gone.
-  require("ansible-vault").reload()
+  require("chroma-vault").reload()
   vim.fn.delete(h.dir, "rf")
 
   local notices = {}
@@ -375,8 +375,8 @@ end
 ---@param path string
 ---@return integer buf
 local function open_plaintext(path)
-  require("ansible-vault").setup({ transparent = true })
-  require("ansible-vault").reload()
+  require("chroma-vault").setup({ transparent = true })
+  require("chroma-vault").reload()
   vim.cmd.edit({ args = { path } })
   local buf = vim.api.nvim_get_current_buf()
   -- What lua/config/options.lua sets globally. The plugin has to turn this off
@@ -557,7 +557,7 @@ T["decrypt ordering"] = new_set()
 ---@param fn fun()
 ---@return string
 local function with_failing_writer(fn)
-  local vault = require("ansible-vault")
+  local vault = require("chroma-vault")
   local real_attach, real_notify = vault.attach_writer, vim.notify
   local notices = {}
 
@@ -600,8 +600,8 @@ T["decrypt ordering"]["transparent decrypt fails the same way"] = function()
 
   local buf
   local said = with_failing_writer(function()
-    require("ansible-vault").setup({ transparent = true })
-    require("ansible-vault").reload()
+    require("chroma-vault").setup({ transparent = true })
+    require("chroma-vault").reload()
     vim.cmd.edit({ args = { vault } })
     buf = vim.api.nvim_get_current_buf()
     vim.wait(5000)
@@ -775,7 +775,7 @@ T["a file that appears before the first write refuses it"] = function()
   local target = dir .. "/secrets.yml"
   eq(vim.uv.fs_stat(target), nil)
 
-  require("ansible-vault").setup({ transparent = true })
+  require("chroma-vault").setup({ transparent = true })
   vim.cmd.edit({ args = { target } })
   vim.api.nvim_buf_set_lines(0, 0, -1, false, { "---", "mine: from-the-buffer" })
   vim.cmd("VaultEncryptFile")
@@ -842,7 +842,7 @@ T["a decrypted vault refuses every write that is not its own file"] = function()
   -- BufFilePre does not abort the rename, and putting the name back makes
   -- Neovim treat the buffer as never read from that file, so the next `:w`
   -- fails with E13 — a worse state than the one being repaired. The vault is
-  -- untouched either way; :help devops-nvim-vault-writing says how to get back.
+  -- untouched either way; :help chroma-nvim-vault-writing says how to get back.
   refuses("silent saveas! " .. dir .. "/renamed", dir .. "/renamed")
 
   -- The vault itself is untouched by all of that.
@@ -1015,7 +1015,7 @@ T["atomic replacement"]["a leftover temporary file does not block the write"] = 
 
   -- Exactly what the old scheme would have called it, in a session that never got
   -- to remove it.
-  local stale = ("%s.ansible-vault.nvim.%d.tmp"):format(vim.uv.fs_realpath(vault), vim.uv.os_getpid())
+  local stale = ("%s.chroma-vault.nvim.%d.tmp"):format(vim.uv.fs_realpath(vault), vim.uv.os_getpid())
   vim.fn.writefile({ "leftover" }, stale)
 
   vim.api.nvim_buf_set_lines(0, -1, -1, false, { "written: yes" })
@@ -1040,7 +1040,7 @@ T["atomic replacement"]["a temporary file that cannot be removed is named"] = fu
   ---@param path string
   ---@return boolean
   local function ours(path)
-    return path:find("%.ansible%-vault%.nvim%.") ~= nil
+    return path:find("%.chroma%-vault%.nvim%.") ~= nil
   end
 
   -- The write gets as far as a finished temporary file, and then can neither put it
@@ -1070,7 +1070,7 @@ T["atomic replacement"]["a temporary file that cannot be removed is named"] = fu
   vim.notify = real_notify
 
   local said = table.concat(notices, " "):gsub("\n", " ")
-  local leftovers = vim.fn.glob(vim.fs.dirname(vim.uv.fs_realpath(vault)) .. "/*.ansible-vault.nvim.*.tmp", false, true)
+  local leftovers = vim.fn.glob(vim.fs.dirname(vim.uv.fs_realpath(vault)) .. "/*.chroma-vault.nvim.*.tmp", false, true)
 
   eq(#leftovers, 1)
   eq(said:find("EXDEV") ~= nil, true)
@@ -1218,7 +1218,7 @@ T["rekey works on a transparently decrypted buffer"] = function()
     table.insert(notices, tostring(message))
   end
 
-  require("ansible-vault").rekey_file()
+  require("chroma-vault").rekey_file()
 
   vim.fn.inputlist = input
   vim.notify = notify
@@ -1246,7 +1246,7 @@ T["rekey leaves the old password unable to open the file"] = function()
   vim.fn.inputlist = function()
     return 2
   end
-  require("ansible-vault").rekey_file()
+  require("chroma-vault").rekey_file()
   vim.fn.inputlist = input
 
   eq(header_label(vault), "new")
@@ -1311,7 +1311,7 @@ T["rekey refuses a file with hard links, leaving both names intact"] = function(
     table.insert(notices, tostring(message))
   end
 
-  require("ansible-vault").rekey_file()
+  require("chroma-vault").rekey_file()
 
   vim.fn.inputlist = input
   vim.notify = notify
@@ -1351,7 +1351,7 @@ T["rekey refuses when no vault identity is configured"] = function()
     table.insert(notices, tostring(message))
   end
 
-  require("ansible-vault").rekey_file()
+  require("chroma-vault").rekey_file()
   vim.notify = notify
 
   local said = table.concat(notices, " ")

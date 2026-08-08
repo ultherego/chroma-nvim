@@ -1,4 +1,4 @@
--- Tests for `:checkhealth devops`.
+-- Tests for `:checkhealth chroma`.
 
 local new_set = MiniTest.new_set
 local eq = MiniTest.expect.equality
@@ -6,7 +6,7 @@ local eq = MiniTest.expect.equality
 ---Runs the health check and returns its report as one string.
 ---@return string
 local function report()
-  vim.cmd("checkhealth devops")
+  vim.cmd("checkhealth chroma")
   local text = table.concat(vim.api.nvim_buf_get_lines(0, 0, -1, false), "\n")
   vim.cmd("silent! bwipeout!")
   return text

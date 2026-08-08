@@ -2,7 +2,7 @@
 --
 -- Plaintext goes in on stdin, never in argv, where `ps` would show it.
 -- Ciphertext is not secret and may go anywhere. The password has to be a file
--- because ansible accepts nothing else; see :help devops-nvim-vault-pass.
+-- because ansible accepts nothing else; see :help chroma-nvim-vault-pass.
 
 local M = {}
 
@@ -37,7 +37,7 @@ local function auth_args(auth, password_path)
   return args
 end
 
-local unlink_checked = require("ansible-vault.fs").unlink_checked
+local unlink_checked = require("chroma-vault.fs").unlink_checked
 
 --- How long a single ansible call may hold the editor. Ansible resolves vault
 --- ids by running programs, and a program can wait on a person.
@@ -48,7 +48,7 @@ local TIMEOUT_MS = 10000
 ---@return string|nil path, function|nil cleanup, string|nil err
 local function stage_password(password)
   -- /tmp is neither private nor cleared at logout, so this refuses instead.
-  local dir, dir_err = require("ansible-vault.runtime").secure_dir("ansible-vault.nvim")
+  local dir, dir_err = require("chroma-vault.runtime").secure_dir("chroma-vault.nvim")
   if not dir then
     return nil, nil, ("%s\nConfigure vault_password_file in ansible.cfg instead."):format(dir_err)
   end
@@ -112,7 +112,7 @@ end
 local function run(args, opts)
   -- A buffer number reached this as `cwd` once, and surfaced as ansible failing.
   if opts.cwd ~= nil and type(opts.cwd) ~= "string" then
-    error(("ansible-vault.cli: cwd must be a string or nil, got %s"):format(type(opts.cwd)), 2)
+    error(("chroma-vault.cli: cwd must be a string or nil, got %s"):format(type(opts.cwd)), 2)
   end
 
   if vim.fn.executable("ansible-vault") ~= 1 then

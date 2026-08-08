@@ -1,4 +1,4 @@
--- DevOps nVim — entry point.
+-- Chroma Neovim — entry point.
 --
 -- Leader keys are set here, before lazy.nvim is loaded. Plugins may register
 -- keymaps while loading, and those bind against whatever <leader> resolves to
@@ -11,7 +11,7 @@ require("config.keymaps")
 require("config.commands")
 require("config.lazy")
 
--- These three live in lua/ansible-vault/, lua/terraform/ and lua/aws/, and
+-- These three live in lua/chroma-vault/, lua/chroma-terraform/ and lua/chroma-aws/, and
 -- depend on nothing in this configuration, so each can be lifted into its own
 -- repository unchanged.
 --
@@ -19,6 +19,6 @@ require("config.lazy")
 -- vault — a pair of autocmds, so there is nothing to gain from deferring them.
 -- The vault's write hook in particular must exist before any vault file is
 -- opened, which rules out lazy loading it.
-require("ansible-vault").setup({ keymaps = true })
-require("terraform").setup({ keymaps = true })
-require("aws").setup({ keymaps = true })
+require("chroma-vault").setup({ keymaps = true })
+require("chroma-terraform").setup({ keymaps = true })
+require("chroma-aws").setup({ keymaps = true })

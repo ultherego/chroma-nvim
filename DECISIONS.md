@@ -146,11 +146,11 @@ dependency:
 - `kube.nvim` → `kubectl.nvim` already did all of it and more
 - `lazygit.nvim` → the `snacks` module themes lazygit from the colourscheme
 - `alpha` → the `snacks` dashboard, already a dependency
-- `terraform.nvim` shrank from six commands to a plan/apply runner, because
+- `chroma-terraform.nvim` shrank from six commands to a plan/apply runner, because
   formatting and validation were already covered elsewhere
 
 **What would change it.** A gap the survey shows is real. That is how
-`ansible-vault.nvim` and the AWS module were justified: every candidate was a
+`chroma-vault.nvim` and the AWS module were justified: every candidate was a
 single-person project with under ten stars, the most visible abandoned since
 2023.
 
@@ -301,7 +301,7 @@ The fallback does **not** rescue a missing binary. `terraform_fmt` needs the
 terraform CLI, and terraform-ls is not a substitute: it shells out to
 `terraform fmt` itself and answers "Terraform (CLI) is required". Terraform
 files stay unformatted until the binary is on PATH. That is a machine
-prerequisite, and `:checkhealth devops` reports it.
+prerequisite, and `:checkhealth chroma` reports it.
 
 ### Large files are not formatted on save, and say so
 
@@ -396,22 +396,22 @@ outline is active.
 
 ### Each is a plugin, not a file in a shared namespace
 
-**Decision.** `lua/ansible-vault/`, `lua/terraform/`, `lua/aws/` — each
+**Decision.** `lua/chroma-vault/`, `lua/chroma-terraform/`, `lua/chroma-aws/` — each
 self-contained, depending on nothing else in this configuration.
 
-**Why.** The contract originally planned `lua/devops/ansible.lua` and friends.
+**Why.** The contract originally planned `lua/chroma/ansible.lua` and friends.
 Written that way they would be inseparable from this config. Written as plugins
 they can be lifted into their own repositories without edits, which is the
-stated goal for `ansible-vault.nvim`.
+stated goal for `chroma-vault.nvim`.
 
-`lua/devops/` kept only what is genuinely about this configuration rather than
+`lua/chroma/` kept only what is genuinely about this configuration rather than
 about a tool: the health check.
 
 ### The runtime-directory check is duplicated on purpose
 
-**Decision.** `lua/ansible-vault/runtime.lua` and `lua/terraform/runtime.lua`
+**Decision.** `lua/chroma-vault/runtime.lua` and `lua/chroma-terraform/runtime.lua`
 are the same policy written twice. An external audit asked for one shared
-`lua/devops/runtime.lua` used by both. It was not taken.
+`lua/chroma/runtime.lua` used by both. It was not taken.
 
 **Why.** Both modules write short-lived secrets into `$XDG_RUNTIME_DIR` and
 both must check it is what the XDG specification says it is. A shared helper
@@ -440,7 +440,7 @@ A hardcoded region list is wrong the day AWS opens a region.
 **What would change it.** Those commands becoming unavailable — in which case
 the modules should fail visibly, not guess.
 
-### `:checkhealth devops` instead of scattered guards
+### `:checkhealth chroma` instead of scattered guards
 
 **Decision.** One health module rather than `vim.fn.executable()` checks at
 every call site.
@@ -516,7 +516,7 @@ the other.
 
 **Decision.** `:VaultEncrypt` encrypts a value and leaves the file an ordinary
 buffer written by Neovim. Its limits are written down (`:help
-devops-nvim-vault-inline`) rather than closed.
+chroma-nvim-vault-inline`) rather than closed.
 
 **Why.** An audit observed, correctly, that the guarantees this plugin makes for
 Vault files do not hold for a value encrypted inside `group_vars/all.yml`: the
@@ -667,7 +667,7 @@ persists registers between sessions. The plugin does not prevent this.
 
 **Why.** A plugin cannot own the user's registers without breaking normal
 editing. What it can do is say so plainly rather than implying a completeness
-it does not have. `:help devops-nvim-vault-safe` documents it, along with the
+it does not have. `:help chroma-nvim-vault-safe` documents it, along with the
 one-line `shada` change that closes it for anyone who wants that trade.
 
 ---

@@ -1,9 +1,9 @@
--- Execution lifecycle tests for terraform.nvim.
+-- Execution lifecycle tests for chroma-terraform.nvim.
 
 local new_set = MiniTest.new_set
 local eq = MiniTest.expect.equality
 
-local terraform = require("terraform")
+local terraform = require("chroma-terraform")
 
 --- Everything one case needs: a project, fake binaries, a runtime directory.
 ---@return table
@@ -69,7 +69,7 @@ local function harness()
   ---Plan files currently in the runtime directory.
   ---@return string[]
   function h.plan_files()
-    return vim.fn.glob(runtime .. "/terraform.nvim/*.tfplan", false, true)
+    return vim.fn.glob(runtime .. "/chroma-terraform.nvim/*.tfplan", false, true)
   end
 
   return h
@@ -1787,7 +1787,7 @@ end
 ---@param h table
 ---@return string
 local function plan_dir(h)
-  return h.runtime .. "/terraform.nvim"
+  return h.runtime .. "/chroma-terraform.nvim"
 end
 
 T["cleanup"]["a reviewed plan is removed on exit"] = function()

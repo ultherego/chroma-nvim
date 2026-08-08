@@ -1,4 +1,4 @@
--- Health check for DevOps nVim: `:checkhealth devops`.
+-- Health check for Chroma Neovim: `:checkhealth chroma`.
 
 local M = {}
 
@@ -127,13 +127,13 @@ local function check_devops()
     health.warn(
       "Neither `terraform` nor `tofu` found — .tf files will not be formatted",
       "terraform-ls is not a substitute: it shells out to `terraform fmt` itself "
-        .. 'and reports "Terraform (CLI) is required". See :help devops-nvim-formatting-tf'
+        .. 'and reports "Terraform (CLI) is required". See :help chroma-nvim-formatting-tf'
     )
   end
 
   -- A plan quotes variable values, so a runtime directory that is not private is
   -- a refusal rather than a warning.
-  local plan_dir, plan_err = require("terraform.runtime").secure_dir("terraform.nvim")
+  local plan_dir, plan_err = require("chroma-terraform.runtime").secure_dir("chroma-terraform.nvim")
   if plan_dir then
     health.ok(("Plan files will be written to %s (private, 0700)"):format(plan_dir))
   else
@@ -180,10 +180,10 @@ local function check_terminal()
       "Zellij captures Ctrl-g/q/h/o/b/s/t/p/n and most Alt combinations before "
         .. "Neovim sees them. Plugin defaults landing on those keys are remapped "
         .. "by this config; Neovim's own Ctrl-h and Ctrl-o cannot be recovered. "
-        .. "See :help devops-nvim-zellij"
+        .. "See :help chroma-nvim-zellij"
     )
   else
-    health.info("Not running inside Zellij — the remaps described in :help devops-nvim-zellij are harmless here")
+    health.info("Not running inside Zellij — the remaps described in :help chroma-nvim-zellij are harmless here")
   end
 
   if vim.env.KITTY_WINDOW_ID then

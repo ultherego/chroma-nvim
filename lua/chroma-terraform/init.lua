@@ -1,5 +1,5 @@
--- terraform.nvim — a plan/apply runner for Terraform and Terragrunt.
--- Safety model, concurrency and options: :help devops-nvim-terraform.
+-- chroma-terraform.nvim — a plan/apply runner for Terraform and Terragrunt.
+-- Safety model, concurrency and options: :help chroma-nvim-terraform.
 
 local M = {}
 
@@ -247,7 +247,7 @@ end
 ---Somewhere to put a plan: the validated private runtime directory, or nowhere.
 ---@return string|nil path, string|nil err
 local function plan_path()
-  local dir, err = require("terraform.runtime").secure_dir("terraform.nvim")
+  local dir, err = require("chroma-terraform.runtime").secure_dir("chroma-terraform.nvim")
   if not dir then
     return nil,
       ("%s\nA plan file can quote sensitive values, so this plugin will not fall back outside $XDG_RUNTIME_DIR."):format(
@@ -355,7 +355,7 @@ local function option_name(arg)
   return arg:match("^([^=]+)") or arg
 end
 
---- Options the runner sets and depends on the value of; see :help devops-nvim-terraform-arguments.
+--- Options the runner sets and depends on the value of; see :help chroma-nvim-terraform-arguments.
 local reserved = {
   init = { ["-input"] = true },
   plan = { ["-out"] = true, ["-destroy"] = true, ["-detailed-exitcode"] = true, ["-input"] = true },
@@ -392,7 +392,9 @@ local function sanitize_global_args(args)
       -- Split form only when the value is not already attached with `=`.
       skip_value = takes_value and arg == name
       vim.notify(
-        ("terraform.nvim: %s was ignored in global_args. The runner owns the working directory — "):format(name)
+        ("chroma-terraform.nvim: %s was ignored in global_args. The runner owns the working directory — "):format(
+          name
+        )
           .. "a CLI running elsewhere would leave the saved plan and its lifecycle pointing at a directory nothing ran in.",
         vim.log.levels.ERROR
       )
@@ -415,7 +417,7 @@ local function sanitize_command_args(command, args)
     local name = option_name(arg)
     if owned[name] then
       vim.notify(
-        ("terraform.nvim: %s was ignored in %s_args — the runner sets it and relies on its value."):format(
+        ("chroma-terraform.nvim: %s was ignored in %s_args — the runner sets it and relies on its value."):format(
           name,
           command
         ),
@@ -916,7 +918,7 @@ function M.setup(opts)
   -- Removed rather than silently ignored: `args` broke apply by landing after the plan file.
   if opts.args ~= nil then
     vim.notify(
-      "terraform.nvim: `args` is gone — it broke apply and meant different things per command. "
+      "chroma-terraform.nvim: `args` is gone — it broke apply and meant different things per command. "
         .. "Use `global_args`, or `init_args` / `validate_args` / `plan_args` / `apply_args`. "
         .. "The value given was ignored.",
       vim.log.levels.WARN

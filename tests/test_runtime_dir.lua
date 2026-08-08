@@ -4,8 +4,8 @@ local new_set = MiniTest.new_set
 local eq = MiniTest.expect.equality
 
 local COPIES = {
-  { label = "ansible-vault", module = "ansible-vault.runtime", subdirectory = "ansible-vault.nvim" },
-  { label = "terraform", module = "terraform.runtime", subdirectory = "terraform.nvim" },
+  { label = "ansible-vault", module = "chroma-vault.runtime", subdirectory = "chroma-vault.nvim" },
+  { label = "terraform", module = "chroma-terraform.runtime", subdirectory = "chroma-terraform.nvim" },
 }
 
 local OWNER_ONLY = tonumber("700", 8)
@@ -173,9 +173,9 @@ T["callers"]["terraform will not write a plan to an unsafe directory"] = functio
   local dir = vim.fn.tempname()
   vim.fn.mkdir(dir, "p")
   vim.fn.writefile({ 'resource "null_resource" "x" {}' }, dir .. "/main.tf")
-  require("terraform").setup({})
+  require("chroma-terraform").setup({})
   vim.cmd.edit({ args = { dir .. "/main.tf" } })
-  require("terraform").plan()
+  require("chroma-terraform").plan()
 
   vim.notify = notify
   vim.cmd("silent! %bwipeout!")
@@ -190,7 +190,7 @@ T["callers"]["vault will not stage a password in an unsafe directory"] = functio
 
   -- The staging path is reached through the CLI wrapper whenever a password is
   -- carried rather than read from ansible.cfg.
-  local _, err = require("ansible-vault.cli").encrypt_document("plain\n", { auth = { password = "secret" } })
+  local _, err = require("chroma-vault.cli").encrypt_document("plain\n", { auth = { password = "secret" } })
 
   eq(type(err), "string")
   eq(err:match("expected 0700") ~= nil, true)

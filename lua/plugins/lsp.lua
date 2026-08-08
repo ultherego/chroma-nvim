@@ -1,6 +1,6 @@
 -- LSP layer, on the native 0.12 API: nvim-lspconfig only ships lsp/<name>.lua
 -- and Neovim discovers them. Per-server overrides go in after/lsp/.
--- See :help devops-nvim-lsp and :help lsp-config-merge.
+-- See :help chroma-nvim-lsp and :help lsp-config-merge.
 
 return {
   {

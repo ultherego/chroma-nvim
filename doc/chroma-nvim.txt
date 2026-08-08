@@ -1,37 +1,37 @@
-*devops-nvim.txt*   A Neovim environment built for DevOps work
-*devops-nvim*
+*chroma-nvim.txt*   A Neovim environment built for DevOps work
+*chroma-nvim*
 
-                        DevOps nVim ~
+                        Chroma Neovim ~
 
                   The best Neovim environment for DevOps ~
 
 ==============================================================================
-CONTENTS                                                 *devops-nvim-contents*
+CONTENTS                                                 *chroma-nvim-contents*
 
-  1. Introduction ....................... |devops-nvim-introduction|
-  2. Requirements ....................... |devops-nvim-requirements|
-  3. Installation ....................... |devops-nvim-installation|
-  4. Layout ............................. |devops-nvim-layout|
-  5. Keymaps ............................ |devops-nvim-keymaps|
-  6. Built-in Neovim keys ............... |devops-nvim-builtin-keys|
-  7. Zellij interoperability ............ |devops-nvim-zellij|
-  8. LSP ................................ |devops-nvim-lsp|
-  9. Treesitter ......................... |devops-nvim-treesitter|
- 10. Completion ......................... |devops-nvim-completion|
- 11. Formatting ......................... |devops-nvim-formatting|
- 12. Linting ............................ |devops-nvim-linting|
- 13. User interface ..................... |devops-nvim-ui|
- 14. Ansible Vault ...................... |devops-nvim-vault|
- 15. Terraform .......................... |devops-nvim-terraform|
- 16. AWS and sessions ................... |devops-nvim-aws|
- 17. Adding a plugin .................... |devops-nvim-adding|
- 18. Troubleshooting .................... |devops-nvim-troubleshooting|
- 19. Rules .............................. |devops-nvim-rules|
+  1. Introduction ....................... |chroma-nvim-introduction|
+  2. Requirements ....................... |chroma-nvim-requirements|
+  3. Installation ....................... |chroma-nvim-installation|
+  4. Layout ............................. |chroma-nvim-layout|
+  5. Keymaps ............................ |chroma-nvim-keymaps|
+  6. Built-in Neovim keys ............... |chroma-nvim-builtin-keys|
+  7. Zellij interoperability ............ |chroma-nvim-zellij|
+  8. LSP ................................ |chroma-nvim-lsp|
+  9. Treesitter ......................... |chroma-nvim-treesitter|
+ 10. Completion ......................... |chroma-nvim-completion|
+ 11. Formatting ......................... |chroma-nvim-formatting|
+ 12. Linting ............................ |chroma-nvim-linting|
+ 13. User interface ..................... |chroma-nvim-ui|
+ 14. Ansible Vault ...................... |chroma-nvim-vault|
+ 15. Terraform .......................... |chroma-nvim-terraform|
+ 16. AWS and sessions ................... |chroma-nvim-aws|
+ 17. Adding a plugin .................... |chroma-nvim-adding|
+ 18. Troubleshooting .................... |chroma-nvim-troubleshooting|
+ 19. Rules .............................. |chroma-nvim-rules|
 
 ==============================================================================
-1. INTRODUCTION                                      *devops-nvim-introduction*
+1. INTRODUCTION                                      *chroma-nvim-introduction*
 
-DevOps nVim is a Neovim configuration for people who work with Terraform,
+Chroma Neovim is a Neovim configuration for people who work with Terraform,
 Terragrunt, Kubernetes, Helm, Ansible, Docker and YAML, and who live inside a
 terminal rather than an IDE.
 
@@ -46,10 +46,10 @@ The intended workflow is:
 <
 That last hop matters more than it looks. Zellij intercepts several control
 keys before Neovim sees them, and this configuration is built around that
-fact — see |devops-nvim-zellij|.
+fact — see |chroma-nvim-zellij|.
 
 ==============================================================================
-2. REQUIREMENTS                                      *devops-nvim-requirements*
+2. REQUIREMENTS                                      *chroma-nvim-requirements*
 
 Hard requirements ~
 
@@ -78,7 +78,7 @@ Language servers and linters are installed automatically by Mason and do not
 need to be present beforehand.
 
 ==============================================================================
-3. INSTALLATION                                      *devops-nvim-installation*
+3. INSTALLATION                                      *chroma-nvim-installation*
 
 This repository IS a Neovim configuration directory. It does not install into
 one — it becomes one.
@@ -89,18 +89,18 @@ Try it first, without touching your setup ~
 can run beside whatever you already have. Nothing is overwritten and nothing
 is shared: plugins, sessions and Mason packages all live under the new name.
 >
-    git clone https://github.com/ultherego/dev-nvim.git \
-        ~/.config/devops-nvim
+    git clone https://github.com/ultherego/chroma-nvim.git \
+        ~/.config/chroma-nvim
 
-    NVIM_APPNAME=devops-nvim nvim
+    NVIM_APPNAME=chroma-nvim nvim
 <
 Keep it by aliasing that, in your shell's own config file: >
 
     # bash / zsh
-    alias dvim='NVIM_APPNAME=devops-nvim nvim'
+    alias dvim='NVIM_APPNAME=chroma-nvim nvim'
 
     # fish
-    alias --save dvim 'NVIM_APPNAME=devops-nvim nvim'
+    alias --save dvim 'NVIM_APPNAME=chroma-nvim nvim'
 <
 Adopt it as your main configuration ~
 
@@ -110,15 +110,15 @@ you change your mind: >
 
     [ -e ~/.config/nvim ] && mv ~/.config/nvim ~/.config/nvim.backup
 
-    git clone https://github.com/ultherego/dev-nvim.git ~/.config/nvim
+    git clone https://github.com/ultherego/chroma-nvim.git ~/.config/nvim
     nvim
 <
 If you would rather keep the clone with your other projects and link it — so
 that `git status` in it behaves like any other repository — that works too: >
 
-    git clone https://github.com/ultherego/dev-nvim.git ~/src/devops-nvim
+    git clone https://github.com/ultherego/chroma-nvim.git ~/src/chroma-nvim
     mkdir -p ~/.config
-    ln -s ~/src/devops-nvim ~/.config/nvim
+    ln -s ~/src/chroma-nvim ~/.config/nvim
 <
 Nothing in the configuration depends on where the clone lives.
 
@@ -128,13 +128,13 @@ lazy.nvim bootstraps itself, installs every plugin, and Mason fetches the
 language servers and tools while treesitter compiles its parsers. Give it a
 minute. Then: >
 
-    :checkhealth devops   external tools this config expects, and what stops
+    :checkhealth chroma   external tools this config expects, and what stops
                           working without each one
     :Lazy                 plugin status
     :Mason                language server and tool status
     :checkhealth          everything at once
 <
-`:checkhealth devops` is the one to read first. Most of this configuration
+`:checkhealth chroma` is the one to read first. Most of this configuration
 drives external programs, and when one is missing the symptom is usually
 silence rather than an error.
 
@@ -148,7 +148,7 @@ Nothing is installed outside these directories: >
 <
 Removing those, and restoring any backup you moved aside, leaves no trace.
 ==============================================================================
-4. LAYOUT                                                  *devops-nvim-layout*
+4. LAYOUT                                                  *chroma-nvim-layout*
 >
     init.lua                    entry point; leader keys, then the layers
     lua/config/
@@ -157,11 +157,11 @@ Removing those, and restoring any backup you moved aside, leaves no trace.
       lazy.lua                  plugin manager bootstrap
     lua/plugins/
       <domain>.lua              one file per domain, one domain per file
-    lua/ansible-vault/          our own plugin — :help devops-nvim-vault
-    lua/terraform/              our own runner — :help devops-nvim-terraform
-    lua/aws/                    our own module — :help devops-nvim-aws
-    lua/devops/
-      health.lua                :checkhealth devops
+    lua/chroma-vault/          our own plugin — :help chroma-nvim-vault
+    lua/chroma-terraform/              our own runner — :help chroma-nvim-terraform
+    lua/chroma-aws/                    our own module — :help chroma-nvim-aws
+    lua/chroma/
+      health.lua                :checkhealth chroma
     stylua.toml, selene.toml    lint configuration for our own Lua
     .github/workflows/ci.yml    formatting, lint and a clean-startup check
     after/lsp/
@@ -173,10 +173,10 @@ options — is defined in that plugin's spec, not in a central keymap file. If
 you remove the plugin, its keys leave with it.
 
 `after/lsp/` is not decoration; it is how Neovim 0.12 layers LSP settings.
-See |devops-nvim-lsp|.
+See |chroma-nvim-lsp|.
 
 ==============================================================================
-5. KEYMAPS                                                *devops-nvim-keymaps*
+5. KEYMAPS                                                *chroma-nvim-keymaps*
 
 The leader key is <Space>. Every prefix is assigned exactly once, globally,
 and declared in one place (which-key's spec in `lua/plugins/ui.lua`) so that a
@@ -217,7 +217,7 @@ Terraform ~
     <leader>tv   Validate      <leader>ta   Apply the reviewed plan
     <leader>td   Discard the reviewed plan
 <
-`:TerraformPlanDestroy` has no mapping on purpose — see |devops-nvim-terraform|.
+`:TerraformPlanDestroy` has no mapping on purpose — see |chroma-nvim-terraform|.
 
 AWS ~
 >
@@ -257,8 +257,8 @@ Ansible ~
     <leader>av   Encrypt the selection in place        (visual mode)
     <leader>aV   Show where the vault password comes from
 <
-Vault handling is ansible-vault.nvim, written for this project — see
-|devops-nvim-vault|.
+Vault handling is chroma-vault.nvim, written for this project — see
+|chroma-nvim-vault|.
 
 Playbooks, roles, `group_vars`, `host_vars`, `defaults`, `tasks`, `handlers`
 and `molecule` files are detected as `yaml.ansible`. That filetype is what
@@ -280,7 +280,7 @@ symbols. Upstream's example uses `{` and `}`, which are Neovim's paragraph
 motions — taking those would remove a core movement from every source buffer.
 
 Rename, code action, references, implementation and type definition are
-Neovim built-ins and are not duplicated — see |devops-nvim-builtin-keys|.
+Neovim built-ins and are not duplicated — see |chroma-nvim-builtin-keys|.
 
 Buffers and windows ~
 >
@@ -377,14 +377,14 @@ Inside an oil buffer ~
     gp           Preview                  <C-l>        Refresh
 <
 Note that oil's upstream defaults for splitting and previewing are <C-s>,
-<C-h> and <C-p>. Those are unusable here; see |devops-nvim-zellij|.
+<C-h> and <C-p>. Those are unusable here; see |chroma-nvim-zellij|.
 
 Groups not yet populated ~
 
 AWS and Sessions are declared but still empty. The prefixes are
 reserved so that later layers cannot collide with what already exists.
 
-First run of the cluster view                       *devops-nvim-kubectl-first*
+First run of the cluster view                       *chroma-nvim-kubectl-first*
 
 kubectl.nvim uses a prebuilt Rust binary, downloaded on first use rather than
 at install time. The first `<leader>kk` therefore reports
@@ -396,7 +396,7 @@ expected, not a fault.
 
 It also needs a working kubeconfig — without one there is no cluster to show.
 
-A note on gitsigns                                  *devops-nvim-git-api*
+A note on gitsigns                                  *chroma-nvim-git-api*
 
 The gitsigns keymap block reproduced in most guides calls functions upstream
 has since deprecated:
@@ -409,7 +409,7 @@ This configuration uses the current API. If you copy a mapping in from
 elsewhere, check it against `:help gitsigns` first.
 
 ==============================================================================
-6. BUILT-IN NEOVIM KEYS                             *devops-nvim-builtin-keys*
+6. BUILT-IN NEOVIM KEYS                             *chroma-nvim-builtin-keys*
 
 Neovim 0.12 ships a large set of default mappings. This configuration does not
 redefine them, so they are listed here rather than being reinvented. See
@@ -432,7 +432,7 @@ This is why `lua/config/keymaps.lua` is short. Most of what a configuration
 traditionally maps by hand now exists in the editor.
 
 ==============================================================================
-7. ZELLIJ INTEROPERABILITY                                 *devops-nvim-zellij*
+7. ZELLIJ INTEROPERABILITY                                 *chroma-nvim-zellij*
 
 This is the part of the configuration that will confuse anyone reading it
 without context.
@@ -489,10 +489,10 @@ Without this, four oil mappings, four in fzf-lua and three in blink — includin
 next and previous completion item — would do nothing at all, with no error to
 explain why.
 
-`:checkhealth devops` reports whether you are inside Zellij.
+`:checkhealth chroma` reports whether you are inside Zellij.
 
 ==============================================================================
-8. LSP                                                        *devops-nvim-lsp*
+8. LSP                                                        *chroma-nvim-lsp*
 
 Neovim 0.12 configures language servers natively. The pattern found in most
 older guides is deprecated and will eventually error: >
@@ -521,7 +521,7 @@ Servers installed ~
 terraformls, helm_ls, dockerls, docker_compose_language_service, yamlls,
 ansiblels, bashls, jsonls, lua_ls.
 
-Helm                                                  *devops-nvim-lsp-helm*
+Helm                                                  *chroma-nvim-lsp-helm*
 
 Neovim does not detect the `helm` filetype on its own; a template next to
 `Chart.yaml` is seen as plain YAML. `helm_ls` only attaches to `helm` and
@@ -529,7 +529,7 @@ Neovim does not detect the `helm` filetype on its own; a template next to
 `yamlls` would try to parse Go templates as YAML and fill the file with
 errors. The `vim-helm` plugin provides the detection.
 
-Tools that are also servers                          *devops-nvim-lsp-dual*
+Tools that are also servers                          *chroma-nvim-lsp-dual*
 
 `stylua` and `tflint` both ship an LSP mode, and nvim-lspconfig exposes
 configs for them. Installing either as a tool therefore also starts it as a
@@ -542,7 +542,7 @@ language server.
            finding would be reported twice.
 
 ==============================================================================
-9. TREESITTER                                          *devops-nvim-treesitter*
+9. TREESITTER                                          *chroma-nvim-treesitter*
 
 nvim-treesitter maintains two incompatible branches. `master` targets Neovim
 0.11; `main` is a full rewrite and is what Neovim 0.12 should use. This
@@ -561,7 +561,7 @@ mature for yaml, terraform, hcl, json, lua, bash, python and go.
 Commands: `:TSInstall`, `:TSUpdate`, `:TSUninstall`, `:TSLog`.
 
 ==============================================================================
-10. COMPLETION                                         *devops-nvim-completion*
+10. COMPLETION                                         *chroma-nvim-completion*
 
 blink.cmp, pinned to the v1 release line, which ships prebuilt Rust binaries
 so no cargo toolchain is needed.
@@ -585,7 +585,7 @@ before the first language server attaches — otherwise servers start with the
 plain built-in capabilities and completion quietly degrades.
 
 ==============================================================================
-11. FORMATTING                                         *devops-nvim-formatting*
+11. FORMATTING                                         *chroma-nvim-formatting*
 
 conform.nvim formats on save, and `<leader>xf` formats on demand.
 
@@ -616,7 +616,7 @@ not the file: the decision is made before the write, so the file still holds
 the previous version, and a buffer that has never been saved has no file to
 measure at all.
 
-Terraform needs a terraform CLI                 *devops-nvim-formatting-tf*
+Terraform needs a terraform CLI                 *chroma-nvim-formatting-tf*
 
 The fallback does not rescue a missing binary. `terraform_fmt` needs the
 `terraform` executable, and terraform-ls is not a substitute — it shells out to
@@ -634,7 +634,7 @@ Neovim is running.
 
 Terraform files stay unformatted only when neither is on your PATH. That is a
 machine prerequisite; no editor configuration can work around it, and
-`:checkhealth devops` reports it.
+`:checkhealth chroma` reports it.
 
 Turning it off ~
 >
@@ -648,7 +648,7 @@ Turning it off ~
 Useful when editing a repository whose formatting you do not want to churn.
 
 ==============================================================================
-12. LINTING                                               *devops-nvim-linting*
+12. LINTING                                               *chroma-nvim-linting*
 
 nvim-lint covers what the language servers do not. It runs on write, on read,
 and on leaving insert mode; `<leader>xl` runs it immediately.
@@ -667,7 +667,7 @@ path `.github/workflows/*.yml` instead.
 Ansible linting waits on the `yaml.ansible` filetype, which arrives with
 nvim-ansible in the DevOps layer.
 
-Why tflint is not here                              *devops-nvim-linting-tf*
+Why tflint is not here                              *chroma-nvim-linting-tf*
 
 tflint ships an LSP mode and nvim-lspconfig exposes a config for it, so
 installing it through Mason already starts it as a language server that
@@ -675,7 +675,7 @@ attaches to Terraform buffers. Registering it with nvim-lint as well would
 report every finding twice.
 
 ==============================================================================
-13. USER INTERFACE                                             *devops-nvim-ui*
+13. USER INTERFACE                                             *chroma-nvim-ui*
 
 Start screen ~
 
@@ -689,7 +689,7 @@ dependency for lazygit and ships a dashboard that finds fzf-lua by itself, so
 this removes a plugin rather than adding one. alpha is still maintained — this
 is deduplication, not rejection.
 
-Outline versus problem lists                             *devops-nvim-ui-split*
+Outline versus problem lists                             *chroma-nvim-ui-split*
 
 Two plugins here look similar and are kept apart on purpose:
 
@@ -700,7 +700,7 @@ trouble also has a `symbols` mode that would duplicate aerial. It is left
 unused; two ways to list the same thing is the sort of accidental overlap the
 contract exists to prevent.
 
-trouble command syntax                                     *devops-nvim-ui-v3*
+trouble command syntax                                     *chroma-nvim-ui-v3*
 
 trouble v3 is a full rewrite and `TroubleToggle` no longer exists. The syntax
 is now: >
@@ -724,9 +724,9 @@ Markdown files are rendered in the buffer: headings, code blocks, tables and
 lists. Toggle with `:RenderMarkdown`.
 
 ==============================================================================
-14. ANSIBLE VAULT                                           *devops-nvim-vault*
+14. ANSIBLE VAULT                                           *chroma-nvim-vault*
 
-`lua/ansible-vault/` is our own plugin, written because the survey found no
+`lua/chroma-vault/` is our own plugin, written because the survey found no
 maintained candidate: every existing one is a single-person project of 0–7
 stars, the most visible untouched since 2023. It depends on nothing else in
 this configuration and can be moved to its own repository unchanged.
@@ -757,11 +757,11 @@ Encrypting `db_password: hunter2` gives back `db_password: !vault |` with the
 ciphertext indented beneath it, ready to commit. Revealing opens a float that
 closes with `q`.
 
-Encrypting a value in place                        *devops-nvim-vault-inline*
+Encrypting a value in place                        *chroma-nvim-vault-inline*
 
 `:VaultEncrypt` encrypts the selected value and nothing else. The file stays
 what it was — an ordinary buffer, written by Neovim's own `:write` — so the
-protections described under |devops-nvim-vault-safe| are not what is happening
+protections described under |chroma-nvim-vault-safe| are not what is happening
 here. They belong to buffers this plugin creates or takes over.
 
 Said plainly: the plaintext was in that file before you encrypted it, and
@@ -769,14 +769,14 @@ encrypting the value does not go back for the copies that already exist. This
 configuration keeps persistent undo on, so the file's undo history under
 stdpath("state") may hold the value in the clear; so may a backup copy from an
 earlier write, and so may a register, ShaDa or the system clipboard
-(|devops-nvim-vault-limits|). Nothing here scrubs any of them.
+(|chroma-nvim-vault-limits|). Nothing here scrubs any of them.
 
 The two encrypt commands are different operations, not two sizes of one: >
 
     :VaultEncrypt      encryption of a value
     :VaultEncryptFile  a security transition of a whole file
 <
-The second deletes the file's undo history (|devops-nvim-vault-conversion|),
+The second deletes the file's undo history (|chroma-nvim-vault-conversion|),
 attaches this plugin's writer and owns every write from then on. Use it when a
 plaintext secrets file is becoming a vault. Use `:VaultEncrypt` for a value
 inside a file that stays what it was — `group_vars/all.yml` holding one secret
@@ -788,7 +788,7 @@ own BufWriteCmd, atomic replacement, a mode normalised to 0600 and a new inode,
 because of one value in it. So the limitation is documented rather than papered
 over.
 
-Transparent editing                             *devops-nvim-vault-transparent*
+Transparent editing                             *chroma-nvim-vault-transparent*
 
 A file whose first line is `$ANSIBLE_VAULT` is decrypted when opened and
 re-encrypted when written. Editing a vault is therefore ordinary editing: `:w`
@@ -813,9 +813,9 @@ buffer that no longer holds plaintext. The writer checks what the buffer
 actually contains before re-encrypting it.
 
 Turn it off with: >
-    require("ansible-vault").setup({ transparent = false })
+    require("chroma-vault").setup({ transparent = false })
 <
-Several vault ids                                 *devops-nvim-vault-ids*
+Several vault ids                                 *chroma-nvim-vault-ids*
 
 With more than one id in `vault_identity_list`, ansible refuses to guess which
 to encrypt with:
@@ -835,7 +835,7 @@ Dismissing the list cancels the operation rather than falling back to a
 default. Nothing runs, the buffer is untouched, and a write refused this way
 says so and leaves the buffer modified.
 
-Rekeying                                         *devops-nvim-vault-rekey*
+Rekeying                                         *chroma-nvim-vault-rekey*
 
 `:VaultRekey` re-encrypts the current file to another identity from
 `vault_identity_list`. It works relative to a configured Vault identity, not an
@@ -858,13 +858,13 @@ therefore refused on exactly the files this command is for.
 
 A file with more than one hard link is refused before anything else happens,
 including the question about which identity to use. This is the same policy the
-writer applies (|devops-nvim-vault-writing|), but the consequence here is worse:
+writer applies (|chroma-nvim-vault-writing|), but the consequence here is worse:
 ansible-vault does not replace the file, it overwrites the inode in place and
 then unlinks it. Through a hard link that destroys what the other name holds
 rather than leaving it stale. Measured against ansible-core 2.21.2 — after
 rekeying one of two names, the other was random data that no longer decrypted.
 
-Converting a plaintext file             *devops-nvim-vault-conversion*
+Converting a plaintext file             *chroma-nvim-vault-conversion*
 
 `:VaultEncryptFile` turns the current buffer into a vault. On a file that has
 never been encrypted this does more than replace the buffer's contents, and it
@@ -888,7 +888,7 @@ never runs for this buffer, and so never makes its usual backup copy of the
 file it is replacing. 'backup' and 'writebackup' are global options and cannot
 be turned off for one buffer; taking the write over is what replaces them.
 
-Writing                                          *devops-nvim-vault-writing*
+Writing                                          *chroma-nvim-vault-writing*
 
 A vault is replaced by writing a sibling file and renaming over the target, so
 an interrupted write leaves the old contents rather than a truncated file.
@@ -926,7 +926,7 @@ that inode would keep the old contents — so instead of letting two names
 silently diverge, the write stops and says how many links there are. Writing in
 place would keep them and give up the protection against a truncated vault.
 
-The same refusal guards `:VaultRekey` (|devops-nvim-vault-rekey|), which is the
+The same refusal guards `:VaultRekey` (|chroma-nvim-vault-rekey|), which is the
 other operation that replaces a Vault file. One policy, asked in one place: an
 operation that mutates a Vault does not get to decide for itself whether the
 other names for that file matter.
@@ -939,7 +939,7 @@ atomically replaced, underneath the buffer refuses the write. Whole seconds and
 size alone were not enough: two writes inside the same second producing the
 same number of bytes compare equal on both.
 
-Where the password comes from                          *devops-nvim-vault-pass*
+Where the password comes from                          *chroma-nvim-vault-pass*
 
 Ansible's own configuration is consulted rather than reimplemented: the plugin
 runs `ansible-config dump` in the project directory and reads the resolved
@@ -965,12 +965,12 @@ not it was. If it cannot be removed you get an error naming the exact path, so
 you can delete it yourself.
 Where that directory is memory-backed the file never reaches a disk at all, but
 that is the platform's doing and is not something checked here. What is checked,
-and what the XDG specification requires, is |devops-nvim-runtime-dir|.
+and what the XDG specification requires, is |chroma-nvim-runtime-dir|.
 
-The runtime directory                             *devops-nvim-runtime-dir*
+The runtime directory                             *chroma-nvim-runtime-dir*
 
 $XDG_RUNTIME_DIR is validated before anything is written into it, by both
-`ansible-vault.nvim` for staged passwords and `terraform.nvim` for plan files.
+`chroma-vault.nvim` for staged passwords and `chroma-terraform.nvim` for plan files.
 It must be set, absolute, a directory, owned by the current user, and mode
 0700 — what the XDG specification requires of it. Each plugin then uses its own
 0700 subdirectory, created if missing and checked either way.
@@ -981,7 +981,7 @@ it was set, which is what both did before, accepted a world-readable directory
 without a word.
 
 If the check fails, the operation is refused. Neither plugin falls back to
-/tmp. `:checkhealth ansible-vault` and `:checkhealth devops` report the result
+/tmp. `:checkhealth chroma-vault` and `:checkhealth chroma` report the result
 of the same check, so the failure is visible before it is hit.
 
 It is worth being exact about what that directory guarantees, because it is not
@@ -997,7 +997,7 @@ So on a system that puts the runtime directory on a disk, these files are
 written to that disk. They are still private, still session-scoped, and still
 gone by the next boot; they are not guaranteed to have avoided the platter.
 
-What it protects against                               *devops-nvim-vault-safe*
+What it protects against                               *chroma-nvim-vault-safe*
 
 The encryption is one subprocess call. The work is in everything around it:
 
@@ -1012,7 +1012,7 @@ The encryption is one subprocess call. The work is in everything around it:
   created with 'noundofile', 'noswapfile', buftype=nofile and bufhidden=wipe.
   This covers the buffers this plugin creates or takes over; a value encrypted
   in place inside an ordinary file is a different case, stated separately in
-  |devops-nvim-vault-inline|.
+  |chroma-nvim-vault-inline|.
 
   Ciphertext is treated as public, because it is. That is what frees stdin for
   the plaintext.
@@ -1026,20 +1026,20 @@ The encryption is one subprocess call. The work is in everything around it:
   merged.
 
   Hard links are refused rather than broken, by writes and by `:VaultRekey`
-  alike (|devops-nvim-vault-writing|).
+  alike (|chroma-nvim-vault-writing|).
 
   Converting a plaintext file to a Vault deliberately discards that file's
-  persistent undo history (|devops-nvim-vault-conversion|).
+  persistent undo history (|chroma-nvim-vault-conversion|).
 
   A prompted password is written only into the validated private runtime
-  directory (|devops-nvim-runtime-dir|), never to /tmp, and is unlinked as soon
+  directory (|chroma-nvim-runtime-dir|), never to /tmp, and is unlinked as soon
   as the command returns.
 
 Verified by searching for a known secret after a full encrypt/edit/write/reopen
 cycle: nothing under stdpath("state"), nothing in the undo directory, nothing
 beside the file, and no leftover staged password in $XDG_RUNTIME_DIR.
 
-What the tools see                                   *devops-nvim-vault-tools*
+What the tools see                                   *chroma-nvim-vault-tools*
 
 A decrypted vault is an ordinary buffer with a detected filetype, which is what
 makes editing it ordinary — and also what invites everything this configuration
@@ -1071,7 +1071,7 @@ same instant. The plugin cannot veto an attach, only undo one. If that matters
 for your threat model, the answer is the stricter workflow below rather than a
 setting — and note that this is about local subprocesses, not the network.
 
-What it does not protect against                     *devops-nvim-vault-limits*
+What it does not protect against                     *chroma-nvim-vault-limits*
 
 Registers, ShaDa, the system clipboard and external clipboard managers are all
 outside the guarantee above, and the reason is the same for each: they are
@@ -1089,7 +1089,7 @@ contents between sessions.
 Neovim writes for a buffer; these are about where the text goes once it is in a
 register.
 
-Stricter workflow                                    *devops-nvim-vault-strict*
+Stricter workflow                                    *chroma-nvim-vault-strict*
 
 For work where that matters, use a separate session rather than a setting: >
 
@@ -1114,12 +1114,12 @@ handle several vault buffers at once, nested entry and exit, and restoring
 state on every path out — and would be most likely to fail exactly where it was
 trusted most.
 
-`:checkhealth ansible-vault` reports which of this applies to your setup.
+`:checkhealth chroma-vault` reports which of this applies to your setup.
 
 ==============================================================================
-15. TERRAFORM                                           *devops-nvim-terraform*
+15. TERRAFORM                                           *chroma-nvim-terraform*
 
-`lua/terraform/` is our own runner, deliberately thin. The survey found most of
+`lua/chroma-terraform/` is our own runner, deliberately thin. The survey found most of
 the originally planned scope already covered: formatting is conform's
 `terraform_fmt`, validation is tflint running as a language server. What was
 missing was running a plan and applying it without leaving the editor.
@@ -1128,7 +1128,7 @@ Status: STABLE. It is in use, covered by the test suite, and its safety model
 has been through five external audits; the findings of the last one are all
 answered. Everything below describes current behaviour, not intent.
 
-The safety model                              *devops-nvim-terraform-safety*
+The safety model                              *chroma-nvim-terraform-safety*
 
 Naive runners call `terraform apply -auto-approve`, which applies a plan nobody
 read, computed at a moment nobody chose. This one cannot do that.
@@ -1159,7 +1159,7 @@ plugin destroys anything without a plan having been reviewed first, and the
 confirmation for a destroy plan requires typing `destroy` — `yes` is rejected.
 Verified.
 
-The pinned executable                        *devops-nvim-terraform-executable*
+The pinned executable                        *chroma-nvim-terraform-executable*
 
 Whichever of `terraform`, `tofu` or `terragrunt` applies to the directory is
 resolved once, when the plan is made, and the resolved path is recorded with
@@ -1175,7 +1175,7 @@ again. PATH can change, terraform can be uninstalled leaving tofu to answer for
 it, and a terragrunt.hcl can appear in the directory in between — none of those
 three produce the plan that was reviewed.
 
-When a plan counts as reviewed                  *devops-nvim-terraform-review*
+When a plan counts as reviewed                  *chroma-nvim-terraform-review*
 
 A plan is considered reviewed only after the review view is displayed
 successfully. If review rendering fails, the new plan artifact is deleted and
@@ -1186,7 +1186,7 @@ a split. Recording the plan anyway would mean a plan nobody saw was appliable,
 so nothing appliable survives a review that did not happen. `:TerraformPlan`
 works again immediately; only the unread plan is lost.
 
-One operation at a time                     *devops-nvim-terraform-concurrency*
+One operation at a time                     *chroma-nvim-terraform-concurrency*
 
 At most one of planning, applying and initializing is true for a directory at a
 time.
@@ -1241,7 +1241,7 @@ afterwards either. Without this the previous plan stayed reachable — verified
 against the module, an apply after a plan reporting no changes was handed the
 plan from before it.
 
-AWS credentials                            *devops-nvim-terraform-credentials*
+AWS credentials                            *chroma-nvim-terraform-credentials*
 
 The plan file fixes what terraform will do, not who it does it as. Credentials
 come from the environment, which `:AwsProfile` changes on the Neovim process.
@@ -1258,7 +1258,7 @@ over the profile entirely.
 
 The second closes that, and is off by default: >
 
-    require("terraform").setup({ strict_aws_identity = true })
+    require("chroma-terraform").setup({ strict_aws_identity = true })
 <
 `strict_aws_identity` is disabled by default. When enabled, `aws sts
 get-caller-identity` is executed during plan and again before apply. Both the
@@ -1302,14 +1302,14 @@ Commands and keys ~
 Terragrunt is used automatically in any directory containing terragrunt.hcl,
 because running plain terraform there would ignore the generated configuration.
 
-Exit codes and plan files                        *devops-nvim-terraform-plans*
+Exit codes and plan files                        *chroma-nvim-terraform-plans*
 
 `plan` runs with -detailed-exitcode, which distinguishes "no changes" (0) from
 "changes present" (2). With no changes the plan file is deleted immediately and
 you are told so, rather than being offered an empty apply.
 
 Plan files can quote sensitive variable values, so they are written to
-$XDG_RUNTIME_DIR — private, session-scoped, see |devops-nvim-runtime-dir| — and
+$XDG_RUNTIME_DIR — private, session-scoped, see |chroma-nvim-runtime-dir| — and
 chmod'ed to 0600 as soon as terraform has created them. Terraform writes them
 under the ambient umask; they came out 0644 in testing, which is why this is
 done explicitly.
@@ -1330,7 +1330,7 @@ started it, and nothing here terminates it.
 If that chmod fails the plan is deleted rather than saved: a plan the runner
 could not protect is not one it will offer to apply.
 
-The reviewed plan is bound to its contents *devops-nvim-terraform-integrity*
+The reviewed plan is bound to its contents *chroma-nvim-terraform-integrity*
 
 A SHA-256 of the plan file is taken after it is protected and again after the
 review window has been shown. The two must match, or the plan is discarded —
@@ -1359,14 +1359,14 @@ own uid could change the file between the check and the apply, and no hash here
 would stop it. Such a process could also rewrite this plugin.
 
 $XDG_RUNTIME_DIR is validated rather than trusted; see
-|devops-nvim-runtime-dir|. If it fails that check the plugin refuses to plan
+|chroma-nvim-runtime-dir|. If it fails that check the plugin refuses to plan
 rather than writing a plan anywhere else.
 
-Extra arguments                              *devops-nvim-terraform-arguments*
+Extra arguments                              *chroma-nvim-terraform-arguments*
 
 Five lists, all empty by default: >
 
-    require("terraform").setup({
+    require("chroma-terraform").setup({
       global_args   = {},   -- before the subcommand
       init_args     = {},
       validate_args = {},
@@ -1427,11 +1427,11 @@ plugin spec does not stop the editor loading. The report happens once, when the
 plugin is configured.
 
 ==============================================================================
-16. AWS AND SESSIONS                                          *devops-nvim-aws*
+16. AWS AND SESSIONS                                          *chroma-nvim-aws*
 
 AWS ~
 
-`lua/aws/` is ours. The survey found nothing worth adopting: nvim-aws-cli has
+`lua/chroma-aws/` is ours. The survey found nothing worth adopting: nvim-aws-cli has
 no stars and no commit since March 2025, nvimawscli has twelve and manages EC2
 instances, which is not what an editor is for.
 
@@ -1464,7 +1464,7 @@ they do not.
 `:AwsWhoami` exists because AWS_PROFILE being set is not the same as it
 working, and finding that out from a failed apply is expensive.
 
-Sessions                                                 *devops-nvim-sessions*
+Sessions                                                 *chroma-nvim-sessions*
 
 persisted.nvim, chosen over auto-session (larger surface, 28 open issues) and
 persistence.nvim (no push in nine months). Sessions are per directory and per
@@ -1476,10 +1476,10 @@ The dashboard is excluded from what gets saved, so a restored session opens
 onto the work rather than onto a stale start screen.
 
 ==============================================================================
-17. ADDING A PLUGIN                                        *devops-nvim-adding*
+17. ADDING A PLUGIN                                        *chroma-nvim-adding*
 
 Before writing any configuration, do the reading. This is rule #1 and it is
-not decorative; see |devops-nvim-rules|.
+not decorative; see |chroma-nvim-rules|.
 
   1. Check the plugin is alive: last commit, open issues, whether upstream
      points somewhere else. A plugin abandoned two years ago does not go in,
@@ -1489,13 +1489,13 @@ not decorative; see |devops-nvim-rules|.
   3. Check whether something already installed does the job.
   4. Add it to the matching `lua/plugins/<domain>.lua`, with its keymaps in
      its own spec.
-  5. Check its default keymaps against |devops-nvim-zellij|.
+  5. Check its default keymaps against |chroma-nvim-zellij|.
   6. Start Neovim, run `:Lazy sync`, then `:checkhealth`.
   7. Commit `lazy-lock.json` along with the change.
 
-Testing your own code                                    *devops-nvim-tests*
+Testing your own code                                    *chroma-nvim-tests*
 
-The modules under `lua/ansible-vault/`, `lua/terraform/` and `lua/aws/` have a
+The modules under `lua/chroma-vault/`, `lua/chroma-terraform/` and `lua/chroma-aws/` have a
 test suite, because they handle secrets and run infrastructure commands and
 being wrong there is expensive. Run it with: >
 
@@ -1521,7 +1521,7 @@ that disabled nothing, a rename that ate a symlink, two editors clobbering each
 other. It skips when ansible is not installed.
 
 ==============================================================================
-18. TROUBLESHOOTING                                *devops-nvim-troubleshooting*
+18. TROUBLESHOOTING                                *chroma-nvim-troubleshooting*
 
 A language server is not attaching ~
 >
@@ -1549,7 +1549,7 @@ before it: `:Lazy` should show blink.cmp as loaded at startup, not lazily.
 
 Something external is missing ~
 >
-    :checkhealth devops
+    :checkhealth chroma
 <
 Reports which of the external programs this config depends on are present,
 and what stops working without each one. Most "feature X does nothing"
@@ -1558,7 +1558,7 @@ silence rather than an error.
 
 A key does nothing ~
 
-If it is a control key, suspect Zellij first — see |devops-nvim-zellij|. Lock
+If it is a control key, suspect Zellij first — see |chroma-nvim-zellij|. Lock
 Zellij with Ctrl-g and try again; if the key then works, Zellij was eating it.
 
 Plugins are in a strange state ~
@@ -1567,7 +1567,7 @@ Plugins are in a strange state ~
     :Lazy sync        install, clean and update to match the specs
 <
 ==============================================================================
-19. RULES                                                   *devops-nvim-rules*
+19. RULES                                                   *chroma-nvim-rules*
 
 Two rules govern this repository. `CONTRACT.md` is the full version.
 
