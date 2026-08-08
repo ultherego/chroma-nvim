@@ -205,6 +205,35 @@ jobs:
           ln -s "$GITHUB_WORKSPACE" "$XDG_CONFIG_HOME/nvim"
           nvim --headless "+Lazy! sync" +qa
 
+      - name: Install treesitter parsers
+        env:
+          XDG_CONFIG_HOME: ${{ github.workspace }}/.xdg-config
+        # `Lazy! sync` does not wait for these. The plugin spec asks
+        # nvim-treesitter to install what is missing and that call is
+        # asynchronous, so whether the downloads finish before Neovim exits is a
+        # race — and a parser that did not make it prints "Downloading ..." on the
+        # next start, which the check below reads as a startup message. Fails the
+        # job here, where it means what it says, rather than there.
+        run: |
+          set -euo pipefail
+          nvim --headless -c 'lua
+            local task = require("nvim-treesitter").install(require("config.parsers"))
+            if task then task:wait(900000) end
+            local installed = {}
+            for _, name in ipairs(require("nvim-treesitter.config").get_installed("parsers")) do
+              installed[name] = true
+            end
+            local missing = {}
+            for _, name in ipairs(require("config.parsers")) do
+              if not installed[name] then table.insert(missing, name) end
+            end
+            if #missing > 0 then
+              io.write("parsers still missing: " .. table.concat(missing, ", ") .. "\n")
+              vim.cmd("cquit 1")
+            end
+            io.write("All parsers installed.\n")
+          ' -c 'qa!'
+
       - name: Fail on any startup message
         env:
           XDG_CONFIG_HOME: ${{ github.workspace }}/.xdg-config
