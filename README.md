@@ -268,6 +268,15 @@ as easily.
 If rendering it fails, the new plan file is deleted and any previously reviewed
 plan for that directory is invalidated, so there is nothing left to apply.
 
+**Plan files are cleaned up, as far as a session can do it.** One is removed
+after the apply that spent it, when a newer plan supersedes it, when a review
+cannot be shown and on `:TerraformDiscard`; the removal is checked rather than
+assumed, and a file that stays behind is named so you can remove it yourself. On
+exit the runner attempts to remove all reviewed and currently known pending plan
+artifacts, including one whose command is still running — terraform writes the
+file, so it exists before the callback that records it. What that command writes
+after Neovim has gone is out of reach.
+
 **Concurrency.** At most one of planning, applying and initializing per
 directory. A running apply refuses a second apply, a new plan, an `init` and a
 `discard`; a running `init` refuses a plan, an apply, a second init and a

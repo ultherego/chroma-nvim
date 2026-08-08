@@ -1525,6 +1525,93 @@ T["review"]["the state is released, so planning works again"] = function()
   eq(said("Applied"), true)
 end
 
+-- ---------------------------------------------------------------------------
+-- Leaving Neovim
+
+T["cleanup"] = new_set()
+
+---Runs what leaving Neovim would run, without leaving it.
+local function leave()
+  vim.api.nvim_exec_autocmds("VimLeavePre", { group = "terraform_nvim_cleanup" })
+end
+
+---The directory plan files are written to.
+---@param h table
+---@return string
+local function plan_dir(h)
+  return h.runtime .. "/terraform.nvim"
+end
+
+T["cleanup"]["a reviewed plan is removed on exit"] = function()
+  local h = harness()
+  fake_terraform(h)
+  start(h)
+
+  terraform.plan()
+  settle("Plan saved")
+  eq(#h.plan_files(), 1)
+
+  leave()
+  eq(#h.plan_files(), 0)
+end
+
+-- The file is written by the command, so it exists before the callback that
+-- would record it does. A session ending in that window used to leave it behind:
+-- nothing knew about a plan that was not reviewed yet.
+T["cleanup"]["a plan still running is removed on exit"] = function()
+  local h = harness()
+  local release = h.root .. "/release"
+  -- Writes its -out file, then waits to be let go, so the case decides when the
+  -- command is still running and when it has finished.
+  fake_terraform(h, {
+    'if [ "$1" = "plan" ]; then',
+    '  for a in "$@"; do case "$a" in -out=*) echo plan > "${a#-out=}";; esac; done',
+    ("  while [ ! -f %s ]; do sleep 0.05; done"):format(vim.fn.shellescape(release)),
+    "  exit 2",
+    "fi",
+  })
+  start(h)
+
+  terraform.plan()
+  vim.wait(5000, function()
+    return #h.plan_files() > 0
+  end, 20)
+  eq(#h.plan_files(), 1)
+  eq(said("Plan saved"), false)
+
+  leave()
+  eq(#h.plan_files(), 0)
+
+  -- Let it finish inside this case rather than during a later one. It now finds
+  -- its own file gone, which is what a session that really left would have done.
+  vim.fn.writefile({ "" }, release)
+  settle("could not be protected", "Plan saved", "Plan failed")
+  eq(said("Plan saved"), false)
+end
+
+-- fs_unlink returns nil, err rather than raising, so the pcall this used to be
+-- wrapped in reported success for a file that was still there.
+T["cleanup"]["a plan file that cannot be removed is reported"] = function()
+  local h = harness()
+  fake_terraform(h)
+  start(h)
+
+  terraform.plan()
+  settle("Plan saved")
+  local plan = h.plan_files()[1]
+
+  -- Unlinking needs write permission on the directory, not on the file.
+  vim.fn.setfperm(plan_dir(h), "r-x------")
+  notices = {}
+  terraform.discard()
+
+  eq(said("could not be removed"), true)
+  eq(transcript():find(plan, 1, true) ~= nil, true)
+  eq(#h.plan_files(), 1)
+
+  vim.fn.setfperm(plan_dir(h), "rwx------")
+end
+
 -- The exception used to escape the async callback and take the outcome notification
 -- with it, leaving an operation that changed infrastructure unreported.
 T["review"]["a failed window still reports the outcome"] = function()

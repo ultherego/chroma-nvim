@@ -1161,8 +1161,20 @@ you are told so, rather than being offered an empty apply.
 Plan files can quote sensitive variable values, so they are written to
 $XDG_RUNTIME_DIR — tmpfs, user-only — and chmod'ed to 0600 as soon as terraform
 has created them. Terraform writes them under the ambient umask; they came out
-0644 in testing, which is why this is done explicitly. They are removed after
-apply, when a review cannot be shown, and on exiting Neovim.
+0644 in testing, which is why this is done explicitly.
+
+A plan file is removed after the apply that spent it, when a newer plan
+supersedes it, when a review cannot be shown, and on :TerraformDiscard. Every
+one of those removals is checked rather than assumed — fs_unlink reports failure
+by returning an error, not by raising one — and a file left behind is named, so
+you can remove it yourself.
+
+On exit, the runner attempts to remove all reviewed and currently known pending
+plan artifacts. Pending covers a plan whose command is still running: terraform
+writes the file, so it can exist well before the callback that would record it,
+and a session ending in that window used to leave it behind. What a subprocess
+writes after Neovim has gone is out of reach — it outlives the session that
+started it, and nothing here terminates it.
 
 If that chmod fails the plan is deleted rather than saved: a plan the runner
 could not protect is not one it will offer to apply.

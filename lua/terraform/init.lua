@@ -21,6 +21,12 @@ M.options = vim.deepcopy(defaults)
 ---@type table<string, table>
 local plans = {}
 
+--- Every plan file this session has asked for and has not removed yet, keyed by path.
+--- A reviewed plan is in `plans` as well; one still being written, or one whose
+--- command ended with nothing worth keeping, is only here.
+---@type table<string, boolean>
+local artifacts = {}
+
 --- Orders callbacks from overlapping plans; the older one discards its result.
 ---@type table<string, integer>
 local generation = {}
@@ -126,13 +132,47 @@ local function finish_planning(dir, mine)
   end
 end
 
+---Removes a file, telling "already gone" apart from "could not be removed".
+---`vim.uv.fs_unlink` returns nil, err instead of raising, so a pcall around it
+---reports success for a file that is still there.
+---@param path string
+---@return boolean removed, string|nil err
+local function unlink_checked(path)
+  local ok, err = vim.uv.fs_unlink(path)
+  if ok then
+    return true
+  end
+  -- Already gone is the outcome this was for.
+  if not vim.uv.fs_stat(path) then
+    return true
+  end
+  return false, err or "unlink failed"
+end
+
+---Removes a plan file and stops tracking it, saying so when it stays behind.
+---@param path string
+local function drop_artifact(path)
+  local removed, err = unlink_checked(path)
+  if removed then
+    artifacts[path] = nil
+    return
+  end
+
+  -- Left in the table on purpose: the file is still on disk and still ours, so
+  -- leaving Neovim tries once more.
+  vim.notify(
+    ("A plan file could not be removed (%s). It can quote variable values:\n%s"):format(err, path),
+    vim.log.levels.WARN
+  )
+end
+
 ---Drops a saved plan and removes its file.
 ---@param dir string
 local function discard_plan(dir)
   local saved = plans[dir]
   if saved then
-    pcall(vim.uv.fs_unlink, saved.path)
     plans[dir] = nil
+    drop_artifact(saved.path)
   end
 end
 
@@ -431,10 +471,14 @@ local function plan(destroy)
 
     local context = aws_context(identity)
 
+    -- Tracked from before the process exists, because the file appears while it runs
+    -- and a session that ends there would otherwise leave nobody knowing about it.
+    artifacts[path] = true
+
     local process = run("plan", args, dir, function(code, lines)
       if generation[dir] ~= mine then
         -- Superseded, so this file must not become the plan apply uses.
-        pcall(vim.uv.fs_unlink, path)
+        drop_artifact(path)
         finish_planning(dir, mine)
         return
       end
@@ -445,7 +489,7 @@ local function plan(destroy)
       ---Removes the plan file and says why nothing was kept.
       ---@param message string
       local function abandon(message)
-        pcall(vim.uv.fs_unlink, path)
+        drop_artifact(path)
         vim.notify(message, vim.log.levels.ERROR)
       end
 
@@ -479,7 +523,7 @@ local function plan(destroy)
       end
 
       if code == 0 then
-        pcall(vim.uv.fs_unlink, path)
+        drop_artifact(path)
         vim.notify("No changes — infrastructure matches the configuration", vim.log.levels.INFO)
       elseif code == 2 then
         -- The digest recorded has to be one that survived the review.
@@ -506,13 +550,14 @@ local function plan(destroy)
           destroy and vim.log.levels.WARN or vim.log.levels.INFO
         )
       else
-        pcall(vim.uv.fs_unlink, path)
+        drop_artifact(path)
         vim.notify("Plan failed", vim.log.levels.ERROR)
       end
     end, binary)
 
-    -- No process means no callback to release the claim.
+    -- No process means no callback to release the claim, and no file either.
     if not process then
+      drop_artifact(path)
       finish_planning(dir, mine)
     end
   end)
@@ -806,12 +851,15 @@ function M.setup(opts)
     vim.api.nvim_create_user_command(name, fn, { desc = name })
   end
 
-  -- Plan files may outlive the command that made them, never the session.
+  -- Reviewed plans are not the only files on disk: one whose command is still
+  -- running is written by that command, not by us, and is worth removing too. What
+  -- a subprocess creates after this point outlives the session; nothing here can
+  -- promise otherwise.
   vim.api.nvim_create_autocmd("VimLeavePre", {
     group = vim.api.nvim_create_augroup("terraform_nvim_cleanup", { clear = true }),
     callback = function()
-      for _, saved in pairs(plans) do
-        pcall(vim.uv.fs_unlink, saved.path)
+      for _, path in ipairs(vim.tbl_keys(artifacts)) do
+        drop_artifact(path)
       end
     end,
   })
