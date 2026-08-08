@@ -216,6 +216,12 @@ jobs:
         # job here, where it means what it says, rather than there.
         run: |
           set -euo pipefail
+          # The download and build scratch, not the parsers themselves — those are
+          # installed into share/nvim/site/parser. The step before this one starts
+          # installing and is killed partway, and a half-finished directory here
+          # makes the next attempt fail with ENOTEMPTY when it tries to rename over
+          # it. That is what took `hcl` down while every other parser succeeded.
+          rm -rf "${HOME}/.cache/nvim/"tree-sitter-*
           nvim --headless -c 'lua
             local wanted = require("config.parsers")
             local function missing()
