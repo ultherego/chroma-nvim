@@ -469,7 +469,7 @@ local function write_atomically(path, contents)
   if not target then
     return false,
       ("%s, and replacing it atomically would update only this name. "):format(link_err)
-        .. "Remove the other links, or use :saveas to write somewhere else."
+        .. "Remove the other links first."
   end
 
   -- `wx` refuses to reuse an existing name, so the name must not repeat: one built
@@ -882,7 +882,8 @@ local function persist(buf, contents)
   if changed then
     return false,
       ("%s. Another editor or process has touched it since this buffer was read. "):format(changed)
-        .. "Use :edit! to discard your changes and reload, or :saveas to keep them elsewhere."
+        .. "Use :edit! to discard your changes and reload. `:saveas` will not help here: a decrypted "
+        .. "vault is written back to its own file, so copy the text out by hand if you need to keep it."
   end
 
   local ok, err = write_atomically(path, contents)

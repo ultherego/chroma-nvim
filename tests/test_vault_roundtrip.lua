@@ -837,6 +837,12 @@ T["a decrypted vault refuses every write that is not its own file"] = function()
   refuses("silent write " .. dir .. "/elsewhere", dir .. "/elsewhere")
   refuses("silent 1,2write " .. dir .. "/part", dir .. "/part")
   refuses("silent 1,2write >> " .. dir .. "/appended", dir .. "/appended")
+  -- `:saveas` renames the buffer before the write hook runs, so the refusal
+  -- leaves it under the new name. Measured and left alone: raising from
+  -- BufFilePre does not abort the rename, and putting the name back makes
+  -- Neovim treat the buffer as never read from that file, so the next `:w`
+  -- fails with E13 — a worse state than the one being repaired. The vault is
+  -- untouched either way; :help devops-nvim-vault-writing says how to get back.
   refuses("silent saveas! " .. dir .. "/renamed", dir .. "/renamed")
 
   -- The vault itself is untouched by all of that.

@@ -895,6 +895,16 @@ an interrupted write leaves the old contents rather than a truncated file.
 Symlinks are followed: the link survives and the file it points at is what
 changes.
 
+A decrypted vault is written back to the file it came from and nowhere else, so
+`:w elsewhere`, a partial `:1,10w elsewhere`, an append and `:saveas` are all
+refused. `:saveas` leaves one loose end: Neovim renames the buffer before the
+write hook runs, so the buffer ends up under the new name even though nothing
+was written to it. Measured, and left as it is — raising from BufFilePre does
+not abort the rename, and setting the name back makes Neovim treat the buffer as
+never read from that file, so the next `:w` fails with E13. The vault on disk is
+untouched; `:edit! {the original}` puts the buffer back where it belongs, at the
+cost of the changes it held.
+
 The rename is followed by an fsync of the directory it changed. Renaming is
 atomic against a process that dies, but the entry it wrote is not on the disk
 until the directory is flushed, so a power cut could otherwise leave the old
