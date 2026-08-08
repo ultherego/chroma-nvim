@@ -779,6 +779,15 @@ to encrypt with:
 Set `vault_encrypt_identity` in ansible.cfg and it is used silently. Without
 it, you are asked which one to use each time.
 
+Every path that encrypts asks the same question: `:VaultEncryptFile`, the write
+of a transparently decrypted buffer, and `:VaultEncrypt` on an inline value.
+The inline one used not to, so with several identities configured it ran
+ansible without an answer and ansible refused.
+
+Dismissing the list cancels the operation rather than falling back to a
+default. Nothing runs, the buffer is untouched, and a write refused this way
+says so and leaves the buffer modified.
+
 Rekeying                                         *devops-nvim-vault-rekey*
 
 `:VaultRekey` re-encrypts the current file to another identity from

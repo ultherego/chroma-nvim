@@ -72,16 +72,21 @@ local function auth_for(buf)
 end
 
 ---Which identity to encrypt with; ansible refuses to guess when several are configured.
+---
+---Answering "no identity is needed" and "the user cancelled" with the same `nil` made
+---dismissing the list encrypt with the default instead of stopping, so the two are
+---separate return values.
 ---@param auth ansible_vault.Auth
----@return string|nil
+---@return string|nil identity  what to pass as --encrypt-vault-id, nil when unnecessary
+---@return boolean proceed      false when the choice was dismissed
 local function encrypt_identity_for(auth)
   if auth.encrypt_identity then
-    return auth.encrypt_identity
+    return auth.encrypt_identity, true
   end
 
   local ids = auth.configured_identities or {}
   if #ids < 2 then
-    return nil
+    return nil, true
   end
 
   local labels = {}
@@ -92,10 +97,10 @@ local function encrypt_identity_for(auth)
 
   local choice = vim.fn.inputlist(vim.list_extend({ "Encrypt with which vault id?" }, labels))
   if choice < 1 or choice > #ids then
-    return nil
+    return nil, false
   end
 
-  return ids[choice]:match("^([^@]+)") or ids[choice]
+  return ids[choice]:match("^([^@]+)") or ids[choice], true
 end
 
 ---Reads the whole buffer as one string.
@@ -322,10 +327,18 @@ function M.encrypt_selection(opts)
     return
   end
 
+  -- The same question the whole-file paths ask: with several configured identities
+  -- ansible refuses to guess, and an inline value is no different.
+  local identity, proceed = encrypt_identity_for(auth)
+  if not proceed then
+    return
+  end
+
   local out, encrypt_err = cli.encrypt_string(key and value or plaintext, {
     auth = auth,
     cwd = auth.cwd,
     name = key,
+    encrypt_identity = identity,
   })
   if not out then
     vim.notify(encrypt_err, vim.log.levels.ERROR)
@@ -516,10 +529,15 @@ function M.encrypt_file()
     return
   end
 
+  local identity, proceed = encrypt_identity_for(auth)
+  if not proceed then
+    return
+  end
+
   local ciphertext, encrypt_err = cli.encrypt_document(buffer_text(buf), {
     auth = auth,
     cwd = auth.cwd,
-    encrypt_identity = encrypt_identity_for(auth),
+    encrypt_identity = identity,
   })
   if not ciphertext then
     vim.notify(encrypt_err, vim.log.levels.ERROR)
@@ -804,10 +822,18 @@ function M.attach_writer(buf)
         return
       end
 
+      -- Dismissing the list stops the write: the buffer keeps its plaintext and stays
+      -- modified, which is the same place `:w` leaves it when anything else refuses.
+      local identity, proceed = encrypt_identity_for(auth)
+      if not proceed then
+        vim.notify(("Not written: no vault id was chosen for %s"):format(name), vim.log.levels.WARN)
+        return
+      end
+
       local ciphertext, encrypt_err = cli.encrypt_document(buffer_text(ev.buf), {
         auth = auth,
         cwd = auth.cwd,
-        encrypt_identity = encrypt_identity_for(auth),
+        encrypt_identity = identity,
       })
       if not ciphertext then
         vim.notify(encrypt_err, vim.log.levels.ERROR)

@@ -953,4 +953,147 @@ T["rekey refuses when no vault identity is configured"] = function()
   eq(is_ciphertext(vault), true)
 end
 
+-- ---------------------------------------------------------------------------
+-- Choosing which identity encrypts
+
+T["encrypt identity"] = new_set()
+
+---Answers the identity list with `choice`, runs `fn`, and puts the prompt back.
+---@param choice integer what inputlist returns; 0 is the dismissal
+---@param fn fun()
+---@return string notified
+local function choosing(choice, fn)
+  local input, notify = vim.fn.inputlist, vim.notify
+  local notices = {}
+
+  vim.fn.inputlist = function()
+    return choice
+  end
+  vim.notify = function(message, _)
+    table.insert(notices, tostring(message))
+  end
+
+  local ok, err = pcall(fn)
+
+  vim.fn.inputlist = input
+  vim.notify = notify
+  assert(ok, err)
+
+  return table.concat(notices, " ")
+end
+
+---Which of the two configured passwords opens a file, asked outside the project so
+---ansible.cfg cannot answer for it.
+---@param dir string
+---@param path string
+---@param id string
+---@return boolean
+local function opens_with(dir, path, id)
+  local elsewhere = vim.fn.tempname()
+  vim.fn.mkdir(elsewhere, "p")
+  vim.fn.writefile(vim.fn.readfile(path), elsewhere .. "/f.yml")
+
+  local result = vim
+    .system(
+      { "ansible-vault", "view", "--vault-password-file", ("%s/.%s_pass"):format(dir, id), "f.yml" },
+      { cwd = elsewhere, text = true }
+    )
+    :wait()
+  return result.code == 0
+end
+
+-- Regression: the inline path never passed --encrypt-vault-id, so with several
+-- identities configured the whole-file commands asked and this one did not.
+T["encrypt identity"]["an inline value is encrypted with the chosen id"] = function()
+  local dir, _ = two_identity_project()
+
+  local plain = dir .. "/vars.yml"
+  vim.fn.writefile({ "secret: inline-value" }, plain)
+  open_with(plain, { transparent = false })
+
+  local said = choosing(2, function()
+    vim.cmd("1VaultEncrypt")
+    vim.wait(15000, function()
+      return vim.api.nvim_buf_get_lines(0, 0, 1, false)[1]:find("!vault") ~= nil
+    end, 100)
+  end)
+  eq(said:find("Encrypted secret") ~= nil, true)
+
+  vim.cmd("silent write")
+  vim.wait(3000)
+
+  -- The block carries the id it was encrypted under, and only that password opens it.
+  local block = table.concat(vim.fn.readfile(plain), "\n")
+  eq(block:find("$ANSIBLE_VAULT;1.2;AES256;new", 1, true) ~= nil, true)
+
+  -- The block on its own, dedented, so ansible-vault can be pointed straight at it.
+  local extracted = dir .. "/extracted.yml"
+  local block_lines = {}
+  for _, line in ipairs(vim.fn.readfile(plain)) do
+    if line:find("$ANSIBLE_VAULT", 1, true) or line:find("^%s+%x+$") then
+      table.insert(block_lines, (line:gsub("^%s+", "")))
+    end
+  end
+  vim.fn.writefile(block_lines, extracted)
+  eq(opens_with(dir, extracted, "new"), true)
+  eq(opens_with(dir, extracted, "old"), false)
+end
+
+T["encrypt identity"]["dismissing the list leaves an inline value alone"] = function()
+  local dir, _ = two_identity_project()
+
+  local plain = dir .. "/vars.yml"
+  vim.fn.writefile({ "secret: inline-value" }, plain)
+  open_with(plain, { transparent = false })
+
+  local said = choosing(0, function()
+    vim.cmd("1VaultEncrypt")
+    vim.wait(2000)
+  end)
+
+  -- Silence is the assertion that matters: ansible refuses to guess between two
+  -- identities, so running it anyway would also leave the value unencrypted — but
+  -- with an error about --encrypt-vault-id rather than nothing at all.
+  eq(said, "")
+  eq(vim.api.nvim_buf_get_lines(0, 0, 1, false)[1], "secret: inline-value")
+end
+
+T["encrypt identity"]["dismissing the list leaves a whole buffer alone"] = function()
+  local dir, _ = two_identity_project()
+
+  local plain = dir .. "/whole.yml"
+  vim.fn.writefile({ "secret: whole-value" }, plain)
+  open_with(plain, { transparent = false })
+
+  local said = choosing(0, function()
+    vim.cmd("VaultEncryptFile")
+    vim.wait(2000)
+  end)
+
+  eq(said, "")
+  eq(vim.api.nvim_buf_get_lines(0, 0, 1, false)[1], "secret: whole-value")
+  eq(vim.fn.readfile(plain)[1], "secret: whole-value")
+end
+
+-- The write is where dismissing costs most, so it says so rather than looking done.
+T["encrypt identity"]["dismissing the list refuses the write"] = function()
+  local dir, vault = two_identity_project()
+
+  local buf = open_with(vault, { transparent = true })
+  vim.wait(15000, function()
+    return vim.api.nvim_buf_get_lines(buf, 0, 1, false)[1] == "key: value"
+  end, 100)
+
+  vim.api.nvim_buf_set_lines(buf, -1, -1, false, { "added: later" })
+  local said = choosing(0, function()
+    vim.cmd("silent write")
+    vim.wait(3000)
+  end)
+
+  eq(said:find("no vault id was chosen") ~= nil, true)
+  eq(vim.bo[buf].modified, true)
+  -- The file still holds what the last successful write put there.
+  eq(decrypt_externally(dir, vault):find("added: later"), nil)
+end
+
 return T
