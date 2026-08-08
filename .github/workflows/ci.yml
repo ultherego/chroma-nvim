@@ -217,18 +217,30 @@ jobs:
         run: |
           set -euo pipefail
           nvim --headless -c 'lua
-            local task = require("nvim-treesitter").install(require("config.parsers"))
-            if task then task:wait(900000) end
-            local installed = {}
-            for _, name in ipairs(require("nvim-treesitter.config").get_installed("parsers")) do
-              installed[name] = true
+            local wanted = require("config.parsers")
+            local function missing()
+              local installed = {}
+              for _, name in ipairs(require("nvim-treesitter.config").get_installed("parsers")) do
+                installed[name] = true
+              end
+              local absent = {}
+              for _, name in ipairs(wanted) do
+                if not installed[name] then table.insert(absent, name) end
+              end
+              return absent
             end
-            local missing = {}
-            for _, name in ipairs(require("config.parsers")) do
-              if not installed[name] then table.insert(missing, name) end
-            end
-            if #missing > 0 then
-              io.write("parsers still missing: " .. table.concat(missing, ", ") .. "\n")
+
+            require("nvim-treesitter").install(wanted)
+
+            -- Polled rather than awaited. The task install() returns comes back
+            -- while its per-parser jobs are still running — measured: the check
+            -- reported one missing while the log was still installing others.
+            -- vim.wait drives the event loop, so the downloads make progress.
+            vim.wait(900000, function() return #missing() == 0 end, 500)
+
+            local absent = missing()
+            if #absent > 0 then
+              io.write("parsers still missing: " .. table.concat(absent, ", ") .. "\n")
               vim.cmd("cquit 1")
             end
             io.write("All parsers installed.\n")
