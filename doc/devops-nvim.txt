@@ -1107,6 +1107,11 @@ Whichever of `terraform`, `tofu` or `terragrunt` applies to the directory is
 resolved once, when the plan is made, and the resolved path is recorded with
 it. The apply runs that path.
 
+A directory holding terragrunt.hcl or terragrunt.stack.hcl is terragrunt's;
+otherwise `terraform` is preferred and `tofu` used where only tofu is
+installed. With neither installed the command refuses and says so — naming both
+rather than one, since which of the two was meant is not something to guess.
+
 If it has since disappeared the apply is refused rather than resolving the name
 again. PATH can change, terraform can be uninstalled leaving tofu to answer for
 it, and a terragrunt.hcl can appear in the directory in between — none of those

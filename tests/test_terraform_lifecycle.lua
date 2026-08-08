@@ -248,6 +248,36 @@ T["executable"]["a plan whose binary is still present applies with it"] = functi
   eq(applies[1]:match("^%S+/terraform ") ~= nil, true)
 end
 
+---Leaves nothing on PATH: no terraform, no tofu, nothing else either.
+---@param h table
+local function nothing_installed(h)
+  vim.env.PATH = h.bin
+  vim.fn.delete(h.bin .. "/terraform")
+  vim.fn.delete(h.bin .. "/tofu")
+end
+
+-- With neither installed the name resolver answered "tofu", so the refusal named
+-- one binary the user may never have chosen and said nothing about the other.
+T["executable"]["a plan reports when neither terraform nor tofu is available"] = function()
+  local h = harness()
+  fake_terraform(h)
+  start(h)
+  nothing_installed(h)
+  notices = {}
+
+  terraform.plan()
+  vim.wait(500, function()
+    return said("PATH")
+  end, 20)
+
+  eq(said("Neither `terraform` nor `tofu` was found on PATH"), true)
+  eq(#h.plan_files(), 0)
+end
+
+-- The other place the name is resolved is inside `run`, which init and validate
+-- go through; T["init"]["the claim is released when the process cannot start"]
+-- covers that one.
+
 -- ---------------------------------------------------------------------------
 -- Serialised apply
 
@@ -1234,9 +1264,15 @@ T["init"]["the claim is released when the process cannot start"] = function()
   fake_terraform_by_mode(h)
   start(h)
 
+  -- Nothing to resolve the name to. PATH is narrowed as well, so what the machine
+  -- running the suite happens to have installed cannot answer for it.
+  local full_path = vim.env.PATH
+  vim.env.PATH = h.bin
   vim.fn.delete(h.bin .. "/terraform")
   terraform.init()
-  eq(said("not found on PATH"), true)
+  vim.env.PATH = full_path
+
+  eq(said("Neither `terraform` nor `tofu` was found on PATH"), true)
   eq(#h.calls("init"), 0)
   notices = {}
 

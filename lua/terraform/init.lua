@@ -178,14 +178,26 @@ end
 
 ---Terragrunt owns a directory when terragrunt.hcl sits in it; `terraform` there ignores it.
 ---@param dir string
----@return string
+---@return string|nil name, string|nil err
 local function binary_for(dir)
   for _, name in ipairs({ "terragrunt.hcl", "terragrunt.stack.hcl" }) do
     if vim.uv.fs_stat(vim.fs.joinpath(dir, name)) then
       return "terragrunt"
     end
   end
-  return vim.fn.executable("terraform") == 1 and "terraform" or "tofu"
+
+  if vim.fn.executable("terraform") == 1 then
+    return "terraform"
+  end
+
+  if vim.fn.executable("tofu") == 1 then
+    return "tofu"
+  end
+
+  -- With neither installed this used to answer "tofu", so the refusal named a
+  -- binary the user may never have meant to have — and said nothing about the
+  -- other one being an option.
+  return nil, "Neither `terraform` nor `tofu` was found on PATH"
 end
 
 ---The nearest directory above the buffer holding .tf or terragrunt files.
@@ -370,7 +382,16 @@ end
 ---@param binary? string an executable resolved earlier; re-resolved from dir when absent
 ---@return vim.SystemObj|nil handle nil when nothing was started
 local function run(command, args, dir, on_done, binary)
-  local name = binary or binary_for(dir)
+  local name, missing = binary, nil
+  if not name then
+    name, missing = binary_for(dir)
+  end
+
+  if not name then
+    vim.notify(missing, vim.log.levels.ERROR)
+    return nil
+  end
+
   -- exepath() is idempotent for an absolute path, so a bare name and a pinned path both work.
   local bin = vim.fn.executable(name) == 1 and vim.fn.exepath(name) or ""
 
@@ -434,7 +455,12 @@ local function plan(destroy)
   end
 
   -- Resolved once and recorded, so apply cannot pick up a different binary later.
-  local binary_name = binary_for(dir)
+  local binary_name, missing = binary_for(dir)
+  if not binary_name then
+    vim.notify(missing, vim.log.levels.ERROR)
+    return
+  end
+
   local binary = vim.fn.exepath(binary_name)
   if binary == "" then
     vim.notify(("`%s` not found on PATH"):format(binary_name), vim.log.levels.ERROR)
