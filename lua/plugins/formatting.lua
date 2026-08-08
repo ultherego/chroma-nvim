@@ -64,12 +64,17 @@ return {
         -- Past timeout_ms conform gives up silently, so large files are skipped
         -- audibly instead. Measured: 900 KB of YAML saved unformatted, no message.
         -- <leader>xf still formats them, asynchronously.
+        --
+        -- The buffer is what gets formatted, and this runs before the write, so
+        -- the file on disk is the previous version — or nothing at all, for a
+        -- buffer that has never been saved. get_offset past the last line is the
+        -- buffer's own byte count, one byte per line ending.
         local max_bytes = 512 * 1024
-        local stat = vim.uv.fs_stat(vim.api.nvim_buf_get_name(bufnr))
-        if stat and stat.size > max_bytes then
+        local bytes = vim.api.nvim_buf_get_offset(bufnr, vim.api.nvim_buf_line_count(bufnr))
+        if bytes > max_bytes then
           vim.notify(
             ("Not formatting on save: %.1f MB exceeds the synchronous budget. Use <leader>xf."):format(
-              stat.size / 1024 / 1024
+              bytes / 1024 / 1024
             ),
             vim.log.levels.WARN
           )

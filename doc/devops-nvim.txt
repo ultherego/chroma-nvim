@@ -608,6 +608,14 @@ not safely handle Go templates interleaved with YAML anyway.
 Adding an opinionated YAML formatter on top of yamlls would only create noise
 in Kubernetes diffs.
 
+Formatting on save is synchronous, and past its timeout conform gives up
+without saying anything — measured with 900 KB of YAML, saved unformatted and
+unmentioned. So a buffer over 512 KiB is skipped out loud instead, with
+`<leader>xf` left to format it asynchronously. What is measured is the buffer,
+not the file: the decision is made before the write, so the file still holds
+the previous version, and a buffer that has never been saved has no file to
+measure at all.
+
 Terraform needs a terraform CLI                 *devops-nvim-formatting-tf*
 
 The fallback does not rescue a missing binary. `terraform_fmt` needs the

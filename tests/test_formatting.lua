@@ -177,4 +177,94 @@ T["buffer toggle"]["enables this buffer without touching the global flag"] = fun
   eq(vim.g.disable_autoformat, true)
 end
 
+-- ---------------------------------------------------------------------------
+-- The synchronous budget
+
+local notices = {}
+
+T["large files"] = new_set({
+  hooks = {
+    pre_case = function()
+      notices = {}
+      vim.notify = function(message, _)
+        table.insert(notices, tostring(message))
+      end
+    end,
+    post_case = function()
+      vim.cmd("silent! %bwipeout!")
+    end,
+  },
+})
+
+---The format_on_save decision the spec configures.
+---@return function
+local function on_save()
+  return require("plugins.formatting")[1].opts.format_on_save
+end
+
+---@param pattern string
+---@return boolean
+local function said(pattern)
+  for _, message in ipairs(notices) do
+    if message:match(pattern) then
+      return true
+    end
+  end
+  return false
+end
+
+---Fills a buffer with `count` KiB of text.
+---@param buf integer
+---@param count integer
+local function fill(buf, count)
+  local lines = {}
+  for _ = 1, count do
+    table.insert(lines, string.rep("x", 1023))
+  end
+  vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+end
+
+-- Regression: the size came from fs_stat of the file, and this runs before the
+-- write — so it described the previous version. A buffer that grew past the
+-- budget was formatted synchronously anyway, which is what the budget exists to
+-- prevent.
+T["large files"]["measures the buffer rather than the file on disk"] = function()
+  local path = vim.fn.tempname()
+  vim.fn.writefile({ "small: yes" }, path)
+  vim.cmd.edit({ args = { path } })
+
+  local buf = vim.api.nvim_get_current_buf()
+  fill(buf, 600)
+
+  eq(on_save()(buf), nil)
+  eq(said("exceeds the synchronous budget"), true)
+end
+
+-- The same measurement, where fs_stat had nothing at all to report.
+T["large files"]["a buffer that has never been saved is measured too"] = function()
+  local buf = vim.api.nvim_create_buf(true, false)
+  fill(buf, 600)
+
+  eq(on_save()(buf), nil)
+  eq(said("exceeds the synchronous budget"), true)
+end
+
+-- And the other direction: what is about to be written is small, whatever the
+-- file it replaces weighs.
+T["large files"]["a small buffer over a large file is still formatted"] = function()
+  local path = vim.fn.tempname()
+  local big = {}
+  for _ = 1, 600 do
+    table.insert(big, string.rep("x", 1023))
+  end
+  vim.fn.writefile(big, path)
+  vim.cmd.edit({ args = { path } })
+
+  local buf = vim.api.nvim_get_current_buf()
+  vim.api.nvim_buf_set_lines(buf, 0, -1, false, { "small: yes" })
+
+  eq(type(on_save()(buf)), "table")
+  eq(said("exceeds"), false)
+end
+
 return T
