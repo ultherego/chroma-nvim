@@ -196,8 +196,29 @@ func Write(path string, state State, set component.Set) error {
 	if err != nil {
 		return fmt.Errorf("encoding the selection: %w", err)
 	}
-	contents = append(contents, '\n')
 
+	return replace(path, append(contents, '\n'))
+}
+
+// Restore puts back bytes that were already there, without reading them.
+//
+// The one case where this package's own validation would be wrong. An installer
+// that captured a selection before overwriting it has to be able to put back
+// exactly what it found, and what it found is not its to correct: a file that
+// was already invalid stays invalid, because the alternative is an installer
+// that silently rewrites a document it never owned. Everything else about the
+// write — atomic, flushed, durable — is the same, which is why it shares the
+// same implementation rather than growing a second one.
+func Restore(path string, contents []byte) error {
+	return replace(path, contents)
+}
+
+// replace writes contents to path atomically, or does not write at all.
+//
+// Not because a selection is precious, but because it is read at startup by an
+// editor that decides what to load from it, and a half-written selection is a
+// Chroma that comes up wrong.
+func replace(path string, contents []byte) error {
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return fmt.Errorf("creating %s: %w", dir, err)
@@ -237,11 +258,11 @@ func Write(path string, state State, set component.Set) error {
 	// The rename is atomic but not yet durable: the directory entry it changed
 	// is not on the disk until the directory itself is flushed.
 	//
-	// Both failures were swallowed here, which made this paragraph and the one
-	// in DESIGN.md describe something the code did not do. A write that reports
-	// success without the entry reaching the disk is exactly the case fsync is
-	// for — the machine loses power, and the selection is either the old one or
-	// nothing.
+	// Both failures were swallowed here once, which made this paragraph and the
+	// one in DESIGN.md describe something the code did not do. A write that
+	// reports success without the entry reaching the disk is exactly the case
+	// fsync is for — the machine loses power, and the selection is either the
+	// old one or nothing.
 	handle, err := os.Open(dir)
 	if err != nil {
 		return fmt.Errorf("opening %s to flush it: %w", dir, err)

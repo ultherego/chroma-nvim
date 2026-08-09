@@ -568,10 +568,15 @@ overwrites the first one's selection without saying so, and `uninstall
 --purge-selection` would remove a selection another installation is still
 reading. *Needed by stage 4.*
 
-**4. Profiles have nowhere to live.** `--profile minimal|terraform|...` is in the
-command contract, and neither the component contract nor `components/*.json`
-knows what a profile is. The contract is frozen, so this is CLI knowledge — the
-same shape as `toolver` and the package-name registry. *Needed by stage 4.*
+**4. Profiles have nowhere to live.** *Settled at stage 4:* CLI knowledge, in
+`internal/install/profiles.go`, the same shape as `toolver` and the package-name
+registry. A profile is an opinion about which components go together, and an
+opinion is not a fact about the product — the contract is read by the editor and
+by anything else that ever wants it, while a profile is read by one installer on
+one screen. Every id in a profile is checked against the contract being
+installed, so a profile that has gone stale fails loudly instead of quietly
+installing less than it promised; `everything` is derived from the contract
+rather than listed, so it cannot fall behind a new component.
 
 **5. The minimum Neovim version is not in the contract.** It is stated in three
 places that cannot check each other: prose in README, `has("nvim-0.12")` in
