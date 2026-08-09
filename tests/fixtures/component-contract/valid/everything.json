@@ -1,0 +1,67 @@
+{
+  "contract": 4,
+  "id": "everything",
+  "name": "Every field the contract has",
+  "description": "Not shipped: this exists so both readers are asked about every field at once.",
+  "requires": [
+    "minimal"
+  ],
+  "tools": {
+    "required": [
+      {
+        "any": [
+          "terraform",
+          "tofu"
+        ],
+        "reason": "one of them",
+        "version": {
+          "min": "1.0"
+        }
+      }
+    ],
+    "recommended": [
+      {
+        "id": "tflint",
+        "reason": "linting",
+        "version": {
+          "exact": "0.64.0"
+        }
+      }
+    ],
+    "optional": [
+      {
+        "id": "terraform-docs",
+        "reason": "documentation",
+        "version": {
+          "max": "9.9"
+        }
+      }
+    ]
+  },
+  "nvim": {
+    "servers": [
+      "terraformls"
+    ],
+    "mason": [
+      "tflint"
+    ],
+    "linters": [
+      "yamllint"
+    ],
+    "parsers": [
+      "hcl"
+    ],
+    "formatters": [
+      "terraform_fmt"
+    ],
+    "schemas": [
+      "kubernetes"
+    ],
+    "plugins": [
+      "vim-helm"
+    ],
+    "modules": [
+      "chroma-terraform"
+    ]
+  }
+}

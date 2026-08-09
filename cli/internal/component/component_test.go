@@ -7,6 +7,62 @@ import (
 	"testing"
 )
 
+// corpus is shared with the Lua reader, which is driven by the same files. Both
+// sides being held to one set of documents is what makes "Go accepts, Lua
+// rejects" a failing test rather than a difference somebody meets during an
+// install.
+const corpus = "../../../tests/fixtures/component-contract"
+
+// TestCorpus reads each fixture on its own. Together in one directory, a reader
+// that gave up after the first bad file would still report a problem and look
+// correct.
+func TestCorpus(t *testing.T) {
+	for _, kind := range []string{"valid", "invalid"} {
+		entries, err := os.ReadDir(filepath.Join(corpus, kind))
+		if err != nil {
+			t.Fatalf("reading the fixtures: %v", err)
+		}
+		if len(entries) == 0 {
+			t.Fatalf("no %s fixtures, which would make this pass for nothing", kind)
+		}
+
+		for _, entry := range entries {
+			t.Run(kind+"/"+entry.Name(), func(t *testing.T) {
+				dir := t.TempDir()
+				body, err := os.ReadFile(filepath.Join(corpus, kind, entry.Name()))
+				if err != nil {
+					t.Fatalf("reading %s: %v", entry.Name(), err)
+				}
+				if err := os.WriteFile(filepath.Join(dir, entry.Name()), body, 0o644); err != nil {
+					t.Fatalf("writing the fixture: %v", err)
+				}
+
+				set, problems, err := Load(dir)
+				if err != nil {
+					t.Fatalf("Load: %v", err)
+				}
+
+				if kind == "valid" {
+					if len(problems) > 0 {
+						t.Errorf("refused a valid fixture: %v", problems)
+					}
+					if len(set) != 1 {
+						t.Errorf("loaded %d components, want 1", len(set))
+					}
+					return
+				}
+
+				if len(problems) != 1 {
+					t.Errorf("problems = %v, want exactly one", problems)
+				}
+				if len(set) != 0 {
+					t.Errorf("loaded %d components from an invalid fixture", len(set))
+				}
+			})
+		}
+	}
+}
+
 // shipped is the contract this repository actually ships, three directories up
 // from this package. Checking it here means a broken component fails the CLI
 // build, not an install on somebody's machine.

@@ -1,0 +1,1 @@
+{ "contract": 4, "id": "x", "tools": { "required": [ { "id": "t", "reason": "r", "min": "1.0" } ] } }

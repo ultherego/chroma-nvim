@@ -72,6 +72,14 @@ func Load(path string, set component.Set) (state State, found bool, err error) {
 		return State{}, true, fmt.Errorf("%s: %w", path, err)
 	}
 
+	// Decode reads the next value in what it treats as a stream, so a file
+	// holding two documents parses as the first one and says nothing about the
+	// second. A selection is one document; the same rule as the component
+	// reader, and the same rule Lua's decoder applies on its own.
+	if decoder.More() {
+		return State{}, true, fmt.Errorf("%s: has more than one document in it", path)
+	}
+
 	if err := state.validate(set); err != nil {
 		return State{}, true, fmt.Errorf("%s: %w", path, err)
 	}

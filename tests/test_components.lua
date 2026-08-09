@@ -184,6 +184,59 @@ local function with_contract(files, fn)
   assert(ok, err)
 end
 
+-- ---------------------------------------------------------------------------
+-- The corpus both readers are held to
+--
+-- The state document has had one of these since it was introduced, and the
+-- component contract — the older and more load-bearing of the two — did not.
+-- Every file under fixtures/component-contract is read by this and by
+-- cli/internal/component's TestCorpus, so "Go refuses, Lua raises" is a failing
+-- test rather than something found on somebody's machine.
+
+---@param kind string
+---@return table<string, string> contents by file name
+local function contract_corpus(kind)
+  local here = vim.fn.fnamemodify(vim.fn.resolve(debug.getinfo(1, "S").source:sub(2)), ":p:h")
+  local dir = vim.fs.joinpath(here, "fixtures", "component-contract", kind)
+
+  local files = {}
+  for name, filetype in vim.fs.dir(dir) do
+    if filetype == "file" then
+      files[name] = table.concat(vim.fn.readfile(vim.fs.joinpath(dir, name)), "\n")
+    end
+  end
+  return files
+end
+
+T["reader"]["refuses every invalid fixture, and raises on none of them"] = function()
+  local files = contract_corpus("invalid")
+  eq(vim.tbl_count(files) > 0, true)
+
+  for name, contents in pairs(files) do
+    -- One at a time: a reader that gave up on the first bad file would look
+    -- perfectly correct against a directory holding all of them.
+    with_contract({ [name] = contents }, function(module)
+      -- The load itself must return rather than raise. pcall is the assertion.
+      local ok, loaded, problems = pcall(module.load)
+      eq({ name, ok }, { name, true })
+      eq({ name, vim.tbl_count(loaded) }, { name, 0 })
+      eq({ name, #problems }, { name, 1 })
+    end)
+  end
+end
+
+T["reader"]["accepts every valid fixture"] = function()
+  local files = contract_corpus("valid")
+  eq(vim.tbl_count(files) > 0, true)
+
+  with_contract(files, function(module)
+    local loaded, problems = module.load()
+    eq(problems, {})
+    eq(vim.tbl_count(loaded), vim.tbl_count(files))
+    eq(module.resolve_problems(loaded), {})
+  end)
+end
+
 T["reader"]["reports a file that is not JSON"] = function()
   with_contract({ ["broken.json"] = "{ not json" }, function(module)
     local loaded, problems = module.load()

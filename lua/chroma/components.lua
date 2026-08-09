@@ -97,6 +97,106 @@ local KNOWN = {
   },
 }
 
+---Whether a decoded value is an array of non-empty strings.
+---
+---An empty JSON object and an empty JSON array both decode to `{}`, so an empty
+---one passes either way; that is the one ambiguity Lua's decoder leaves and it
+---costs nothing, because an empty list and an empty object mean the same thing
+---here — nothing contributed.
+---@param value any
+---@param what string
+---@return string|nil problem
+local function string_array_problem(value, what)
+  if type(value) ~= "table" or (next(value) ~= nil and #value == 0) then
+    return ("%s is not an array"):format(what)
+  end
+  for _, entry in ipairs(value) do
+    if type(entry) ~= "string" then
+      return ("%s holds %s, which is not a string"):format(what, vim.inspect(entry))
+    end
+    if entry == "" then
+      return ("%s holds an empty name"):format(what)
+    end
+  end
+  return nil
+end
+
+---Whether the document is shaped like a component at all.
+---
+---This runs before anything walks it. Everything below iterates with `pairs`
+---and `ipairs`, and both of those raise on a value that is not a table —
+---measured on 0.12.4: `bad argument #1 to 'ipairs' (table expected, got
+---string)`. Raising is the wrong answer twice over: it is not the "component
+---is invalid" this module promises to report, and it happens on the startup
+---path, where the reader is called before anything has drawn a window. The Go
+---side gets this free from decoding into a typed struct, which is exactly why
+---it had to be written out here.
+---@param decoded table
+---@return string|nil problem
+local function shape_problem(decoded)
+  for _, field in ipairs({ "id", "name", "description" }) do
+    if decoded[field] ~= nil and type(decoded[field]) ~= "string" then
+      return ("%s is not a string"):format(field)
+    end
+  end
+
+  if decoded.contract ~= nil and type(decoded.contract) ~= "number" then
+    return "contract is not a number"
+  end
+
+  if decoded.requires ~= nil then
+    local problem = string_array_problem(decoded.requires, "requires")
+    if problem then
+      return problem
+    end
+  end
+
+  if decoded.tools ~= nil then
+    if type(decoded.tools) ~= "table" then
+      return "tools is not an object"
+    end
+    for key, level in pairs(decoded.tools) do
+      if type(key) ~= "string" then
+        return "tools is not an object"
+      end
+      if type(level) ~= "table" or (next(level) ~= nil and #level == 0) then
+        return ("tools.%s is not an array"):format(key)
+      end
+      for _, tool in ipairs(level) do
+        if type(tool) ~= "table" or vim.islist(tool) and next(tool) ~= nil then
+          return ("tools.%s holds something that is not an object"):format(key)
+        end
+        if tool.any ~= nil then
+          local problem = string_array_problem(tool.any, ("tools.%s[].any"):format(key))
+          if problem then
+            return problem
+          end
+        end
+        if tool.version ~= nil and type(tool.version) ~= "table" then
+          return ("tools.%s[].version is not an object"):format(key)
+        end
+      end
+    end
+  end
+
+  if decoded.nvim ~= nil then
+    if type(decoded.nvim) ~= "table" then
+      return "nvim is not an object"
+    end
+    for key, list in pairs(decoded.nvim) do
+      if type(key) ~= "string" then
+        return "nvim is not an object"
+      end
+      local problem = string_array_problem(list, ("nvim.%s"):format(key))
+      if problem then
+        return problem
+      end
+    end
+  end
+
+  return nil
+end
+
 ---The first field name that does not belong, anywhere in the component.
 ---@param decoded table
 ---@return string|nil
@@ -218,6 +318,12 @@ local function read_one(path)
   ok, decoded = pcall(vim.json.decode, table.concat(contents, "\n"))
   if not ok or type(decoded) ~= "table" then
     return nil, "is not valid JSON"
+  end
+
+  -- Before anything walks it: see shape_problem.
+  local shape = shape_problem(decoded)
+  if shape then
+    return nil, shape
   end
 
   if type(decoded.id) ~= "string" or decoded.id == "" then

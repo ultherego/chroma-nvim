@@ -162,6 +162,15 @@ func readOne(path string) (*Component, string) {
 		return nil, "is not valid JSON"
 	}
 
+	// Decode reads the *next* value, because a Decoder is built for streams of
+	// them. A file holding `{...}{...}` therefore parses as its first object and
+	// the rest is never seen — a component file quietly half-read. Lua's decoder
+	// refuses the same input with "Expected the end", so requiring it here is
+	// also what keeps the two readers answering alike.
+	if decoder.More() {
+		return nil, "has more than one document in it"
+	}
+
 	if component.ID == "" {
 		return nil, "has no id"
 	}
@@ -174,7 +183,51 @@ func readOne(path string) (*Component, string) {
 		return nil, problem
 	}
 
+	if problem := validateNames(component); problem != "" {
+		return nil, problem
+	}
+
 	return &component, ""
+}
+
+// validateNames refuses an empty name anywhere a name is expected. Decoding
+// into typed slices gets the shape right for free — that is the half Lua has to
+// write out — but `""` is a perfectly good string, and it would arrive as a
+// dependency on nothing, a server nobody can enable or a plugin no lockfile
+// pins. The Lua reader refuses these, so this is also what keeps the corpus
+// agreeing.
+func validateNames(c Component) string {
+	for _, id := range c.Requires {
+		if id == "" {
+			return "requires holds an empty name"
+		}
+	}
+
+	// A slice rather than a map: two problems in one file should be reported in
+	// the same order every time.
+	lists := []struct {
+		kind  string
+		names []string
+	}{
+		{"servers", c.Nvim.Servers},
+		{"mason", c.Nvim.Mason},
+		{"linters", c.Nvim.Linters},
+		{"parsers", c.Nvim.Parsers},
+		{"formatters", c.Nvim.Formatters},
+		{"schemas", c.Nvim.Schemas},
+		{"plugins", c.Nvim.Plugins},
+		{"modules", c.Nvim.Modules},
+	}
+
+	for _, list := range lists {
+		for _, name := range list.names {
+			if name == "" {
+				return fmt.Sprintf("nvim.%s holds an empty name", list.kind)
+			}
+		}
+	}
+
+	return ""
 }
 
 func validateTools(tools Tools) string {
