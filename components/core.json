@@ -1,5 +1,5 @@
 {
-  "contract": 3,
+  "contract": 4,
   "id": "core",
   "name": "Core editor",
   "description": "The editor itself: plugin management, treesitter, pickers.",
@@ -117,6 +117,11 @@
     ],
     "linters": [
       "yamllint"
+    ],
+    "formatters": [
+      "stylua",
+      "shfmt",
+      "jq"
     ]
   }
 }

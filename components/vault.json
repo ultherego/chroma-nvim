@@ -1,5 +1,5 @@
 {
-  "contract": 3,
+  "contract": 4,
   "id": "vault",
   "name": "Ansible Vault",
   "description": "Editing encrypted files in place: transparent decrypt, inline values, rekey.",

@@ -20,7 +20,7 @@ import (
 // Contract is the version this CLI understands. A component declaring a higher
 // one was written for a newer Chroma; reading it anyway is how the two sides
 // drift apart quietly. See cli/DESIGN.md, "The component contract".
-const Contract = 3
+const Contract = 4
 
 // Version is what a tool has to be, when being present is not enough. Either
 // Exact, or a Min and/or Max — never both kinds, because "exactly 1.2, and at
@@ -69,16 +69,25 @@ type Tools struct {
 
 // Nvim is what the configuration loads for this component: the language servers
 // it enables, the Mason packages it needs, the linters it registers, the
-// treesitter parsers it installs, the plugins it brings and the modules it sets
-// up. The CLI does not act on any of it — this is the editor's half of the
+// treesitter parsers it installs, the formatters it hands to conform, the
+// schemas it maps onto files, the plugins it brings and the modules it sets up.
+// The CLI does not act on any of it — this is the editor's half of the
 // contract, and it is here so that both halves are one document.
+//
+// Schemas are logical names, not URLs and not file globs: "kubernetes", never
+// the yannh URL and the four patterns it applies to. Which document those name
+// and where it belongs is the editor's business, and putting it here would move
+// one language server's implementation details into a product contract that a
+// web page or a different editor is also supposed to be able to read.
 type Nvim struct {
-	Servers []string `json:"servers"`
-	Mason   []string `json:"mason"`
-	Linters []string `json:"linters"`
-	Parsers []string `json:"parsers"`
-	Plugins []string `json:"plugins"`
-	Modules []string `json:"modules"`
+	Servers    []string `json:"servers"`
+	Mason      []string `json:"mason"`
+	Linters    []string `json:"linters"`
+	Parsers    []string `json:"parsers"`
+	Formatters []string `json:"formatters"`
+	Schemas    []string `json:"schemas"`
+	Plugins    []string `json:"plugins"`
+	Modules    []string `json:"modules"`
 }
 
 // Component is one file in components/.

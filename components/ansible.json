@@ -1,5 +1,5 @@
 {
-  "contract": 3,
+  "contract": 4,
   "id": "ansible",
   "name": "Ansible",
   "description": "Playbooks and roles: running them, and the language server.",

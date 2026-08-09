@@ -1,5 +1,5 @@
 {
-  "contract": 3,
+  "contract": 4,
   "id": "helm",
   "name": "Helm",
   "description": "Chart templates: filetype detection, language server, rendering.",

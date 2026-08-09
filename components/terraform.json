@@ -1,5 +1,5 @@
 {
-  "contract": 3,
+  "contract": 4,
   "id": "terraform",
   "name": "Terraform / OpenTofu",
   "description": "Plan, review and apply from the editor, and formatting.",
@@ -34,6 +34,11 @@
     "parsers": [
       "terraform",
       "hcl"
+    ],
+    "formatters": [
+      "terraform_fmt",
+      "tofu_fmt",
+      "terragrunt_hclfmt"
     ],
     "modules": [
       "chroma-terraform"

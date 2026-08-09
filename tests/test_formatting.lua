@@ -16,6 +16,13 @@ local function keymap(lhs)
   error(("no keymap for %s in the formatting spec"):format(lhs))
 end
 
+---The options the spec produces. `opts` is a function because which formatters
+---exist depends on the enabled components, which is a runtime question.
+---@return table
+local function opts()
+  return require("plugins.formatting")[1].opts()
+end
+
 local saved = {}
 
 local T = new_set({
@@ -23,6 +30,14 @@ local T = new_set({
     pre_case = function()
       saved.notify = vim.notify
       vim.notify = function() end
+
+      -- The formatter set follows the selection, so these cases would otherwise
+      -- depend on whoever runs them: a machine with Terraform switched off has
+      -- no terraform formatter to test. An empty config directory means no
+      -- selection, which means every component — the same answer everywhere.
+      saved.xdg = vim.env.XDG_CONFIG_HOME
+      vim.env.XDG_CONFIG_HOME = vim.fn.tempname()
+      require("chroma.state").forget()
 
       -- :FormatEnable and :FormatDisable come from the configuration, not from
       -- a plugin, so requiring this is enough to make them real.
@@ -33,6 +48,8 @@ local T = new_set({
     end,
     post_case = function()
       vim.notify = saved.notify
+      vim.env.XDG_CONFIG_HOME = saved.xdg
+      require("chroma.state").forget()
       vim.g.disable_autoformat = nil
       vim.b.disable_autoformat = nil
     end,
@@ -112,7 +129,7 @@ end
 
 ---@return function
 local function chooser()
-  return require("plugins.formatting")[1].opts.formatters_by_ft.terraform
+  return opts().formatters_by_ft.terraform
 end
 
 T["terraform formatter"]["prefers terraform_fmt when both are installed"] = function()
@@ -138,7 +155,7 @@ T["terraform formatter"]["formats with nothing when neither is installed"] = fun
 end
 
 T["terraform formatter"]["applies to terraform-vars as well"] = function()
-  local by_ft = require("plugins.formatting")[1].opts.formatters_by_ft
+  local by_ft = opts().formatters_by_ft
   eq(by_ft["terraform-vars"], by_ft.terraform)
 end
 
@@ -185,7 +202,7 @@ T["vault buffers"] = new_set()
 T["vault buffers"]["are not formatted on save"] = function()
   local buf = vim.api.nvim_create_buf(true, false)
   vim.b[buf].ansible_vault_plain = true
-  eq(require("plugins.formatting")[1].opts.format_on_save(buf), nil)
+  eq(opts().format_on_save(buf), nil)
 end
 
 -- The manual mapping is a second entry point to the same subprocesses, and it
@@ -230,7 +247,7 @@ T["large files"] = new_set({
 ---The format_on_save decision the spec configures.
 ---@return function
 local function on_save()
-  return require("plugins.formatting")[1].opts.format_on_save
+  return opts().format_on_save
 end
 
 ---@param pattern string

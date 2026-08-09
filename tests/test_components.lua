@@ -85,6 +85,55 @@ T["shipped"]["names servers and packages the LSP layer pins"] = function()
   eq(missing, {})
 end
 
+-- A formatter a component contributes that the formatting layer never mentions
+-- is a component paying for something nothing switches on — and, the other way
+-- round, the layer gates on these names, so a typo here silently formats
+-- nothing while every stubbed case still passes.
+T["shipped"]["names formatters the formatting layer gates on"] = function()
+  local root = vim.fn.fnamemodify(vim.fn.resolve(debug.getinfo(1, "S").source:sub(2)), ":p:h:h")
+  local source = table.concat(vim.fn.readfile(vim.fs.joinpath(root, "lua", "plugins", "formatting.lua")), "\n")
+
+  local missing = {}
+  for id, component in pairs(components.load()) do
+    for _, formatter in ipairs(component.nvim.formatters or {}) do
+      if not source:find(('"%s"'):format(formatter), 1, true) then
+        table.insert(missing, ("%s: %s"):format(id, formatter))
+      end
+    end
+  end
+
+  eq(missing, {})
+end
+
+-- The contract carries logical names; the registry owns what they mean. A name
+-- with no entry is dropped at runtime, which is the quietest possible failure:
+-- a component switched on, a schema never applied, and nothing said.
+T["shipped"]["names schemas the registry can resolve"] = function()
+  local known = require("chroma.schemas").KNOWN
+
+  local missing = {}
+  for id, component in pairs(components.load()) do
+    for _, schema in ipairs(component.nvim.schemas or {}) do
+      if known[schema] == nil then
+        table.insert(missing, ("%s: %s"):format(id, schema))
+      end
+    end
+  end
+
+  eq(missing, {})
+end
+
+-- And the registry resolves to something usable rather than to a name that only
+-- looks right: a URL, and at least one pattern to apply it to.
+T["shipped"]["every registered schema resolves to a url and patterns"] = function()
+  for name, resolve in pairs(require("chroma.schemas").KNOWN) do
+    local schema = resolve()
+    eq({ name, type(schema.url) }, { name, "string" })
+    eq({ name, schema.url:find("^https://") ~= nil }, { name, true })
+    eq({ name, #schema.files > 0 }, { name, true })
+  end
+end
+
 -- Every tool is a name the installer will look for, so a typo is a tool that
 -- can never be satisfied and a component that can never be complete.
 T["shipped"]["every tool names something to look for"] = function()
@@ -162,7 +211,7 @@ end
 -- a typo that means "install less than asked".
 T["reader"]["refuses a field it does not know"] = function()
   with_contract({
-    ["typo.json"] = '{ "contract": 3, "id": "typo", "require": ["core"] }',
+    ["typo.json"] = '{ "contract": 4, "id": "typo", "require": ["core"] }',
   }, function(module)
     local loaded, problems = module.load()
     eq(loaded, {})
@@ -173,7 +222,7 @@ end
 
 T["reader"]["refuses an unknown field inside a tool"] = function()
   with_contract({
-    ["deep.json"] = '{ "contract": 3, "id": "deep", "tools": { "required": [ { "id": "x", "reason": "y", "min": "1.0" } ] } }',
+    ["deep.json"] = '{ "contract": 4, "id": "deep", "tools": { "required": [ { "id": "x", "reason": "y", "min": "1.0" } ] } }',
   }, function(module)
     local _, problems = module.load()
     eq(#problems, 1)
@@ -184,7 +233,7 @@ end
 -- With both set the reader picks one and drops the other in silence.
 T["reader"]["refuses a tool with both id and any"] = function()
   with_contract({
-    ["both.json"] = '{ "contract": 3, "id": "both", "tools": { "required": [ { "id": "x", "any": ["y"], "reason": "z" } ] } }',
+    ["both.json"] = '{ "contract": 4, "id": "both", "tools": { "required": [ { "id": "x", "any": ["y"], "reason": "z" } ] } }',
   }, function(module)
     local _, problems = module.load()
     eq(#problems, 1)
@@ -194,7 +243,7 @@ end
 
 T["reader"]["refuses a tool with neither, and one with no reason"] = function()
   with_contract({
-    ["neither.json"] = '{ "contract": 3, "id": "neither", "tools": { "required": [ { "reason": "z" } ] } }',
+    ["neither.json"] = '{ "contract": 4, "id": "neither", "tools": { "required": [ { "reason": "z" } ] } }',
   }, function(module)
     local _, problems = module.load()
     eq(#problems, 1)
@@ -202,7 +251,7 @@ T["reader"]["refuses a tool with neither, and one with no reason"] = function()
   end)
 
   with_contract({
-    ["silent.json"] = '{ "contract": 3, "id": "silent", "tools": { "required": [ { "id": "x" } ] } }',
+    ["silent.json"] = '{ "contract": 4, "id": "silent", "tools": { "required": [ { "id": "x" } ] } }',
   }, function(module)
     local _, problems = module.load()
     eq(#problems, 1)
@@ -210,15 +259,17 @@ T["reader"]["refuses a tool with neither, and one with no reason"] = function()
   end)
 end
 
--- Contract 1 had no version field; a file that carries one is describing a
--- schema this does not know, whatever else it says.
+-- Refused in both directions, and this is the direction that matters for a
+-- strict contract: contract 3 knew no `formatters`, so a reader that accepted
+-- a 3 would read a Terraform component as one that contributes no formatter and
+-- silently format nothing. Older is not "compatible, minus the new bits".
 T["reader"]["refuses a document written for an older contract"] = function()
   with_contract({
-    ["old.json"] = '{ "contract": 2, "id": "old" }',
+    ["old.json"] = '{ "contract": 3, "id": "old" }',
   }, function(module)
     local _, problems = module.load()
     eq(#problems, 1)
-    eq(problems[1]:find("declares contract 2") ~= nil, true)
+    eq(problems[1]:find("declares contract 3") ~= nil, true)
   end)
 end
 
@@ -233,7 +284,7 @@ T["reader"]["refuses a version that says two things or nothing"] = function()
 
   for _, case in ipairs(cases) do
     with_contract({
-      ["v.json"] = ('{ "contract": 3, "id": "v", "tools": { "required": [ { "id": "x", "reason": "y", "version": %s } ] } }'):format(
+      ["v.json"] = ('{ "contract": 4, "id": "v", "tools": { "required": [ { "id": "x", "reason": "y", "version": %s } ] } }'):format(
         case.json
       ),
     }, function(module)
@@ -260,7 +311,7 @@ T["reader"]["compares versions the way the Go reader does"] = function()
 end
 
 T["reader"]["reports two components claiming one id"] = function()
-  local one = '{ "contract": 3, "id": "same", "requires": [] }'
+  local one = '{ "contract": 4, "id": "same", "requires": [] }'
   with_contract({ ["a.json"] = one, ["b.json"] = one }, function(module)
     local loaded, problems = module.load()
     eq(vim.tbl_count(loaded), 1)
@@ -271,7 +322,7 @@ end
 
 T["reader"]["reports a dependency that is not declared"] = function()
   with_contract({
-    ["orphan.json"] = '{ "contract": 3, "id": "orphan", "requires": ["nothing"] }',
+    ["orphan.json"] = '{ "contract": 4, "id": "orphan", "requires": ["nothing"] }',
   }, function(module)
     local problems = module.resolve_problems(module.load())
     eq(#problems, 1)
@@ -283,8 +334,8 @@ end
 -- resolver would notice: every dependency in one exists.
 T["reader"]["reports a dependency cycle"] = function()
   with_contract({
-    ["a.json"] = '{ "contract": 3, "id": "a", "requires": ["b"] }',
-    ["b.json"] = '{ "contract": 3, "id": "b", "requires": ["a"] }',
+    ["a.json"] = '{ "contract": 4, "id": "a", "requires": ["b"] }',
+    ["b.json"] = '{ "contract": 4, "id": "b", "requires": ["a"] }',
   }, function(module)
     local problems = module.resolve_problems(module.load())
     eq(#problems > 0, true)
@@ -294,9 +345,9 @@ end
 
 T["reader"]["accepts a component that reaches core through another"] = function()
   with_contract({
-    ["core.json"] = '{ "contract": 3, "id": "core", "requires": [] }',
-    ["mid.json"] = '{ "contract": 3, "id": "mid", "requires": ["core"] }',
-    ["leaf.json"] = '{ "contract": 3, "id": "leaf", "requires": ["mid", "core"] }',
+    ["core.json"] = '{ "contract": 4, "id": "core", "requires": [] }',
+    ["mid.json"] = '{ "contract": 4, "id": "mid", "requires": ["core"] }',
+    ["leaf.json"] = '{ "contract": 4, "id": "leaf", "requires": ["mid", "core"] }',
   }, function(module)
     -- A diamond is not a cycle, and a resolver that cannot tell them apart
     -- refuses perfectly ordinary contracts.

@@ -7,30 +7,14 @@
 -- with them, GitHub Actions workflows, docker-compose files, Ansible metadata
 -- and Kubernetes manifests get completion and validation against the real
 -- specification.
-
--- Kubernetes is special-cased by yaml-language-server and is not part of the
--- SchemaStore catalogue, so it is mapped explicitly. It is deliberately NOT
--- applied to every *.yaml file: Ansible playbooks and CI pipelines are valid
--- YAML that does not match the Kubernetes schema, and would light up with
--- false errors.
 --
--- The schema is pinned to a Kubernetes version rather than following the
--- repository's rolling `master-standalone-strict`. Validating against
--- whatever the schema repository happened to publish today means the
--- diagnostics need not correspond to the cluster being deployed to — a field
--- can be flagged as unknown because it is newer than the pin, or accepted
--- because it is newer than the cluster.
---
--- Override per machine in init.lua, or per project, when the cluster differs:
---   vim.g.chroma_k8s_version = "v1.31.4"
---
--- For a repository that must match one exact version, a modeline at the top
--- of the file still wins over everything here:
---   # yaml-language-server: $schema=<url>
-local k8s_version = vim.g.chroma_k8s_version or "v1.34.10"
-local k8s = ("https://raw.githubusercontent.com/yannh/kubernetes-json-schema/master/%s-standalone-strict/all.json"):format(
-  k8s_version
-)
+-- Two sources, and the difference between them is the component boundary. The
+-- SchemaStore catalogue is a Core capability: it recognises documents on its
+-- own, and a component being switched off is not a reason to make yamlls
+-- pretend it cannot read a compose file. The explicit mappings are Chroma's
+-- own — "these paths hold Kubernetes manifests" is a decision this
+-- configuration makes, so it belongs to the component that makes it and
+-- disappears with it. See lua/chroma/schemas.lua.
 
 return {
   settings = {
@@ -41,21 +25,7 @@ return {
         enable = false,
         url = "",
       },
-      schemas = vim.tbl_extend("force", require("schemastore").yaml.schemas(), {
-        -- Both extensions: .yml is at least as common as .yaml for Kubernetes
-        -- manifests, and an earlier version of this list silently covered only
-        -- half of them.
-        [k8s] = {
-          "k8s/**/*.yaml",
-          "k8s/**/*.yml",
-          "kubernetes/**/*.yaml",
-          "kubernetes/**/*.yml",
-          "manifests/**/*.yaml",
-          "manifests/**/*.yml",
-          "**/*.k8s.yaml",
-          "**/*.k8s.yml",
-        },
-      }),
+      schemas = vim.tbl_extend("force", require("schemastore").yaml.schemas(), require("chroma.schemas").yaml()),
       -- yaml-language-server can enforce alphabetical key order. Kubernetes
       -- and Ansible both rely on conventional key order (apiVersion, kind,
       -- metadata, spec), so this stays off.

@@ -13,7 +13,7 @@ local M = {}
 --- declaring a higher one was written for a newer Chroma than this, and reading
 --- it as though the difference did not matter is how the two sides drift apart
 --- quietly. See cli/DESIGN.md, "The component contract".
-M.CONTRACT = 3
+M.CONTRACT = 4
 
 ---Dotted numbers, with an optional leading v and whatever suffix a release
 ---carries: 0.26.1, v1.14.3, 2.51.0-rc1.
@@ -92,6 +92,8 @@ local KNOWN = {
     parsers = true,
     plugins = true,
     modules = true,
+    formatters = true,
+    schemas = true,
   },
 }
 
