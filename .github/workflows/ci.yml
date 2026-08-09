@@ -23,6 +23,15 @@ on:
 permissions:
   contents: read
 
+# A push that supersedes another one on the same ref makes the earlier run
+# uninteresting, and the startup job is now ten real installations rather than
+# one. Cancelled only for pull requests, though: on main every commit is a
+# candidate for a release, and a run cancelled halfway leaves that commit with
+# no answer at all — which is the state this project keeps CI green to avoid.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 env:
   # Pinned so a formatting or lint release cannot turn a green branch red
   # without a commit here. Raise them deliberately.
@@ -35,6 +44,15 @@ env:
   # and the sum changes with it, in the same commit, from a download made on
   # purpose rather than from memory.
   SELENE_SHA256: dac452422747999ec4919bbb8bb52992b66aae533b60022bf005669de8616671
+  # This file is now four hundred lines of shell, expressions and embedded Lua,
+  # and nothing checked it. Pinned and summed for the same reason selene is: a
+  # release asset can be replaced, and a version pin says which release was
+  # asked for, not which bytes it had. Both lines change together, from a
+  # download made on purpose. The version matches the actionlint this
+  # configuration installs through Mason, so the workflow is linted by the tool
+  # the editor would use on it.
+  ACTIONLINT_VERSION: 1.7.12
+  ACTIONLINT_SHA256: 8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8
   TREE_SITTER_VERSION: 0.26.9
   # The tests drive the real ansible-vault, and its behaviour is what several
   # of them assert on — which header a rekey writes, how --vault-id composes
@@ -50,6 +68,7 @@ jobs:
   lua:
     name: Formatting and lint
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -76,9 +95,25 @@ jobs:
       - name: selene
         run: selene .
 
+      - name: Install actionlint
+        run: |
+          set -euo pipefail
+          curl -fsSL -o actionlint.tar.gz \
+            "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
+          echo "${ACTIONLINT_SHA256}  actionlint.tar.gz" | sha256sum -c -
+          tar -xzf actionlint.tar.gz actionlint
+          chmod +x actionlint
+          sudo mv actionlint /usr/local/bin/
+
+      - name: actionlint
+        # The runner has shellcheck, and actionlint hands it every `run:` block,
+        # so this checks the shell in the workflow as well as the workflow.
+        run: actionlint
+
   tests:
     name: Test suite
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -174,6 +209,7 @@ jobs:
   startup:
     name: Neovim starts clean
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -216,7 +252,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          for profile in legacy core-only terraform helm vault; do
+          for profile in legacy core-only terraform kubernetes helm ansible vault aws docker github-actions; do
             echo "::group::cold start — $profile"
 
             config="$GITHUB_WORKSPACE/.ci/$profile/config"
@@ -395,6 +431,7 @@ jobs:
   cli-lint:
     name: CLI formatting and vet
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -425,6 +462,7 @@ jobs:
   cli-test:
     name: CLI test suite
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -445,6 +483,7 @@ jobs:
   cli-build:
     name: CLI build
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     strategy:
       matrix:
         include:
