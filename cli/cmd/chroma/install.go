@@ -14,6 +14,7 @@ import (
 
 	"github.com/ultherego/chroma-nvim/cli/internal/install"
 	"github.com/ultherego/chroma-nvim/cli/internal/plan"
+	"github.com/ultherego/chroma-nvim/cli/internal/release"
 )
 
 // cmdInstall places a Chroma Neovim on this machine.
@@ -106,7 +107,7 @@ func cmdInstall(args []string, out, errOut *os.File) int {
 	}
 
 	built := plan.Build(loaded, append([]string{"core"}, selected...), onPath)
-	renderPlan(out, paths, prepared, built)
+	renderPlan(out, opts, paths, prepared, built)
 
 	if len(built.Unknown) > 0 {
 		return exitMisuse
@@ -173,24 +174,36 @@ func prepareSource(ctx context.Context, opts install.Options, errOut *os.File) (
 		return prepared, exitOK
 
 	case opts.Version != "":
-		fmt.Fprint(errOut, "installing a release is not implemented yet; --source-tree installs from a checkout.\nSee cli/DESIGN.md, \"Implementation order\".\n")
-		return install.PreparedSource{}, exitMisuse
+		source := release.GitHubSource{Version: opts.Version}
+		prepared, err := source.Prepare(ctx)
+		if err != nil {
+			fmt.Fprintln(errOut, err)
+			return install.PreparedSource{}, exitFailed
+		}
+		return prepared, exitOK
 
 	default:
-		fmt.Fprint(errOut, "nothing to install: name a release with --version, or a checkout with --source-tree.\n")
+		fmt.Fprintf(errOut, "nothing to install: name a release with --version (or --version %s), or a checkout with --source-tree.\n", release.Latest)
 		return install.PreparedSource{}, exitMisuse
 	}
 }
 
 // renderPlan prints what would happen, before anything does.
-func renderPlan(out *os.File, paths install.Paths, prepared install.PreparedSource, built plan.Plan) {
-	where := prepared.Version
-	if where == "" {
-		where = prepared.Root
-	}
-
+func renderPlan(out *os.File, opts install.Options, paths install.Paths, prepared install.PreparedSource, built plan.Plan) {
 	fmt.Fprintf(out, "Chroma Neovim will be installed.\n\n")
-	fmt.Fprintf(out, "  Source        %s\n", where)
+
+	switch {
+	case prepared.Version == "":
+		fmt.Fprintf(out, "  Source        %s (a checkout, not a release)\n", prepared.Root)
+	case opts.Version == release.Latest:
+		// Resolved before the plan is shown, and shown as both: a plan that
+		// says "latest" is a plan nobody can check, and the version somebody
+		// agreed to is the one that ends up in the install state.
+		fmt.Fprintf(out, "  Requested     %s\n", release.Latest)
+		fmt.Fprintf(out, "  Resolved      %s\n", prepared.Version)
+	default:
+		fmt.Fprintf(out, "  Release       %s\n", prepared.Version)
+	}
 	fmt.Fprintf(out, "  Location      %s\n", paths.ConfigDir)
 	if paths.AppName != "" {
 		fmt.Fprintf(out, "  Run with      NVIM_APPNAME=%s nvim\n", paths.AppName)

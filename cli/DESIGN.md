@@ -588,12 +588,13 @@ it. They are written down here so they are settled once rather than discovered
 during implementation.
 
 **1. The contract version is checked for equality, and `--version` accepts any
-tag.** `component.Load` refuses anything that is not exactly `Contract`, which
-means a CLI at contract 4 cannot read a release built at contract 3 — so
-`chroma install --version <older tag>` cannot work as the command contract
-promises. Either the reader accepts a range, or `--version` is documented as
-bounded by the contract this CLI understands and says so when it refuses.
-*Needed by stage 10.*
+tag.** *Settled at stage 10:* bounded, and said out loud. A release is fetched,
+verified and unpacked, and then its contract is read with the same reader the
+editor uses — so a release built at another contract is refused by name, before
+anything of the user's has been touched, with a message naming the release. The
+reader was not loosened to a range: a contract number exists precisely so that
+two sides which no longer agree stop rather than guess, and a CLI is a small
+download beside the configuration it installs.
 
 **2. `lua/chroma/bootstrap.lua` is a second contract between the CLI and a
 release.** *Settled at stage 6:* the module exists, it exposes `install` and
@@ -635,11 +636,12 @@ verify would pass on that, and the user would be told the rollback succeeded.
 Either rollback ends with a bootstrap, as update does, or the data directory
 becomes part of what a generation means. *Needed by stage 16.*
 
-**7. `latest` and rate limits.** Resolving `latest` and fetching `SHA256SUMS`
-are calls to an API that limits unauthenticated clients by address. A user
-behind shared egress can meet that limit in the middle of an installation, so
-the failure needs a message that says what happened and what to do, rather than
-a bare 403. *Needed by stage 10.*
+**7. `latest` and rate limits.** *Settled at stage 10:* a 403 carrying
+`X-RateLimit-Remaining: 0` is reported as what it is — this address is being
+rate-limited — with the reset time and the suggestion to set `GITHUB_TOKEN`,
+which is used when present and never required. And `latest` is resolved to a tag
+before the plan is shown, so what somebody agrees to is a version they can check
+and the install state records one.
 
 ---
 
