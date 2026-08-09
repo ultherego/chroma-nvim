@@ -215,7 +215,17 @@ local function check_components()
   -- nobody is reading messages.
   local state = require("chroma.state")
   local enabled, mode = state.enabled_ids()
-  if mode == state.SAFE then
+  if mode == state.SAFE and (#problems > 0 or components[state.CORE] == nil) then
+    -- Safe mode has two causes and they need different advice. Naming the
+    -- selection here when the contract is what broke would send somebody to
+    -- edit a file that is perfectly fine.
+    health.error(
+      ("The component contract could not be read in full, so nothing optional is running (%s)"):format(
+        #enabled > 0 and table.concat(enabled, ", ") or "not even core"
+      ),
+      "fix the component files reported above; the selection was not the problem"
+    )
+  elseif mode == state.SAFE then
     health.error(
       ("%s exists but could not be read, so only core is running"):format(state.path()),
       "fix the file, or delete it to go back to running every component"

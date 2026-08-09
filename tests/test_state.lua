@@ -237,6 +237,109 @@ T["runtime"]["safe mode says what was wrong with the file"] = function()
 end
 
 -- ---------------------------------------------------------------------------
+-- The contract the selection is read against
+
+T["contract"] = new_set({
+  hooks = {
+    pre_case = function()
+      state.forget()
+    end,
+    post_case = function()
+      state.forget()
+    end,
+  },
+})
+
+---Runs `fn` with the contract reader answering with exactly this set and these
+---problems. Patched on the module table rather than in package.loaded, because
+---state.lua holds the table it required and would not see a replacement.
+---@param set table<string, table>
+---@param problems string[]
+---@param fn function
+local function with_contract(set, problems, fn)
+  local real = components.load
+  components.load = function()
+    return set, problems
+  end
+  state.forget()
+
+  local ok, err = pcall(fn)
+
+  components.load = real
+  state.forget()
+  assert(ok, err)
+end
+
+local WHOLE = {
+  core = { id = "core", requires = {}, nvim = {} },
+  terraform = { id = "terraform", requires = { "core" }, nvim = {} },
+}
+
+-- The failure this exists for, measured before it was fixed: a broken core.json
+-- left `core` out of the set, `enabled` skips ids it does not know, and a
+-- selection of Terraform resolved to Terraform alone — a component running
+-- without the one thing every component requires, reported as `selected`.
+T["contract"]["a contract that could not be read fully is not run from"] = function()
+  with_selection('{ "schema": 1, "selected": ["terraform"] }', function()
+    with_contract({ terraform = WHOLE.terraform }, { "core.json nvim is not an object" }, function()
+      local ids, mode
+      local notices = notices_from(function()
+        ids, mode = state.enabled_ids()
+      end)
+
+      eq(mode, state.SAFE)
+      eq(ids, {})
+      eq(notices[1]:find("core.json", 1, true) ~= nil, true)
+    end)
+  end)
+end
+
+-- A component nobody selected being unreadable is the same problem: the file
+-- that failed to parse is the one that would have said what depends on what.
+T["contract"]["one bad file is enough, even for a component nobody chose"] = function()
+  with_selection('{ "schema": 1, "selected": ["terraform"] }', function()
+    with_contract(WHOLE, { "docker.json is not valid JSON" }, function()
+      local ids, mode
+      notices_from(function()
+        ids, mode = state.enabled_ids()
+      end)
+
+      eq(mode, state.SAFE)
+      eq(ids, { "core" })
+    end)
+  end)
+end
+
+-- No components directory at all yields no components and no problems, so the
+-- absence of core is refused by name rather than left to be noticed.
+T["contract"]["an empty contract is refused rather than read as legacy"] = function()
+  with_selection(nil, function()
+    with_contract({}, {}, function()
+      local ids, mode
+      local notices = notices_from(function()
+        ids, mode = state.enabled_ids()
+      end)
+
+      eq(mode, state.SAFE)
+      eq(ids, {})
+      eq(notices[1]:find("core", 1, true) ~= nil, true)
+    end)
+  end)
+end
+
+-- And the healthy contract still resolves, or the three above would pass with
+-- the whole module switched off.
+T["contract"]["a whole contract resolves normally"] = function()
+  with_selection('{ "schema": 1, "selected": ["terraform"] }', function()
+    with_contract(WHOLE, {}, function()
+      local ids, mode = state.enabled_ids()
+      eq(mode, state.SELECTED)
+      eq(ids, { "core", "terraform" })
+    end)
+  end)
+end
+
+-- ---------------------------------------------------------------------------
 -- Where it lives
 
 T["path"] = new_set()

@@ -168,11 +168,55 @@ local current = nil
 --- the answer is. A caller that only wants to know what runs can ignore it.
 M.LEGACY = "legacy" -- no selection has ever been written: everything runs
 M.SELECTED = "selected" -- a selection was read: it decides
-M.SAFE = "safe" -- a selection exists and is unreadable: core alone
+M.SAFE = "safe" -- the selection or the contract cannot be trusted: core alone
+
+---Reports a problem and drops to safe mode: whatever core alone means with the
+---contract that could be read, which is core if it loaded and nothing at all if
+---it did not.
+---@param set table<string, table>
+---@param problem string
+---@return string[] ids, string mode
+local function unsafe(set, problem)
+  local running = M.enabled({ schema = M.SCHEMA, selected = {} }, set)
+
+  vim.notify(
+    ("Chroma: %s\n%s"):format(
+      problem,
+      #running > 0 and "Running with core alone until that is fixed; everything optional is switched off."
+        or "Even core could not be read, so nothing is enabled."
+    ),
+    vim.log.levels.ERROR
+  )
+
+  return running, M.SAFE
+end
 
 ---@return string[] ids, string mode
 local function resolve()
-  local set = components.load()
+  local set, problems = components.load()
+
+  -- The contract is checked before the selection, because the selection is read
+  -- against it: "unknown component" means unknown to a set that may be missing
+  -- the file that declared it.
+  --
+  -- A partial contract is not a contract. `load` reports each file it could not
+  -- read and returns the rest, which is right for `:checkhealth` — it lists what
+  -- is wrong — and wrong for deciding what runs. Ignoring `problems` here meant a
+  -- broken core.json left `core` out of the set, and `enabled` skips ids it does
+  -- not know, so a selection of Terraform resolved to Terraform alone: a
+  -- component running without the one thing every component requires, reported
+  -- as `selected`, which claims nothing is wrong. Measured, not reasoned about.
+  --
+  -- A missing core is the same failure arriving by a different route — no
+  -- components directory at all yields no components and no problems — so it is
+  -- refused by name rather than left to be noticed.
+  if #problems > 0 then
+    return unsafe(set, ("the component contract cannot be read: %s"):format(table.concat(problems, "; ")))
+  end
+  if set[M.CORE] == nil then
+    return unsafe(set, ("the component contract declares no %q, so there is nothing to build on"):format(M.CORE))
+  end
+
   local state, found, err = M.load(nil, set)
 
   if err then
@@ -188,11 +232,7 @@ local function resolve()
     -- parse. Core alone is wrong in the direction that leaves the editor
     -- usable enough to fix the file, and switches nothing on that nobody asked
     -- for.
-    vim.notify(
-      ("Chroma: %s\nRunning with core alone until that is fixed; everything optional is switched off."):format(err),
-      vim.log.levels.ERROR
-    )
-    return M.enabled({ schema = M.SCHEMA, selected = {} }, set), M.SAFE
+    return unsafe(set, err)
   end
 
   if not found then
