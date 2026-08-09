@@ -191,8 +191,10 @@ func TestExecRunnerStopsAChildThatWillNotFinish(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 	defer cancel()
 
+	// A shell builtin rather than `sleep`: this case is about cancellation, and
+	// depending on another program being on PATH makes it about that instead.
 	started := time.Now()
-	err := ExecRunner{}.Run(ctx, Command{Name: "/bin/sh", Args: []string{"-c", "sleep 30"}}, nil)
+	err := ExecRunner{}.Run(ctx, Command{Name: "/bin/sh", Args: []string{"-c", "while :; do :; done"}}, nil)
 
 	if err == nil {
 		t.Fatal("a child that never finished was reported as success")

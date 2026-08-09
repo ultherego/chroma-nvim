@@ -3,10 +3,13 @@ package install
 import (
 	"context"
 	"fmt"
-	"os/exec"
 	"strings"
 	"time"
 )
+
+// Editor is the program that carries out a bootstrap step. A name rather than
+// a path: it is resolved when it is run, by whatever runs it.
+const Editor = "nvim"
 
 // BootstrapTimeout bounds one headless step.
 //
@@ -57,13 +60,11 @@ func runStep(ctx context.Context, paths Paths, runner Runner, sink ProgressSink,
 		defer cancel()
 	}
 
-	nvim, err := exec.LookPath("nvim")
-	if err != nil {
-		return fmt.Errorf("nvim is not on PATH, so the installed configuration cannot be %sed: %w", step, err)
-	}
-
 	cmd := Command{
-		Name: nvim,
+		// Not resolved here. Where nvim is, is a property of running a command
+		// rather than of building one — and a build step that needed an editor
+		// on PATH would make every test of this function need one too.
+		Name: Editor,
 		Args: []string{
 			"--headless",
 			"-c", fmt.Sprintf("lua require(\"chroma.bootstrap\").run(%s)", luaArgs(step, expected)),
@@ -82,7 +83,7 @@ func runStep(ctx context.Context, paths Paths, runner Runner, sink ProgressSink,
 	sink.Emit(Event{Step: step, Status: StatusStart})
 	if err := runner.Run(ctx, cmd, sink); err != nil {
 		sink.Emit(Event{Step: step, Status: StatusFailed, Message: err.Error()})
-		return fmt.Errorf("%s of the installed configuration failed: %w", step, err)
+		return fmt.Errorf("the installed configuration could not be %s: %w", pastTense(step), err)
 	}
 	sink.Emit(Event{Step: step, Status: StatusDone})
 
@@ -107,4 +108,17 @@ func luaArgs(step string, expected []string) string {
 		quoted = append(quoted, fmt.Sprintf("%q", id))
 	}
 	return fmt.Sprintf("%s, { %s }", rendered, strings.Join(quoted, ", "))
+}
+
+// pastTense turns a step name into something an error message can end with.
+// Small, and here because "cannot be verifyed" was the alternative.
+func pastTense(step string) string {
+	switch step {
+	case "install":
+		return "bootstrapped"
+	case "verify":
+		return "verified"
+	default:
+		return step + "ed"
+	}
 }

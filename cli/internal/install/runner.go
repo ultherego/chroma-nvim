@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"strings"
 	"sync"
+	"time"
 )
 
 // Command is one external process.
@@ -86,6 +87,15 @@ func (r ExecRunner) Run(ctx context.Context, cmd Command, sink ProgressSink) err
 	process := exec.CommandContext(ctx, cmd.Name, cmd.Args...)
 	process.Dir = cmd.Dir
 	process.Env = append(os.Environ(), cmd.Env...)
+
+	// Killing a process does not close the pipes its own children inherited, so
+	// reading to EOF can outlive the cancellation by as long as a grandchild
+	// feels like living — measured in CI, where a cancelled `sh -c "sleep 30"`
+	// held this open for the full thirty seconds while the same case finished
+	// immediately on a machine whose shell had exec'd the sleep. WaitDelay is
+	// the standard library's answer: shortly after the context ends, the pipes
+	// are closed regardless.
+	process.WaitDelay = 2 * time.Second
 
 	output, err := process.StdoutPipe()
 	if err != nil {
