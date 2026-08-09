@@ -94,6 +94,49 @@ local function load_plugins(names)
   end
 end
 
+---Every Mason package the enabled components need, by the name the registry
+---knows it as.
+---
+---Two lists in the contract, one registry. `mason` already holds registry
+---names; `servers` holds nvim-lspconfig names, and `bashls` is a package called
+---`bash-language-server`. mason-lspconfig owns that translation and publishes
+---it, so it is asked rather than guessed at — a hand-written second mapping
+---would be a third place for these names to live.
+---
+---Servers are in here at all because mason-lspconfig's own `ensure_installed`
+---does nothing when Neovim is headless, which is exactly where the installer
+---runs. Measured: after an install, the servers were absent and the first
+---interactive session started fetching them.
+---@param servers string[] nvim-lspconfig names, from the contract
+---@param tools string[] Mason package names, from the contract
+---@return string[]
+local function mason_packages(servers, tools)
+  local translate = {}
+  local ok, lspconfig = pcall(require, "mason-lspconfig")
+  if ok and lspconfig.get_mappings then
+    local mappings = lspconfig.get_mappings()
+    translate = mappings.lspconfig_to_package or {}
+  end
+
+  local wanted, seen = {}, {}
+  local function want(name)
+    local package = translate[name] or name
+    if not seen[package] then
+      seen[package] = true
+      table.insert(wanted, package)
+    end
+  end
+
+  for _, name in ipairs(servers) do
+    want(name)
+  end
+  for _, name in ipairs(tools) do
+    want(name)
+  end
+
+  return wanted
+end
+
 ---Installs the plugins, tools and parsers the enabled components need.
 ---
 ---Loud on failure, and failure means failure: a parser that did not compile is
@@ -115,9 +158,10 @@ function M.install(opts)
   -- Mason packages. Asked for through the same plugin the configuration
   -- normally uses, then waited for by asking the registry, because that is the
   -- question with an answer: is it installed.
-  local packages = contributions("mason")
-  if #packages > 0 then
-    load_plugins({ "mason.nvim", "mason-tool-installer.nvim" })
+  local servers = contributions("servers")
+  local tools = contributions("mason")
+  if #servers > 0 or #tools > 0 then
+    load_plugins({ "mason.nvim", "mason-lspconfig.nvim", "mason-tool-installer.nvim" })
 
     local registry = require("mason-registry")
 
@@ -126,13 +170,13 @@ function M.install(opts)
     end
 
     -- Whether anything is still being fetched. `is_installed` alone is true too
-    -- early: measured, the first end-to-end install saw all four packages as
+    -- early: measured, the first end-to-end install saw every package as
     -- present, returned, and `qa!` closed the editor while one of them was
     -- still downloading — mason said so on the way out ("Neovim is exiting
     -- while packages are still installing"), the package was aborted, and the
     -- installation reported success over it. A step that asks "is it there yet"
     -- has to also ask "and has it stopped arriving".
-    local function settled()
+    local function settled(packages)
       for _, name in ipairs(packages) do
         local found, package = pcall(registry.get_package, name)
         if found and package:is_installing() then
@@ -158,17 +202,33 @@ function M.install(opts)
       require("mason-tool-installer").check_install(false)
     end)
     if not ok then
-      return false, ("installing tools failed: %s"):format(err)
+      return false, ("installing Mason packages failed: %s"):format(err)
     end
 
     vim.wait(timeout, function()
-      return completed or (#absent(packages, installed) == 0 and settled())
+      return completed
     end, INTERVAL)
 
-    -- The registry is the authority, asked after everything has stopped moving.
+    -- Only now are the names askable.
+    --
+    -- The contract says `bashls`; the registry knows `bash-language-server`.
+    -- mason-lspconfig owns that translation, and it builds it from the registry
+    -- index — which does not exist on a machine Chroma has never been installed
+    -- on until something downloads it. `check_install` above is what does.
+    -- Asking any earlier returns an empty table, and the wait below then
+    -- watches for packages under names nothing will ever have: measured, the
+    -- first attempt at this reported `bashls, jsonls, lua_ls, yamlls` missing
+    -- after everything had installed correctly.
+    local packages = mason_packages(servers, tools)
+
+    -- A short second wait for anything still writing itself out.
+    vim.wait(timeout, function()
+      return #absent(packages, installed) == 0 and settled(packages)
+    end, INTERVAL)
+
     local missing = absent(packages, installed)
     if #missing > 0 then
-      return false, ("these tools did not install: %s"):format(table.concat(missing, ", "))
+      return false, ("these Mason packages did not install: %s"):format(table.concat(missing, ", "))
     end
   end
 

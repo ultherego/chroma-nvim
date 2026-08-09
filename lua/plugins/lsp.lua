@@ -29,49 +29,79 @@ return {
     end,
   },
 
-  -- Non-LSP tooling (linters, formatters). The formatting and lint layers
-  -- extend this list; only tools already verified as supported are listed.
+  -- Everything Mason installs: language servers, linters and formatters.
+  --
+  -- One provisioner, and that is the change worth explaining. mason-lspconfig
+  -- also has an `ensure_installed`, and it deliberately does nothing when
+  -- Neovim is headless — measured: after `chroma install` the servers were
+  -- simply absent, and the first interactive session started fetching them
+  -- while the user watched. An installer whose result finishes installing
+  -- itself the first time somebody opens it has not finished installing.
+  --
+  -- So mason-tool-installer provisions all of it, in headless and out, and
+  -- mason-lspconfig keeps the job it is best at: translating names and enabling
+  -- what is installed.
   {
     "WhoIsSethDaniel/mason-tool-installer.nvim",
     event = "VeryLazy",
-    dependencies = { "mason-org/mason.nvim" },
+    dependencies = {
+      "mason-org/mason.nvim",
+      -- Not decoration: this plugin looks mason-lspconfig up to translate
+      -- `bashls` into `bash-language-server`, and the pins below are written in
+      -- the names the component contract uses.
+      "mason-org/mason-lspconfig.nvim",
+    },
     opts = function()
-      -- Pinned by hand here; which of them are wanted comes from the enabled
-      -- components, so a machine that never selected Ansible does not fetch
-      -- ansible-lint.
+      -- Pinned by hand; which of them are wanted comes from the enabled
+      -- components, so a machine that never selected Ansible fetches neither
+      -- ansiblels nor ansible-lint.
       --
-      -- `{ name, version = ... }`, not `"name@version"`. This plugin passes a
+      -- `{ name, version = ... }`, never `"name@version"`. This plugin passes a
       -- string entry to the registry as a package name and nothing splits it,
-      -- so `"yamllint@1.38.0"` raised `Cannot find package` and nothing was
-      -- ever installed — measured during the first real end-to-end install,
-      -- and invisible until then because the tools were already on the machine
-      -- that wrote the pins. Upstream's own README documents the table form.
-      -- mason-lspconfig, which pins the servers below, is a different plugin
-      -- and does parse `name@version`.
+      -- so the string form raised `Cannot find package` and installed nothing.
+      --
+      -- One table rather than two, because `tflint` is in it twice over: the
+      -- contract lists it as a server *and* as a Mason package, and two tables
+      -- would be two places to keep one version.
       local pins = {
-        -- Runs as a language server, so plugins/lint.lua must not register it
-        -- with nvim-lint as well.
-        { "tflint", version = "v0.64.0" },
+        -- Language servers, by the names nvim-lspconfig and the contract use.
+        terraformls = "v0.39.0",
+        helm_ls = "v0.5.4",
+        dockerls = "0.15.0",
+        docker_compose_language_service = "1.0.0",
+        yamlls = "1.24.0",
+        ansiblels = "26.6.0",
+        bashls = "5.6.0",
+        jsonls = "4.10.0",
+        lua_ls = "3.18.2",
+        -- tflint runs as a language server, which is why plugins/lint.lua must
+        -- not register it with nvim-lint as well.
+        tflint = "v0.64.0",
         -- nvim-lint linters (see plugins/lint.lua)
-        { "ansible-lint", version = "26.6.0" },
-        { "yamllint", version = "1.38.0" },
-        { "hadolint", version = "v2.15.1" },
-        { "actionlint", version = "v1.7.12" },
+        ["ansible-lint"] = "26.6.0",
+        yamllint = "1.38.0",
+        hadolint = "v2.15.1",
+        actionlint = "v1.7.12",
         -- conform formatters (see plugins/formatting.lua)
-        { "stylua", version = "v2.5.2" },
-        { "shfmt", version = "v3.13.1" },
-        { "jq", version = "jq-1.7" },
+        stylua = "v2.5.2",
+        shfmt = "v3.13.1",
+        jq = "jq-1.7",
       }
 
-      local wanted = require("chroma.components").contributions("mason", require("chroma.state").enabled_ids())
-      local keep = {}
-      for _, pin in ipairs(pins) do
-        if vim.tbl_contains(wanted, pin[1]) then
-          table.insert(keep, pin)
+      local components = require("chroma.components")
+      local enabled = require("chroma.state").enabled_ids()
+
+      local ensure, seen = {}, {}
+      for _, kind in ipairs({ "servers", "mason" }) do
+        for _, name in ipairs(components.contributions(kind, enabled)) do
+          if not seen[name] and pins[name] then
+            seen[name] = true
+            table.insert(ensure, { name, version = pins[name] })
+          end
         end
       end
 
-      return { ensure_installed = keep, run_on_start = true }
+      return { ensure_installed = ensure, run_on_start = true }
     end,
   },
 
@@ -114,33 +144,17 @@ return {
       "neovim/nvim-lspconfig",
     },
     opts = function()
-      -- nvim-lspconfig config names; the version after `@` is the Mason package's.
-      local pins = {
-        "terraformls@v0.39.0",
-        "helm_ls@v0.5.4",
-        "dockerls@0.15.0",
-        "docker_compose_language_service@1.0.0",
-        "yamlls@1.24.0",
-        "ansiblels@26.6.0",
-        "bashls@5.6.0",
-        "jsonls@4.10.0",
-        "lua_ls@3.18.2",
-      }
-
       -- An allow-list, not `true`: that would enable every server Mason has ever
       -- installed, including stylua, which would then compete with conform. The
-      -- list is now the enabled components' own, so a selection without
-      -- Kubernetes never installs helm_ls and never enables it.
+      -- list is the enabled components' own, so a selection without Kubernetes
+      -- never installs helm_ls and never enables it.
       local wanted = require("chroma.components").contributions("servers", require("chroma.state").enabled_ids())
 
-      local install = {}
-      for _, pin in ipairs(pins) do
-        if vim.tbl_contains(wanted, pin:match("^([^@]+)")) then
-          table.insert(install, pin)
-        end
-      end
-
-      return { ensure_installed = install, automatic_enable = wanted }
+      -- Empty on purpose. This plugin's own `ensure_installed` does nothing in
+      -- a headless Neovim, which is exactly where the installer runs, so
+      -- provisioning belongs to mason-tool-installer above. What is left here
+      -- is what this plugin is for: enabling the servers that are installed.
+      return { ensure_installed = {}, automatic_enable = wanted }
     end,
     config = function(_, opts)
       -- Defaults applied to every server, set before anything is enabled.
