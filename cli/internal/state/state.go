@@ -20,6 +20,7 @@ import (
 	"path/filepath"
 	"sort"
 
+	"github.com/ultherego/chroma-nvim/cli/internal/atomicfile"
 	"github.com/ultherego/chroma-nvim/cli/internal/component"
 )
 
@@ -217,63 +218,9 @@ func Restore(path string, contents []byte) error {
 //
 // Not because a selection is precious, but because it is read at startup by an
 // editor that decides what to load from it, and a half-written selection is a
-// Chroma that comes up wrong.
+// Chroma that comes up wrong. The mechanics live in internal/atomicfile, which
+// the install state uses as well: the same fifty lines in two packages is the
+// arrangement where one of them quietly loses its directory flush.
 func replace(path string, contents []byte) error {
-	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return fmt.Errorf("creating %s: %w", dir, err)
-	}
-
-	// In the same directory, so the rename below cannot cross a filesystem.
-	temporary, err := os.CreateTemp(dir, ".components.*.json")
-	if err != nil {
-		return fmt.Errorf("creating a temporary file in %s: %w", dir, err)
-	}
-	name := temporary.Name()
-
-	abandon := func(cause error) error {
-		temporary.Close()
-		os.Remove(name)
-		return cause
-	}
-
-	if _, err := temporary.Write(contents); err != nil {
-		return abandon(fmt.Errorf("writing %s: %w", name, err))
-	}
-	// Or the rename can land before the bytes, leaving an empty selection where
-	// a real one was.
-	if err := temporary.Sync(); err != nil {
-		return abandon(fmt.Errorf("syncing %s: %w", name, err))
-	}
-	if err := temporary.Close(); err != nil {
-		return abandon(fmt.Errorf("closing %s: %w", name, err))
-	}
-	if err := os.Chmod(name, 0o644); err != nil {
-		return abandon(fmt.Errorf("setting the mode of %s: %w", name, err))
-	}
-	if err := os.Rename(name, path); err != nil {
-		return abandon(fmt.Errorf("replacing %s: %w", path, err))
-	}
-
-	// The rename is atomic but not yet durable: the directory entry it changed
-	// is not on the disk until the directory itself is flushed.
-	//
-	// Both failures were swallowed here once, which made this paragraph and the
-	// one in DESIGN.md describe something the code did not do. A write that
-	// reports success without the entry reaching the disk is exactly the case
-	// fsync is for — the machine loses power, and the selection is either the
-	// old one or nothing.
-	handle, err := os.Open(dir)
-	if err != nil {
-		return fmt.Errorf("opening %s to flush it: %w", dir, err)
-	}
-	if err := handle.Sync(); err != nil {
-		handle.Close()
-		return fmt.Errorf("flushing %s: %w", dir, err)
-	}
-	if err := handle.Close(); err != nil {
-		return fmt.Errorf("closing %s: %w", dir, err)
-	}
-
-	return nil
+	return atomicfile.Replace(path, contents, 0o644)
 }
