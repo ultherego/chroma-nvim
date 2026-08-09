@@ -23,18 +23,59 @@ local function check_all(tools, severity)
   end
 end
 
+-- The editor APIs this configuration calls, and what calls them. Measured by
+-- reading `lua/`, not assumed from a release note.
+local editor_api = {
+  { path = "lsp.config", what = "declaring every language server" },
+  { path = "lsp.enable", what = "starting them, through mason-lspconfig's automatic_enable" },
+  { path = "lsp.get_clients", what = "the vault module finding clients to detach from a secret" },
+  { path = "lsp.buf_detach_client", what = "and detaching them, so no server sees a decrypted buffer" },
+}
+
+-- resolve walks a dotted path under `vim`, returning nil if any step is absent.
+local function resolve(path)
+  local at = vim
+  for part in path:gmatch("[^.]+") do
+    if type(at) ~= "table" then
+      return nil
+    end
+    at = at[part]
+  end
+  return at
+end
+
 local function check_neovim()
   health.start("Neovim")
 
-  if vim.fn.has("nvim-0.12") == 1 then
-    health.ok(("Neovim %s"):format(vim.version()))
-  else
-    health.error(
-      "Neovim 0.12 or newer is required",
-      "This config uses the native LSP API (vim.lsp.config/enable) and the "
-        .. "rewritten nvim-treesitter, neither of which exists earlier."
-    )
+  -- Asked as "does this editor provide what Chroma calls", not "is this the
+  -- version Chroma was written on". A floor is what compatibility needs;
+  -- 0.13 and later are expected to work, and are not refused for being newer
+  -- than the machine this was developed on. The version is here to make the
+  -- message useful, not to decide the answer.
+  local absent = {}
+  for _, api in ipairs(editor_api) do
+    if resolve(api.path) == nil then
+      table.insert(absent, api)
+    end
   end
+
+  if #absent == 0 then
+    health.ok(("Neovim %s — every editor API this configuration calls is present"):format(vim.version()))
+    return
+  end
+
+  local lines = {}
+  for _, api in ipairs(absent) do
+    table.insert(lines, ("vim.%s — %s"):format(api.path, api.what))
+  end
+
+  health.error(
+    ("Neovim %s is missing %d of the editor APIs this configuration calls"):format(vim.version(), #absent),
+    table.concat(lines, "\n")
+      .. "\nThe native LSP API arrived in 0.11 and this is built on it, so "
+      .. "Neovim 0.12 or newer is the floor. If this is 0.12 or newer, the "
+      .. "API was renamed or removed upstream and Chroma has to follow."
+  )
 end
 
 local function check_core()

@@ -44,14 +44,22 @@ For **every** plugin, in this order:
 
 No exceptions. This rule is the reason this contract exists.
 
-### Rule #1a — the baseline is Neovim 0.12
+### Rule #1a — Neovim 0.12 is a floor, not a target
 
-Target environment: **NVIM v0.12.4** (LuaJIT 2.1).
+**Neovim >= 0.12** (LuaJIT). Newer is expected to work and is not refused for
+being newer.
 
 0.12 ships a native LSP API — `vim.lsp.config()`, `vim.lsp.enable()`,
 `vim.lsp.is_enabled()`, `:lsp`, `:checkhealth vim.lsp`. The LSP layer is built
 on that API, not on patterns from the 0.9/0.10 era. Any tutorial older than
 0.11 is treated as outdated until verified.
+
+That is why the floor is 0.12 — a real API that a real call needs, not the
+version this was developed on. `:checkhealth chroma` asks the question that way
+too: it looks for the editor APIs `lua/` actually calls and names the ones that
+are absent, and reports the version to make the message useful rather than to
+decide the answer. A 0.13 that keeps those APIs passes without a release here
+saying it may.
 
 ---
 

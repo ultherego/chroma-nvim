@@ -158,18 +158,61 @@ single-person project with under ten stars, the most visible abandoned since
 
 ## Baseline
 
-### Neovim 0.12, not "latest stable"
+### Neovim 0.12 is a floor; CI pins a version, the configuration does not
 
-**Decision.** Target 0.12 explicitly, in the docs and in CI.
+**Decision.** Require `>= 0.12`, and check it by asking for the APIs `lua/`
+calls rather than by comparing versions. CI still runs one pinned build.
 
 **Why.** 0.12 is not a minor bump. It brings the native LSP API
 (`vim.lsp.config` / `vim.lsp.enable`), which makes the entire pre-0.11
 configuration style obsolete, and it is the version nvim-treesitter's rewritten
-`main` branch targets. Pinning CI to `stable` would let a future major change
-break the config on somebody's machine rather than in a workflow run.
+`main` branch targets. That is a real reason for a floor.
 
-**What would change it.** A 0.13 that is verified against, not assumed
-compatible with.
+It is not a reason to refuse 0.13. Chroma is a configuration, not a
+distribution of the editor: it uses the Neovim somebody already has, and the
+only fair question is whether that editor provides what Chroma calls. So
+`:checkhealth chroma` looks for `vim.lsp.config`, `vim.lsp.enable`,
+`vim.lsp.get_clients` and `vim.lsp.buf_detach_client` — measured by reading
+`lua/`, and none of them deprecated upstream as of this writing — and the
+version appears in the message rather than in the condition.
+
+The two are different jobs. CI pins an exact build because a test that runs
+against a moving target tells you nothing about what changed; the configuration
+takes a floor because a user's editor is theirs.
+
+**What would change it.** Upstream renaming or removing one of those APIs, in
+which case Chroma follows and the health check already names what went.
+
+### The user's environment is not pinned; Chroma's own runtime is
+
+**Decision.** Three classes of dependency, two policies.
+
+| | examples | policy |
+|---|---|---|
+| Chroma's runtime needs | Neovim, git, curl, tar | floor, only where an upstream states one |
+| The user's own tools | terraform, tofu, kubectl, helm, ansible, aws, docker | detected, never pinned, never touched |
+| Chroma's internal runtime | plugins, LSP servers, formatters, parsers | pinned, reproducible |
+
+**Why.** A configuration that installs its own terraform beside the one on the
+machine has taken over a system it was invited into. Detection is the whole
+job for that class: if `terraform` is there it is used, if only `tofu` is there
+the component says that satisfies it, and neither is replaced or upgraded.
+
+The internal runtime is the opposite case, and the reason is measured rather
+than argued: a release built with `lazy.sync` installed plugin versions that
+differed from the ones the lockfile named, so two installations of the same
+release were not the same editor. `install({lockfile = true})` plus `restore()`
+fixed that. The user never has to know it happened.
+
+The three version floors that do exist are each somebody else's stated
+requirement, not a memory of a development machine — `git >= 2.19` because
+lazy.nvim needs partial clones, `tree-sitter >= 0.26.1` and `fzf >= 0.36`
+because nvim-treesitter and fzf-lua say so. A floor with no such source does
+not belong in the contract.
+
+**What would change it.** A component that genuinely cannot work below some
+version of a user tool. Then that floor is written down with its reason, and
+still as a floor.
 
 ### Neovim's own defaults are not re-implemented
 

@@ -29,7 +29,7 @@ no `kubectl.nvim`, enables no `helm_ls`, and compiles no Helm parsers. See
 | Neovim | ≥ 0.12 |
 | git | ≥ 2.19 |
 | tree-sitter CLI | ≥ 0.26.1, from your package manager rather than npm |
-| fzf | > 0.36 |
+| fzf | ≥ 0.36 |
 | ripgrep, fd, bat | any |
 | curl, tar, unzip, gzip | any |
 | A C compiler | any |
@@ -40,6 +40,14 @@ Tools such as `terraform`, `kubectl`, `helm` or `ansible` are needed only for
 the components that use them, and `:checkhealth chroma` says which are missing
 and what stops working without each one. Language servers and linters install
 themselves through Mason.
+
+Those are floors, not pins, and they are the only ones. Chroma uses the tools
+you already have and does not upgrade, replace or shadow them — if you run
+OpenTofu instead of Terraform, that satisfies the component. Every version
+above is a requirement stated by something Chroma depends on: lazy.nvim needs
+partial clones, nvim-treesitter names its CLI version, fzf-lua names its fzf.
+What Chroma does pin is its own runtime — plugins, servers, parsers — so that
+one release installs the same editor twice.
 
 ## Installation
 
