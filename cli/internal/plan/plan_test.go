@@ -13,7 +13,8 @@ import (
 func fixture() component.Set {
 	return component.Set{
 		"core": {ID: "core", Name: "Core", Tools: component.Tools{
-			Required: []component.Tool{{ID: "git", Reason: "plugins"}},
+			Required:    []component.Tool{{ID: "git", Reason: "plugins"}},
+			Recommended: []component.Tool{{ID: "fzf", Reason: "pickers"}},
 		}},
 		"terraform": {ID: "terraform", Name: "Terraform", Requires: []string{"core"}, Tools: component.Tools{
 			Required:    []component.Tool{{Any: []string{"terraform", "tofu"}, Reason: "the runner"}},
@@ -68,25 +69,69 @@ func TestUnknownComponentIsReported(t *testing.T) {
 	}
 }
 
-func TestMissingRequiredToolMakesThePlanIncomplete(t *testing.T) {
-	complete := Build(fixture(), []string{"terraform"}, has("git", "tofu"))
-	if !complete.Complete() {
-		t.Error("tofu should satisfy the terraform-or-tofu requirement")
+// Complete() is about Chroma's own tooling only. Without git there are no
+// plugins and there is no installation.
+func TestMissingChromaToolMakesThePlanIncomplete(t *testing.T) {
+	if Build(fixture(), []string{"terraform"}, has("git", "tofu")).Complete() != true {
+		t.Error("git is there, so the plan is complete")
 	}
 
-	incomplete := Build(fixture(), []string{"terraform"}, has("git"))
-	if incomplete.Complete() {
-		t.Error("a plan with no terraform and no tofu is not complete")
+	if Build(fixture(), []string{"terraform"}, has("tofu")).Complete() {
+		t.Error("a plan with no git is not complete: lazy.nvim cannot clone")
 	}
 }
 
-// A recommended tool missing is not what Complete() is about: the component
-// works without it, and treating the two the same would make every plan on a
-// fresh machine look broken.
-func TestMissingRecommendedToolDoesNotMakeItIncomplete(t *testing.T) {
-	p := Build(fixture(), []string{"terraform"}, has("git", "terraform"))
+// The decision this reflects: choosing the terraform component asks for
+// Chroma's Terraform features, not for a terraform binary. An empty machine
+// installs a complete Chroma, and the features say what they need when used.
+func TestMissingExternalToolDoesNotMakeThePlanIncomplete(t *testing.T) {
+	p := Build(fixture(), []string{"terraform"}, has("git"))
+
 	if !p.Complete() {
-		t.Error("only terragrunt is missing, and it is recommended")
+		t.Error("neither terraform nor tofu is on this machine, and neither is Chroma's to install")
+	}
+
+	external := p.External()
+	if len(external) == 0 {
+		t.Fatal("the terraform tools are not reported as external at all")
+	}
+	for _, tool := range external {
+		if tool.Component == "core" {
+			t.Errorf("%v came from core and is not external", tool.Names)
+		}
+	}
+}
+
+// And core's own tools are never external, whichever component pulled core in.
+func TestCoreToolsAreNotExternal(t *testing.T) {
+	for _, tool := range Build(fixture(), []string{"terraform"}, has()).Tools {
+		if tool.Names[0] == "git" && tool.External {
+			t.Error("git is marked external; it is Chroma's own requirement")
+		}
+	}
+}
+
+// A recommended tool missing is not what Complete() is about, even when it is
+// one of Chroma's own: the configuration works without it, and treating the two
+// the same would make every plan on a fresh machine look broken.
+func TestMissingRecommendedToolDoesNotMakeItIncomplete(t *testing.T) {
+	p := Build(fixture(), []string{"core"}, has("git"))
+
+	fzf := false
+	for _, tool := range p.Tools {
+		if tool.Names[0] == "fzf" {
+			fzf = true
+			if tool.External || tool.Level != "recommended" || tool.Present {
+				t.Fatalf("fzf = %+v; this test needs core's own absent recommended tool", tool)
+			}
+		}
+	}
+	if !fzf {
+		t.Fatal("fzf is not in the plan, so this proves nothing")
+	}
+
+	if !p.Complete() {
+		t.Error("only a recommended tool is missing")
 	}
 }
 
@@ -113,16 +158,19 @@ func TestRequiredBeatsRecommended(t *testing.T) {
 	// has to sort first — otherwise the required level is set by the first writer
 	// and the branch that raises it never runs. That is what made the first
 	// version of this test pass with the rule deleted.
+	// The component that only recommends has to sort first, and the one that
+	// requires has to be `core` — otherwise the tool is external and the last
+	// assertion below cannot tell the rule from its absence.
 	set := component.Set{
 		"a-recommends": {ID: "a-recommends", Tools: component.Tools{
 			Recommended: []component.Tool{{ID: "terragrunt", Reason: "nice to have here"}},
 		}},
-		"b-requires": {ID: "b-requires", Tools: component.Tools{
+		"core": {ID: "core", Tools: component.Tools{
 			Required: []component.Tool{{ID: "terragrunt", Reason: "cannot work without it here"}},
 		}},
 	}
 
-	p := Build(set, []string{"a-recommends", "b-requires"}, has())
+	p := Build(set, []string{"a-recommends", "core"}, has())
 
 	var found *Tool
 	for i := range p.Tools {
@@ -167,17 +215,38 @@ func TestRecommendedDoesNotWeakenRequired(t *testing.T) {
 	}
 }
 
-// The same tool at the same level, from two components, is still one thing to
-// install; saying it twice reads as two.
 func TestRenderNamesWhatIsMissing(t *testing.T) {
 	var buffer bytes.Buffer
 	Build(fixture(), []string{"terraform"}, has("git")).Render(&buffer)
 	out := buffer.String()
 
-	for _, want := range []string{"core, terraform", "pulled in as a dependency", "terraform or tofu"} {
+	for _, want := range []string{"core, terraform", "pulled in as a dependency", "fzf (recommended)"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("plan does not mention %q:\n%s", want, out)
 		}
+	}
+}
+
+// The user's own tools are named but not counted, and the plan says which of
+// the two it is doing — otherwise the line reads as a checklist to satisfy
+// before installing, which is exactly what it is not.
+func TestRenderNamesExternalToolsWithoutCountingThem(t *testing.T) {
+	var buffer bytes.Buffer
+	Build(fixture(), []string{"terraform"}, has("git")).Render(&buffer)
+	out := buffer.String()
+
+	for _, want := range []string{"terraform/tofu", "does not install these"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("plan does not mention %q:\n%s", want, out)
+		}
+	}
+	// Which means it must not appear under Missing, where the exit code lives.
+	missing := out[strings.Index(out, "Missing"):]
+	if cut := strings.Index(missing, "External"); cut >= 0 {
+		missing = missing[:cut]
+	}
+	if strings.Contains(missing, "terraform") {
+		t.Errorf("an external tool is reported as missing:\n%s", out)
 	}
 }
 
@@ -198,7 +267,7 @@ func TestRenderSaysWhenNothingWouldBeInstalled(t *testing.T) {
 
 func TestRenderSaysWhenNothingIsMissing(t *testing.T) {
 	var buffer bytes.Buffer
-	Build(fixture(), []string{"core"}, has("git")).Render(&buffer)
+	Build(fixture(), []string{"core"}, has("git", "fzf")).Render(&buffer)
 
 	if !strings.Contains(buffer.String(), "Missing       nothing") {
 		t.Errorf("a complete plan should say so:\n%s", buffer.String())

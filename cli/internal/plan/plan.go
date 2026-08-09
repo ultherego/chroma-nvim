@@ -24,6 +24,13 @@ type Tool struct {
 	Reason  string
 	Level   string
 	Present bool
+
+	// Component is the id that asked for it, and External marks it as the
+	// user's own rather than Chroma's. `core` is Chroma itself; everything else
+	// asks for tools that belong to the machine — terraform, kubectl, helm —
+	// which Chroma reports on and never installs.
+	Component string
+	External  bool
 }
 
 // Plan is what would happen. Component ids are sorted, so the same request
@@ -41,15 +48,32 @@ type Plan struct {
 	Unknown []string
 }
 
-// Complete reports whether every required tool is present. A plan that is not
-// complete can still be run; the user is told, and decides.
+// Complete reports whether everything Chroma itself needs is present.
+//
+// External tools are deliberately not counted. Choosing the kubernetes
+// component means "give me Chroma's Kubernetes features", not "install
+// kubectl" — so an absent kubectl is a fact about the machine, not an
+// incomplete plan, and the features that shell out to it say so when used.
+// Without git, by contrast, there are no plugins and there is no installation.
 func (p Plan) Complete() bool {
 	for _, tool := range p.Tools {
-		if tool.Level == "required" && !tool.Present {
+		if !tool.External && tool.Level == "required" && !tool.Present {
 			return false
 		}
 	}
 	return true
+}
+
+// External returns the user's own tools, in plan order. This is a report, not
+// a check: the caller prints it and carries on.
+func (p Plan) External() []Tool {
+	var out []Tool
+	for _, tool := range p.Tools {
+		if tool.External {
+			out = append(out, tool)
+		}
+	}
+	return out
 }
 
 // Build expands the request through the dependency graph and reports what that
@@ -113,6 +137,14 @@ func Build(set component.Set, requested []string, lookup Lookup) Plan {
 					if level.name == "required" {
 						plan.Tools[at].Level = "required"
 					}
+					// And core wins: a tool core asks for is Chroma's own even
+					// if a component named it first. Set by first writer, this
+					// would make git external whenever some component happened
+					// to sort ahead of core and want it too.
+					if id == "core" {
+						plan.Tools[at].Component = "core"
+						plan.Tools[at].External = false
+					}
 					continue
 				}
 
@@ -126,10 +158,12 @@ func Build(set component.Set, requested []string, lookup Lookup) Plan {
 
 				seen[key] = len(plan.Tools)
 				plan.Tools = append(plan.Tools, Tool{
-					Names:   tool.Names(),
-					Reason:  tool.Reason,
-					Level:   level.name,
-					Present: present,
+					Names:     tool.Names(),
+					Reason:    tool.Reason,
+					Level:     level.name,
+					Present:   present,
+					Component: id,
+					External:  id != "core",
 				})
 			}
 		}
@@ -157,8 +191,12 @@ func (p Plan) Render(w io.Writer) {
 		fmt.Fprintf(w, "                %s pulled in as a dependency\n", strings.Join(p.Added, ", "))
 	}
 
+	// Chroma's own tooling: the half of this that can stop an installation.
 	var missing, present []string
 	for _, tool := range p.Tools {
+		if tool.External {
+			continue
+		}
 		name := strings.Join(tool.Names, " or ")
 		if tool.Present {
 			present = append(present, name)
@@ -176,4 +214,23 @@ func (p Plan) Render(w io.Writer) {
 	case len(p.Components) > 0:
 		fmt.Fprint(w, "  Missing       nothing\n")
 	}
+
+	// The user's own tools, named but not counted. Listing them here would read
+	// as a checklist to satisfy before installing, which is exactly what they
+	// are not — so this says how many and where the full report is.
+	if absent := p.absentExternal(); len(absent) > 0 {
+		fmt.Fprintf(w, "  External      %s not on PATH; Chroma does not install these,\n", strings.Join(absent, ", "))
+		fmt.Fprint(w, "                and installing without them changes nothing here\n")
+	}
+}
+
+// absentExternal names the user's own tools that are not on PATH.
+func (p Plan) absentExternal() []string {
+	var out []string
+	for _, tool := range p.External() {
+		if !tool.Present {
+			out = append(out, strings.Join(tool.Names, "/"))
+		}
+	}
+	return out
 }

@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ultherego/chroma-nvim/cli/internal/detect"
 	"github.com/ultherego/chroma-nvim/cli/internal/install"
 	"github.com/ultherego/chroma-nvim/cli/internal/plan"
 	"github.com/ultherego/chroma-nvim/cli/internal/release"
@@ -121,11 +122,14 @@ func cmdInstall(args []string, out, errOut *os.File) int {
 		return exitOK
 	}
 
-	// A required tool that is missing means an installation that cannot work,
+	// One of Chroma's own tools missing means an installation that cannot work,
 	// and finding that out after the configuration has been placed is finding
-	// it out too late.
+	// it out too late. External tools are not part of this: choosing the
+	// kubernetes component asks for Chroma's Kubernetes features, not for
+	// kubectl, and refusing to install an editor because a CLI is absent would
+	// be Chroma deciding what belongs on somebody's machine.
 	if !built.Complete() {
-		fmt.Fprint(errOut, "\nSomething required is missing. Install it, or choose fewer components.\n")
+		fmt.Fprint(errOut, "\nSomething Chroma itself needs is missing. Install it, or choose fewer components.\n")
 		return exitPreflight
 	}
 
@@ -145,6 +149,12 @@ func cmdInstall(args []string, out, errOut *os.File) int {
 		fmt.Fprintln(errOut, err)
 		return exitFailed
 	}
+
+	// Said at the end rather than at the start, and after the installation has
+	// already succeeded, so that it reads as what it is: a note about the
+	// machine, not a list of things to fix before Chroma will work.
+	_, external := detect.Split(detect.Tools(loaded, built.Components, nil, nil))
+	detect.RenderExternal(out, external)
 
 	fmt.Fprintf(out, "\nRun it with:\n")
 	if paths.AppName != "" {

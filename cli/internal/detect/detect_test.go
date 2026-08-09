@@ -1,6 +1,7 @@
 package detect
 
 import (
+	"bytes"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -43,14 +44,12 @@ func find(tools []Tool, name string) (Tool, bool) {
 	return Tool{}, false
 }
 
-// The four states are the point: "missing" was never enough of an answer,
-// because absent-but-installable, absent-and-manual and present-but-too-old are
-// three different problems with three different next steps.
-func TestTheFourStates(t *testing.T) {
+// The states are what is known, not what to do about it: present, present and
+// too old, absent.
+func TestTheThreeStates(t *testing.T) {
 	set := shipped(t)
-	arch := System{OS: "linux", Arch: "amd64", PackageManager: "pacman"}
 
-	tools := Tools(set, []string{"core"}, arch,
+	tools := Tools(set, []string{"core"},
 		present("git", "curl", "tar", "unzip", "gzip", "cc", "tree-sitter", "fzf"),
 		says(map[string]string{
 			"git":         "2.51.0",
@@ -67,8 +66,7 @@ func TestTheFourStates(t *testing.T) {
 		{"git", Present, "there and new enough"},
 		{"tree-sitter", Present, "there and new enough"},
 		{"fzf", TooOld, "there, and older than the contract accepts"},
-		{"rg", Installable, "absent, and pacman has a verified name for it"},
-		{"yazi", Installable, "absent, and pacman has a verified name for it"},
+		{"rg", Absent, "not there"},
 	} {
 		tool, found := find(tools, tc.name)
 		if !found {
@@ -81,33 +79,62 @@ func TestTheFourStates(t *testing.T) {
 	}
 }
 
-// A tool with no verified package name produces an instruction, not a guess.
-func TestAnUnknownPackageIsManual(t *testing.T) {
+// The decision this package exists to hold: a tool the user owns is never a
+// reason to stop. Chroma installs Chroma.
+func TestAnExternalToolNeverBlocks(t *testing.T) {
 	set := shipped(t)
 
-	// A manager nothing has been verified against.
-	tools := Tools(set, []string{"core"}, System{PackageManager: "apt-get"}, present(), says(nil))
+	// Nothing on this machine at all.
+	tools := Tools(set, []string{"core", "terraform", "kubernetes", "ansible", "aws"}, present(), says(nil))
 
-	tool, found := find(tools, "rg")
-	if !found {
-		t.Fatal("rg was not reported")
-	}
-	if tool.Status != Manual {
-		t.Errorf("rg = %q on a manager with no verified names, want %q", tool.Status, Manual)
-	}
-	if tool.Command != nil {
-		t.Errorf("a command was built for a package nobody verified: %v", tool.Command)
+	for _, name := range []string{"terraform", "kubectl", "ansible-playbook", "aws"} {
+		tool, found := find(tools, name)
+		if !found {
+			continue // not every one of these is in every component
+		}
+		if !tool.External {
+			t.Errorf("%s is not marked external, so its absence would stop an installation", name)
+		}
+		if tool.Blocking() {
+			t.Errorf("%s blocks an installation; choosing a component asks for Chroma's features, not for the CLI", name)
+		}
 	}
 }
 
-// And a machine with no package manager at all is every tool's manual case.
-func TestNoPackageManagerMeansManual(t *testing.T) {
+// And the other half of the same boundary: without git there are no plugins,
+// so that one does stop.
+func TestChromasOwnRequiredToolBlocks(t *testing.T) {
 	set := shipped(t)
 
-	for _, tool := range Tools(set, []string{"core"}, System{}, present(), says(nil)) {
-		if tool.Status != Manual {
-			t.Errorf("%v = %q with no package manager, want %q", tool.Names, tool.Status, Manual)
-		}
+	tools := Tools(set, []string{"core"}, present(), says(nil))
+
+	git, found := find(tools, "git")
+	if !found {
+		t.Fatal("git was not reported")
+	}
+	if git.External {
+		t.Error("git is marked external; it is Chroma's own requirement")
+	}
+	if !git.Blocking() {
+		t.Error("an absent git does not block, but lazy.nvim cannot clone without it")
+	}
+}
+
+// A recommended tool of Chroma's own is still not a reason to refuse.
+func TestOnlyRequiredBlocks(t *testing.T) {
+	set := shipped(t)
+
+	tools := Tools(set, []string{"core"}, present(), says(nil))
+
+	fzf, found := find(tools, "fzf")
+	if !found {
+		t.Fatal("fzf was not reported")
+	}
+	if fzf.Level != "recommended" {
+		t.Fatalf("fzf is %q; this test assumed recommended", fzf.Level)
+	}
+	if fzf.Blocking() {
+		t.Error("an absent recommended tool blocks an installation")
 	}
 }
 
@@ -116,7 +143,7 @@ func TestNoPackageManagerMeansManual(t *testing.T) {
 func TestAnAlternativeCanAnswer(t *testing.T) {
 	set := shipped(t)
 
-	tools := Tools(set, []string{"core", "terraform"}, System{PackageManager: "pacman"},
+	tools := Tools(set, []string{"core", "terraform"},
 		present("tofu"), says(map[string]string{"tofu": "1.8.0"}))
 
 	tool, found := find(tools, "terraform")
@@ -128,47 +155,11 @@ func TestAnAlternativeCanAnswer(t *testing.T) {
 	}
 }
 
-// Nothing is handed to a shell, and the command shown is the command that would
-// run — including the fact that it needs root.
-func TestTheCommandIsArgvAndSaysItNeedsRoot(t *testing.T) {
-	set := shipped(t)
-
-	tools := Tools(set, []string{"core"}, System{PackageManager: "pacman"}, present(), says(nil))
-	tool, _ := find(tools, "rg")
-
-	if len(tool.Command) == 0 {
-		t.Fatal("no command for an installable tool")
-	}
-	if tool.Command[0] != "sudo" {
-		t.Errorf("command = %v, want it to say it needs root", tool.Command)
-	}
-	if tool.Package != "ripgrep" {
-		t.Errorf("package = %q, want the name Arch actually uses", tool.Package)
-	}
-	for _, part := range tool.Command {
-		if strings.ContainsAny(part, "|;&$`") {
-			t.Errorf("command carries shell syntax: %q", part)
-		}
-	}
-}
-
-// Running as root, the sudo is neither needed nor present in every image.
-func TestRootNeedsNoSudo(t *testing.T) {
-	set := shipped(t)
-
-	tools := Tools(set, []string{"core"}, System{PackageManager: "pacman", IsRoot: true}, present(), says(nil))
-	tool, _ := find(tools, "rg")
-
-	if len(tool.Command) == 0 || tool.Command[0] == "sudo" {
-		t.Errorf("command = %v, want no sudo when already root", tool.Command)
-	}
-}
-
-// One entry per requirement: a tool two components ask for is one thing to do.
+// One entry per requirement: a tool two components ask for is one thing to know.
 func TestARequirementIsReportedOnce(t *testing.T) {
 	set := shipped(t)
 
-	tools := Tools(set, []string{"core", "terraform", "vault", "ansible"}, System{}, present(), says(nil))
+	tools := Tools(set, []string{"core", "terraform", "vault", "ansible"}, present(), says(nil))
 
 	counted := map[string]int{}
 	for _, tool := range tools {
@@ -181,11 +172,11 @@ func TestARequirementIsReportedOnce(t *testing.T) {
 	}
 }
 
-// The levels come from the contract and decide what stops an installation.
+// The levels come from the contract.
 func TestLevelsComeFromTheContract(t *testing.T) {
 	set := shipped(t)
 
-	tools := Tools(set, []string{"core", "terraform"}, System{}, present(), says(nil))
+	tools := Tools(set, []string{"core", "terraform"}, present(), says(nil))
 
 	for _, tc := range []struct{ name, level string }{
 		{"git", "required"},
@@ -202,8 +193,82 @@ func TestLevelsComeFromTheContract(t *testing.T) {
 		if tool.Level != tc.level {
 			t.Errorf("%s is %q, want %q", tc.name, tool.Level, tc.level)
 		}
-		if tool.Required() != (tc.level == "required") {
-			t.Errorf("%s: Required() disagrees with the level", tc.name)
+	}
+}
+
+// A tool both core and a component ask for is Chroma's own, whichever the
+// caller happened to enumerate first. `doctor` walks the contract in sorted
+// order, so anything sorting before "core" would otherwise make a tool Chroma
+// cannot run without look like the user's — and stop it blocking.
+func TestCoreWinsWhicheverComponentIsSeenFirst(t *testing.T) {
+	set := component.Set{
+		"ansible": {ID: "ansible", Tools: component.Tools{
+			Recommended: []component.Tool{{ID: "git", Reason: "cloning roles"}},
+		}},
+		"core": {ID: "core", Tools: component.Tools{
+			Required: []component.Tool{{ID: "git", Reason: "lazy.nvim clones plugins"}},
+		}},
+	}
+
+	// Sorted order, which is what doctor passes: ansible is seen first.
+	tools := Tools(set, []string{"ansible", "core"}, present(), says(nil))
+
+	git, found := find(tools, "git")
+	if !found {
+		t.Fatal("git was not reported")
+	}
+	if git.External {
+		t.Error("git is external because a component named it before core did")
+	}
+	if git.Level != "required" {
+		t.Errorf("level = %q, want required: core cannot work without it", git.Level)
+	}
+	if !git.Blocking() {
+		t.Error("an absent git does not block, because a component got to it first")
+	}
+}
+
+func TestSplitPutsEachToolOnOneSide(t *testing.T) {
+	set := shipped(t)
+
+	own, external := Split(Tools(set, []string{"core", "terraform"}, present(), says(nil)))
+
+	if len(own) == 0 || len(external) == 0 {
+		t.Fatalf("split gave %d own and %d external", len(own), len(external))
+	}
+	for _, tool := range own {
+		if tool.Component != "core" {
+			t.Errorf("%v is on the Chroma side but came from %q", tool.Names, tool.Component)
+		}
+	}
+	for _, tool := range external {
+		if tool.Component == "core" {
+			t.Errorf("%v is on the external side but came from core", tool.Names)
+		}
+	}
+}
+
+// The wording is the substance: an absent kubectl is a fact about the machine,
+// and a report that shouts about it says the installation is broken when it is
+// not.
+func TestTheReportDoesNotCallAMissingToolAFailure(t *testing.T) {
+	set := shipped(t)
+
+	_, external := Split(Tools(set, []string{"core", "kubernetes"}, present(), says(nil)))
+
+	var buffer bytes.Buffer
+	RenderExternal(&buffer, external)
+	text := buffer.String()
+
+	if !strings.Contains(text, "not found") {
+		t.Errorf("the report does not say what is not found:\n%s", text)
+	}
+	if !strings.Contains(text, "does not install") {
+		t.Errorf("the report does not say Chroma will not install these:\n%s", text)
+	}
+	for _, shouted := range []string{"ERROR", "FAIL", "missing dependency", "required but"} {
+		if strings.Contains(text, shouted) {
+			t.Errorf("the report says %q about a tool that is simply the user's to install:\n%s", shouted, text)
 		}
 	}
 }

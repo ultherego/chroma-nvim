@@ -48,8 +48,7 @@ cli/
   internal/
     component/           reads and validates the component contract
     resolve/             dependencies, conflicts, the plan
-    detect/              what is on this machine: tools, versions, package manager
-    pkg/                 per-manager install commands; knows how to say "I cannot"
+    detect/              what is on this machine: tools and versions. It reports.
     install/             fetch a release, place it, back it up, bootstrap Neovim
     state/               the installed-state file
     health/             preflight, and `doctor`
@@ -280,23 +279,36 @@ is enabled, and the thing it drives is not there. `doctor` says the same later.
 
 ## It is not a package manager
 
-It knows `pacman`, `apt`, `dnf`, `zypper` and `brew` well enough to install
-named packages and to read what is installed. It does not resolve versions, hold
-its own package database, or install anything from a URL through a shell.
+It knows no package manager at all, and this is the strong version of that
+claim: there is no table of package names, no install command, no `sudo`, and
+nothing that could grow into one. Chroma installs Chroma.
 
-When it cannot install something safely it says so and prints the command:
+Choosing the kubernetes component asks for Chroma's Kubernetes features — the
+plugin, the language server, the schemas, the parser. It does not ask for
+`kubectl`, and an absent `kubectl` neither blocks the installation nor makes it
+incomplete. What the installation does is say so, once, at the end:
 
 ```
-terraform-docs is not installed.
+External tools
 
-Automatic installation is not supported for this package on Arch Linux.
-Install it with:
+  These belong to your system. Chroma does not install, upgrade or
+  replace them. A feature that needs one says so when you use it.
 
-  pacman -S terraform-docs
+  kubernetes
+    not found  kubectl                views and log tailing
 ```
 
-That is a better outcome than `curl | sh`, and it is the honest one: the CLI
-does not know what that script does either.
+`not found`, never `ERROR` — an installation on a machine with no kubectl is a
+complete installation. `chroma doctor` prints the same report later, from the
+same renderer, so the two cannot drift.
+
+The moment that actually matters is later still, in the editor: a feature that
+shells out to `kubectl` checks for it and says what is absent, which is both
+accurate and useful, because that is when somebody wants it. An earlier version
+of this design had a per-distribution package table and a `sudo pacman -S`
+behind a confirmation. It was deleted rather than left unused: the useful half
+was always the sentence "kubectl is not here", and that needs no package
+manager to say.
 
 ---
 
@@ -566,7 +578,7 @@ Everything else is a backlog entry, and the work continues.
  8  install.json                            written only after verify
  9  real `chroma install`                   the end of --dry-run only
 10  GitHub release source
-11  detect and package managers
+11  complete Neovim provisioning            Mason installs everything it is asked to
 12  TUI
 13  release workflow
     ----------------------------------------- installer V1 ends here

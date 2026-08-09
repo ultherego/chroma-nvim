@@ -1,80 +1,71 @@
 // Package detect reports what is on this machine.
 //
-// Two questions, kept apart. What the system is — its package manager, whether
-// this is running as root — and what state each tool the enabled components ask
-// for is in. The second is the one a person reads before deciding whether to
-// install anything, and "missing" was never enough of an answer: a tool that is
-// absent but installable, one that is absent and has to be fetched by hand, and
-// one that is present but older than the contract accepts are three different
-// problems with three different next steps.
+// It reports. It does not install, and it does not know how: Chroma installs
+// Chroma, and a configuration that installs a terraform beside the one already
+// on the machine has taken over a system it was invited into. What used to live
+// beside this — a table of package names per distribution, and the commands to
+// run them — was deleted rather than left unused, because the useful half of it
+// was always the sentence "kubectl is not here", and that needs no package
+// manager to say.
+//
+// Two questions, kept apart. What the system is, and what state each tool the
+// enabled components ask for is in. The second has a boundary in it that
+// matters more than the states do: a tool `core` asks for is something Chroma
+// itself cannot run without, and a tool any other component asks for is the
+// user's own — wanted by a feature, absent at worst, and never a reason to
+// refuse an installation.
 package detect
 
 import (
+	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"runtime"
+	"sort"
+	"strings"
 
 	"github.com/ultherego/chroma-nvim/cli/internal/component"
-	"github.com/ultherego/chroma-nvim/cli/internal/pkg"
 	"github.com/ultherego/chroma-nvim/cli/internal/toolver"
 )
 
-// System is the machine an installation would land on.
+// System is the machine an installation would land on. Kept for the diagnostic
+// line `doctor` prints; nothing here decides anything.
 type System struct {
 	OS   string
 	Arch string
 
-	// PackageManager is the first of pkg.Managers found on PATH, or empty.
-	// First-found rather than best-guess: a machine with two of them is not one
-	// to be clever about, and the CLI says which it chose.
-	PackageManager string
-
-	// IsRoot matters because the install commands carry `sudo`, which is
-	// neither present nor needed when already root.
+	// IsRoot is worth saying out loud in a report, because an installation run
+	// as root writes files somebody will later fail to edit.
 	IsRoot bool
 }
 
 // DetectSystem asks the machine about itself.
 func DetectSystem() System {
-	system := System{
+	return System{
 		OS:     runtime.GOOS,
 		Arch:   runtime.GOARCH,
 		IsRoot: os.Geteuid() == 0,
 	}
-
-	for _, manager := range pkg.Managers {
-		if _, err := exec.LookPath(manager); err == nil {
-			system.PackageManager = manager
-			break
-		}
-	}
-
-	return system
 }
 
-// Status is what has to happen about a tool, if anything.
+// Status is what is known about a tool.
 type Status string
 
 const (
-	// Present and new enough. Nothing to do.
+	// Present and new enough.
 	Present Status = "present"
 
 	// TooOld is present but older than the contract accepts. Reported apart
-	// from missing because telling somebody to install a thing they already
-	// have sends them looking for a package they will find installed.
+	// from absent because telling somebody to install a thing they already have
+	// sends them looking for a package they will find installed.
 	TooOld Status = "too old"
 
-	// Installable is absent, and this machine's package manager has a name for
-	// it that somebody verified.
-	Installable Status = "installable"
-
-	// Manual is absent, and there is no verified way to install it here. The
-	// CLI says what is missing and why, and stops there rather than guessing a
-	// package name.
-	Manual Status = "manual"
+	// Absent is not there. For an external tool that is a fact, not a fault.
+	Absent Status = "absent"
 )
 
-// Tool is one requirement, and what to do about it.
+// Tool is one requirement, and what is known about it.
 type Tool struct {
 	// Names are the names that satisfy it — `terraform` or `tofu`, `cc` or
 	// `gcc` or `clang`.
@@ -89,25 +80,34 @@ type Tool struct {
 	// Component is the id that asked for it.
 	Component string
 
+	// External marks a tool that belongs to the user rather than to Chroma:
+	// terraform, kubectl, helm, ansible, aws, docker. Chroma neither installs
+	// nor upgrades these, and their absence never blocks anything. The
+	// distinction is the component that asked: `core` is Chroma itself.
+	External bool
+
 	// Found is the name that answered, and Version what it said it was. Version
 	// is empty when the tool would not say — which is not the same as absent,
 	// and is why a constraint cannot be checked against it.
 	Found   string
 	Version string
 
-	// Want is the constraint, if the contract set one.
+	// Want is the constraint, if the contract set one. There are three in the
+	// whole contract and each is an upstream's stated requirement; no external
+	// tool carries one.
 	Want *component.Version
 
 	Status Status
-
-	// Package and Command are set when Status is Installable: what to install,
-	// and the argv that would install it.
-	Package string
-	Command []string
 }
 
-// Required reports whether an installation cannot work without this.
-func (t Tool) Required() bool { return t.Level == "required" }
+// Blocking reports whether this missing tool should stop an installation.
+//
+// Only Chroma's own required tools do. A missing kubectl means the Kubernetes
+// features that shell out to kubectl will say so when used, which is both the
+// accurate statement and the moment it matters.
+func (t Tool) Blocking() bool {
+	return !t.External && t.Level == "required" && t.Status != Present
+}
 
 // Lookup answers whether a name is on PATH. A parameter so that tests do not
 // depend on the machine running them.
@@ -126,9 +126,9 @@ func OnPath(name string) bool {
 //
 // One entry per requirement, in contract order, so that two runs on one machine
 // read the same. A tool asked for by two components appears once, under the
-// first that asked — the point is what has to be done about it, and that is the
-// same either way.
-func Tools(set component.Set, enabled []string, system System, lookup Lookup, version Version) []Tool {
+// first that asked — the point is what is known about it, and that is the same
+// either way.
+func Tools(set component.Set, enabled []string, lookup Lookup, version Version) []Tool {
 	if lookup == nil {
 		lookup = OnPath
 	}
@@ -137,7 +137,7 @@ func Tools(set component.Set, enabled []string, system System, lookup Lookup, ve
 	}
 
 	var tools []Tool
-	seen := map[string]bool{}
+	seen := map[string]int{}
 
 	for _, id := range enabled {
 		one := set[id]
@@ -155,12 +155,22 @@ func Tools(set component.Set, enabled []string, system System, lookup Lookup, ve
 		} {
 			for _, wanted := range level.tools {
 				key := wanted.Names()[0]
-				if seen[key] {
+				if at, already := seen[key]; already {
+					// core wins, whatever order the callers pass. A tool core
+					// needs is Chroma's own even when a component named it
+					// first, or git would become external — and stop blocking —
+					// the moment some component sorted ahead of core and also
+					// wanted it.
+					if id == "core" {
+						tools[at].Component = "core"
+						tools[at].External = false
+						tools[at].Level = level.name
+					}
 					continue
 				}
-				seen[key] = true
+				seen[key] = len(tools)
 
-				tools = append(tools, describe(wanted, level.name, id, system, lookup, version))
+				tools = append(tools, describe(wanted, level.name, id, lookup, version))
 			}
 		}
 	}
@@ -168,13 +178,14 @@ func Tools(set component.Set, enabled []string, system System, lookup Lookup, ve
 	return tools
 }
 
-// describe works out the state of one requirement.
-func describe(wanted component.Tool, level, id string, system System, lookup Lookup, version Version) Tool {
+// describe works out what is known about one requirement.
+func describe(wanted component.Tool, level, id string, lookup Lookup, version Version) Tool {
 	tool := Tool{
 		Names:     wanted.Names(),
 		Level:     level,
 		Reason:    wanted.Reason,
 		Component: id,
+		External:  id != "core",
 		Want:      wanted.Version,
 	}
 
@@ -199,29 +210,69 @@ func describe(wanted component.Tool, level, id string, system System, lookup Loo
 		}
 	}
 
-	// Absent. Whether that is actionable depends on this machine.
-	tool.Status = Manual
-	if system.PackageManager == "" {
-		return tool
-	}
+	tool.Status = Absent
+	return tool
+}
 
-	for _, name := range tool.Names {
-		if packaged, known := pkg.Package(system.PackageManager, name); known {
-			command, buildable := pkg.InstallCommand(system.PackageManager, []string{packaged})
-			if !buildable {
-				break
-			}
-			// Already root: the sudo the command carries is neither needed nor
-			// available in every image that runs as root.
-			if system.IsRoot && len(command) > 0 && command[0] == "sudo" {
-				command = command[1:]
-			}
-			tool.Status = Installable
-			tool.Package = packaged
-			tool.Command = command
-			break
+// Split separates Chroma's own tooling from the user's, which is the division
+// every caller here needs and none should re-derive.
+func Split(tools []Tool) (own, external []Tool) {
+	for _, tool := range tools {
+		if tool.External {
+			external = append(external, tool)
+		} else {
+			own = append(own, tool)
 		}
 	}
+	return own, external
+}
 
-	return tool
+// RenderExternal writes the report on the user's own tools, grouped by the
+// component that wants each one.
+//
+// One renderer, called by `doctor` and by the end of an installation, because
+// two of them would be two things to keep saying the same. The wording is the
+// substance here: `not found`, never `ERROR` or `missing dependency`, because
+// an installation with no kubectl on the machine is a complete installation.
+func RenderExternal(w io.Writer, tools []Tool) {
+	if len(tools) == 0 {
+		return
+	}
+
+	byComponent := map[string][]Tool{}
+	for _, tool := range tools {
+		byComponent[tool.Component] = append(byComponent[tool.Component], tool)
+	}
+
+	ids := make([]string, 0, len(byComponent))
+	for id := range byComponent {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+
+	fmt.Fprint(w, "\nExternal tools\n")
+	fmt.Fprint(w, "  These belong to your system. Chroma does not install, upgrade or\n")
+	fmt.Fprint(w, "  replace them. A feature that needs one says so when you use it.\n")
+
+	for _, id := range ids {
+		fmt.Fprintf(w, "\n  %s\n", id)
+		for _, tool := range byComponent[id] {
+			names := strings.Join(tool.Names, " or ")
+
+			switch tool.Status {
+			case Present, TooOld:
+				fmt.Fprintf(w, "    found      %-22s %s\n", names, describeFound(tool))
+			case Absent:
+				fmt.Fprintf(w, "    not found  %-22s %s\n", names, tool.Reason)
+			}
+		}
+	}
+}
+
+// describeFound says what answered, and what it said it was.
+func describeFound(tool Tool) string {
+	if tool.Version == "" {
+		return tool.Found
+	}
+	return fmt.Sprintf("%s %s", tool.Found, tool.Version)
 }
