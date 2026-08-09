@@ -13,6 +13,12 @@ type PreparedSource struct {
 	// Root is the directory holding init.lua, lua/ and components/.
 	Root string
 
+	// Kind is where this came from: KindRelease or KindTree. Set by whichever
+	// source produced it, because that is the only thing that knows — deriving
+	// it from the request would make it a description of what was asked for
+	// rather than of what arrived.
+	Kind string
+
 	// Version is the release this tree is. Empty means it is not a release —
 	// only a source tree can be unversioned, and that is one of the reasons
 	// --source-tree is developer-only: an installation with no version is one
@@ -24,11 +30,21 @@ type PreparedSource struct {
 	// while it is being read.
 	Contract int
 
+	// SHA256 is the checksum of the archive this came out of, verified before
+	// it was unpacked. Empty for a tree, which has no archive.
+	SHA256 string
+
 	// Cleanup releases whatever preparing this took — a temporary directory for
 	// a downloaded release, nothing for a tree that was already here. Safe to
 	// call more than once.
 	Cleanup func() error
 }
+
+// Kinds a prepared source may be.
+const (
+	KindRelease = "release"
+	KindTree    = "tree"
+)
 
 // Source produces a tree to install from.
 type Source interface {

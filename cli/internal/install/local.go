@@ -88,6 +88,7 @@ func (s LocalSource) Prepare(_ context.Context) (PreparedSource, error) {
 
 	return PreparedSource{
 		Root: root,
+		Kind: KindTree,
 		// Deliberately unversioned: see PreparedSource.Version.
 		Version:  "",
 		Contract: component.Contract,

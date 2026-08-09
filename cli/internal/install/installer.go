@@ -1,0 +1,193 @@
+package install
+
+import (
+	"context"
+	"fmt"
+	"time"
+
+	"github.com/ultherego/chroma-nvim/cli/internal/component"
+	"github.com/ultherego/chroma-nvim/cli/internal/installstate"
+	"github.com/ultherego/chroma-nvim/cli/internal/state"
+)
+
+// Installer carries out an installation.
+//
+// The interactive flow, the flag flow and — later — update all go through this
+// one function. A second implementation of "place a Chroma on a machine" is a
+// second set of orderings to get right, and the ordering is the whole design.
+type Installer struct {
+	Runner Runner
+	Sink   ProgressSink
+}
+
+// Result is what happened.
+//
+// Returned on failure as well as on success, because "what happened" is most
+// worth knowing when it did not work: the user needs to be told whether the
+// machine is back the way it was, and being told nothing is how a rollback that
+// silently failed becomes a support question.
+type Result struct {
+	Paths    Paths
+	Selected []string
+	Enabled  []string
+	State    installstate.State
+
+	// Recorded says whether install.json was written, which is the only
+	// difference between a managed installation and a directory that looks like
+	// one.
+	Recorded bool
+
+	// RolledBack says an attempt was made to put the machine back, and
+	// RollbackProblem says it did not entirely work. The second is the one to
+	// print loudly.
+	RolledBack      bool
+	RollbackProblem error
+}
+
+// Apply runs the installation, and undoes it if any step fails.
+//
+// The order is the design, and it is this way round for reasons that are each
+// somebody's bad afternoon:
+//
+//	selection   written first, so what runs is decided before anything runs
+//	stage       assembled beside the target, complete before the target is touched
+//	backup      a rename, so the old configuration cannot be half-moved
+//	place       one rename, so there is no moment with half a configuration
+//	bootstrap   plugins, tools and parsers, in the tree that was just placed
+//	verify      is this a Chroma that starts, and the one that was asked for
+//	record      last, because state that was never verified is worse than none
+func (i *Installer) Apply(
+	ctx context.Context,
+	opts Options,
+	paths Paths,
+	prepared PreparedSource,
+	set component.Set,
+) (Result, error) {
+	sink := i.Sink
+	if sink == nil {
+		sink = Discard{}
+	}
+
+	result := Result{Paths: paths}
+
+	selected, err := opts.Selection(set)
+	if err != nil {
+		return result, err
+	}
+	result.Selected = selected
+	result.Enabled = state.State{Schema: state.Schema, Selected: selected}.Enabled(set)
+
+	needsBackup, err := CheckTarget(paths)
+	if err != nil {
+		return result, err
+	}
+
+	tx := NewTransaction(paths)
+
+	// One place where failure is turned into "put it back", so that no step
+	// below has to remember to.
+	fail := func(step string, cause error) (Result, error) {
+		sink.Emit(Event{Step: step, Status: StatusFailed, Message: cause.Error()})
+
+		result.RolledBack = true
+		if problem := tx.Rollback(); problem != nil {
+			result.RollbackProblem = problem
+		}
+		return result, cause
+	}
+
+	sink.Emit(Event{Step: "selection", Status: StatusStart})
+	if err := tx.WriteSelection(selected, set); err != nil {
+		return fail("selection", err)
+	}
+
+	sink.Emit(Event{Step: "stage", Status: StatusStart})
+	if err := tx.StageSource(prepared, paths); err != nil {
+		return fail("stage", err)
+	}
+
+	if needsBackup {
+		sink.Emit(Event{Step: "backup", Status: StatusStart})
+		if err := tx.BackupTarget(paths); err != nil {
+			return fail("backup", err)
+		}
+		sink.Emit(Event{Step: "backup", Status: StatusDone, Message: tx.Backup})
+	}
+
+	sink.Emit(Event{Step: "place", Status: StatusStart})
+	if err := tx.Place(paths); err != nil {
+		return fail("place", err)
+	}
+
+	if err := tx.Bootstrap(ctx, paths, i.Runner, sink); err != nil {
+		return fail("bootstrap", err)
+	}
+
+	if err := tx.Verify(ctx, paths, result.Enabled, i.Runner, sink); err != nil {
+		return fail("verify", err)
+	}
+
+	record := installstate.State{
+		Version:       prepared.Version,
+		Contract:      prepared.Contract,
+		AppName:       paths.AppName,
+		ConfigDir:     paths.ConfigDir,
+		DataDir:       paths.DataDir,
+		StateDir:      paths.StateDir,
+		SelectionFile: paths.SelectionFile,
+		Backup:        tx.Backup,
+		InstalledAt:   now().Format(time.RFC3339),
+		Source:        sourceOf(prepared),
+	}
+
+	sink.Emit(Event{Step: "record", Status: StatusStart})
+	if err := installstate.Write(paths.InstallState, record); err != nil {
+		// Rolled back rather than left alone. An installation nothing recorded
+		// is an unmanaged directory, and every command already knows how to
+		// refuse one of those — but it is a directory the user did not have
+		// before, and leaving it would be this CLI walking away from a mess it
+		// made.
+		return fail("record", err)
+	}
+	result.State = record
+	result.Recorded = true
+
+	tx.Commit()
+	if err := tx.Cleanup(); err != nil {
+		// Not a failure of the installation: the configuration is placed,
+		// verified and recorded. A staging directory nobody removed is untidy,
+		// and saying so is better than pretending it is not there.
+		sink.Emit(Event{Step: "cleanup", Status: StatusWarning, Message: err.Error()})
+	}
+
+	sink.Emit(Event{Step: "install", Status: StatusDone})
+	return result, nil
+}
+
+// sourceOf describes where this installation came from, in the terms update
+// and rollback will read it in.
+//
+// From the prepared source rather than from the request. What was asked for and
+// what arrived are two different facts, and the record is about the second one.
+func sourceOf(prepared PreparedSource) installstate.Source {
+	if prepared.Kind == KindTree {
+		return installstate.Source{Type: installstate.FromTree, Ref: prepared.Root}
+	}
+	return installstate.Source{Type: installstate.FromRelease, Ref: prepared.Version, SHA256: prepared.SHA256}
+}
+
+// Describe renders the result for somebody reading a terminal.
+func (r Result) Describe() string {
+	if r.Recorded {
+		return fmt.Sprintf("Chroma Neovim is installed at %s.", r.Paths.ConfigDir)
+	}
+
+	switch {
+	case r.RollbackProblem != nil:
+		return fmt.Sprintf("The installation failed and putting things back did not entirely work: %v", r.RollbackProblem)
+	case r.RolledBack:
+		return "The installation failed. The previous configuration and selection were put back, and nothing was recorded."
+	default:
+		return "The installation did not start, and nothing was changed."
+	}
+}
