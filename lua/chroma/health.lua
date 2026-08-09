@@ -204,6 +204,22 @@ local function check_components()
     health.error(("component contract: %s"):format(problem))
   end
 
+  -- Which of the three the editor is in. Safe mode is the one worth finding
+  -- here: its error is printed once at startup, and startup is exactly when
+  -- nobody is reading messages.
+  local state = require("chroma.state")
+  local enabled, mode = state.enabled_ids()
+  if mode == state.SAFE then
+    health.error(
+      ("%s exists but could not be read, so only core is running"):format(state.path()),
+      "fix the file, or delete it to go back to running every component"
+    )
+  elseif mode == state.LEGACY then
+    health.ok(("No selection at %s — every component is running"):format(state.path()))
+  else
+    health.ok(("Selection at %s — running %s"):format(state.path(), table.concat(enabled, ", ")))
+  end
+
   for _, problem in ipairs(contract.resolve_problems(components)) do
     health.error(("component contract: %s"):format(problem))
   end

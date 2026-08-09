@@ -153,8 +153,8 @@ end
 -- gating arrives.
 T["runtime"]["no selection means every component"] = function()
   with_selection(nil, function()
-    local ids, legacy = state.enabled_ids()
-    eq(legacy, true)
+    local ids, mode = state.enabled_ids()
+    eq(mode, state.LEGACY)
     eq(#ids, #components.load_ids())
     eq(state.is_enabled("terraform"), true)
     eq(state.is_enabled("vault"), true)
@@ -163,8 +163,8 @@ end
 
 T["runtime"]["a selection means that selection and its dependencies"] = function()
   with_selection('{ "schema": 1, "selected": ["terraform"] }', function()
-    local ids, legacy = state.enabled_ids()
-    eq(legacy, false)
+    local ids, mode = state.enabled_ids()
+    eq(mode, state.SELECTED)
     eq(ids, { "core", "terraform" })
     eq(state.is_enabled("core"), true)
     eq(state.is_enabled("terraform"), true)
@@ -175,28 +175,63 @@ end
 
 T["runtime"]["an empty selection means core alone"] = function()
   with_selection('{ "schema": 1, "selected": [] }', function()
-    local ids, legacy = state.enabled_ids()
-    eq(legacy, false)
+    local ids, mode = state.enabled_ids()
+    eq(mode, state.SELECTED)
     eq(ids, { "core" })
     eq(state.is_enabled("aws"), false)
   end)
 end
 
--- A selection that cannot be read is not a reason to start an editor with less
--- in it than yesterday. It is loud, and then it runs everything.
-T["runtime"]["an unreadable selection is reported and falls back to everything"] = function()
+---Collects what `fn` sends to vim.notify rather than printing it.
+---@param fn function
+---@return string[]
+local function notices_from(fn)
+  local collected = {}
+  local saved = vim.notify
+  vim.notify = function(message, _)
+    table.insert(collected, tostring(message))
+  end
+
+  local ok, err = pcall(fn)
+  vim.notify = saved
+  assert(ok, err)
+
+  return collected
+end
+
+-- A selection that exists but cannot be read is not a licence to run
+-- everything. The file being there says somebody chose, and an unreadable
+-- choice is still a choice — one of the things it could have said is
+-- `"selected": []`. Every shape the corpus refuses lands in safe mode, not
+-- just the one this was first written for.
+T["runtime"]["an unreadable selection is reported and falls back to core alone"] = function()
+  local paths = corpus("invalid")
+  eq(#paths > 0, true)
+
+  for _, path in ipairs(paths) do
+    with_selection(table.concat(vim.fn.readfile(path), "\n"), function()
+      local ids, mode
+      local notices = notices_from(function()
+        ids, mode = state.enabled_ids()
+      end)
+
+      eq({ path, mode }, { path, state.SAFE })
+      eq({ path, ids }, { path, { "core" } })
+      -- The half that matters: a file nobody can read did not switch on the
+      -- components somebody may have deliberately switched off.
+      eq({ path, #components.load_ids() > 1 }, { path, true })
+      eq({ path, notices[1] ~= nil and notices[1]:find("core alone", 1, true) ~= nil }, { path, true })
+    end)
+  end
+end
+
+-- And the report names the problem, rather than saying only that there was one.
+T["runtime"]["safe mode says what was wrong with the file"] = function()
   with_selection('{ "schema": 1, "selected": ["magic"] }', function()
-    local notices = {}
-    local saved = vim.notify
-    vim.notify = function(message, _)
-      table.insert(notices, tostring(message))
-    end
+    local notices = notices_from(function()
+      state.enabled_ids()
+    end)
 
-    local ids, legacy = state.enabled_ids()
-    vim.notify = saved
-
-    eq(legacy, true)
-    eq(#ids, #components.load_ids())
     eq(table.concat(notices, " "):find("unknown component") ~= nil, true)
   end)
 end

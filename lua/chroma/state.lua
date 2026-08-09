@@ -9,8 +9,10 @@
 -- failing test rather than an editor behaving differently from the CLI that
 -- configured it.
 --
--- Nothing reads this yet to decide what to load. It answers questions; gating
--- comes next, and separately.
+-- This decides what loads. Every spec that asks "is my component enabled" ends
+-- up here, so the three answers below are the whole of it: a configuration from
+-- before any of this ran everything, a selection runs what it names, and a
+-- selection that cannot be read runs core alone.
 
 local components = require("chroma.components")
 
@@ -153,28 +155,61 @@ end
 
 --- What this configuration is running with, answered once and cached for the
 --- session: reading a file per question would put a stat in every code path
---- that ever asks.
+--- that ever asks, and — since an unreadable selection is reported when it is
+--- read — would say so once per caller rather than once.
+---@type { ids: string[], mode: string }|nil
+local resolved = nil
+
+--- The same answer as a set, for the callers that ask about one id.
 ---@type table<string, boolean>|nil
 local current = nil
 
----The ids enabled right now, whether from a selection or from its absence.
----@return string[] ids, boolean legacy
-function M.enabled_ids()
+--- How the answer below was arrived at, which is not the same question as what
+--- the answer is. A caller that only wants to know what runs can ignore it.
+M.LEGACY = "legacy" -- no selection has ever been written: everything runs
+M.SELECTED = "selected" -- a selection was read: it decides
+M.SAFE = "safe" -- a selection exists and is unreadable: core alone
+
+---@return string[] ids, string mode
+local function resolve()
   local set = components.load()
   local state, found, err = M.load(nil, set)
 
   if err then
-    -- Loud, and then everything: a selection that cannot be read is not a
-    -- reason to start an editor with less in it than the user had yesterday.
-    vim.notify(("Chroma: %s\nRunning with every component until that is fixed."):format(err), vim.log.levels.ERROR)
-    return components.load_ids(), true
+    -- Loud, and then core alone.
+    --
+    -- Not everything. Before this file existed, "less than yesterday" was the
+    -- worse outcome because nothing recorded what anybody wanted; running it
+    -- all was the only honest answer. A file changes that. Its presence says
+    -- somebody made a choice, and a choice we cannot read is still a choice —
+    -- possibly `"selected": []`, which is core alone deliberately. Running
+    -- every component would then start Terraform, Vault, AWS and the rest for
+    -- someone who switched them off, on the strength of a byte we could not
+    -- parse. Core alone is wrong in the direction that leaves the editor
+    -- usable enough to fix the file, and switches nothing on that nobody asked
+    -- for.
+    vim.notify(
+      ("Chroma: %s\nRunning with core alone until that is fixed; everything optional is switched off."):format(err),
+      vim.log.levels.ERROR
+    )
+    return M.enabled({ schema = M.SCHEMA, selected = {} }, set), M.SAFE
   end
 
   if not found then
-    return components.load_ids(), true
+    return components.load_ids(), M.LEGACY
   end
 
-  return M.enabled(state, set), false
+  return M.enabled(state, set), M.SELECTED
+end
+
+---The ids enabled right now, and how that was decided.
+---@return string[] ids, string mode one of M.LEGACY, M.SELECTED, M.SAFE
+function M.enabled_ids()
+  if resolved == nil then
+    local ids, mode = resolve()
+    resolved = { ids = ids, mode = mode }
+  end
+  return resolved.ids, resolved.mode
 end
 
 ---Whether one component is enabled.
@@ -190,9 +225,22 @@ function M.is_enabled(id)
   return current[id] == true
 end
 
+---Whether anything enabled contributes `name` as `kind`.
+---
+---What a plugin spec asks. The mapping from component to plugin lives in
+---`components/*.json` and is not repeated here: a spec names itself, and the
+---contract decides whether that name is switched on.
+---@param kind string
+---@param name string
+---@return boolean
+function M.contributes(kind, name)
+  return components.contributes(kind, name, (M.enabled_ids()))
+end
+
 ---Forgets the cached answer. For tests, and for a `:ChromaReload` that does not
 ---exist yet.
 function M.forget()
+  resolved = nil
   current = nil
 end
 
