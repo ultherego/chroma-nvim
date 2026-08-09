@@ -16,3 +16,7 @@ sessions/
 
 # Go build output (the CLI is built by CI and by releases, never committed)
 cli/chroma
+
+# Release artefacts, built by `chroma package`. They are published to a
+# GitHub Release, which is the only place they belong.
+dist/
