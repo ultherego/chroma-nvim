@@ -126,7 +126,11 @@ func TestEnabledResolvesThroughTheGraph(t *testing.T) {
 
 func TestPathFollowsXDG(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", "/somewhere")
-	if got := Path(); got != filepath.Join("/somewhere", "chroma", "components.json") {
+	got, err := Path()
+	if err != nil {
+		t.Fatalf("Path: %v", err)
+	}
+	if got != filepath.Join("/somewhere", "chroma", "components.json") {
 		t.Errorf("Path() = %q", got)
 	}
 }
@@ -137,7 +141,7 @@ func TestWriteIsAtomicAndReadable(t *testing.T) {
 	set := shipped(t)
 	path := filepath.Join(t.TempDir(), "nested", "components.json")
 
-	if err := Write(path, State{Selected: []string{"terraform", "aws"}}); err != nil {
+	if err := Write(path, State{Selected: []string{"terraform", "aws"}}, set); err != nil {
 		t.Fatalf("Write: %v", err)
 	}
 
@@ -167,10 +171,10 @@ func TestWriteReplacesRatherThanAppends(t *testing.T) {
 	set := shipped(t)
 	path := filepath.Join(t.TempDir(), "components.json")
 
-	if err := Write(path, State{Selected: []string{"terraform", "aws", "docker"}}); err != nil {
+	if err := Write(path, State{Selected: []string{"terraform", "aws", "docker"}}, set); err != nil {
 		t.Fatalf("Write: %v", err)
 	}
-	if err := Write(path, State{Selected: []string{"vault"}}); err != nil {
+	if err := Write(path, State{Selected: []string{"vault"}}, set); err != nil {
 		t.Fatalf("Write: %v", err)
 	}
 
@@ -180,6 +184,87 @@ func TestWriteReplacesRatherThanAppends(t *testing.T) {
 	}
 	if strings.Join(state.Selected, ",") != "vault" {
 		t.Errorf("selected = %v, want vault alone", state.Selected)
+	}
+}
+
+// The writer is held to the reader's rules, because the alternative is a CLI
+// that can talk an editor into safe mode: every one of these produces a file
+// the next startup refuses, and the caller would have been told it succeeded.
+func TestWriteRefusesWhatLoadWouldRefuse(t *testing.T) {
+	set := shipped(t)
+
+	for _, tc := range []struct {
+		name     string
+		selected []string
+		contains string
+	}{
+		{"core, which is not a choice", []string{"core"}, "not a choice"},
+		{"a duplicate", []string{"vault", "vault"}, "twice"},
+		{"a component that does not exist", []string{"magic"}, "unknown component"},
+		{"an empty id", []string{""}, "empty id"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "components.json")
+
+			err := Write(path, State{Selected: tc.selected}, set)
+			if err == nil {
+				t.Fatal("Write accepted a selection Load would refuse")
+			}
+			if !strings.Contains(err.Error(), tc.contains) {
+				t.Errorf("err = %v, want it to name the problem", err)
+			}
+
+			// And it refused before it wrote, rather than leaving the file behind.
+			if _, err := os.Stat(path); !os.IsNotExist(err) {
+				t.Errorf("a refused selection still produced a file")
+			}
+		})
+	}
+}
+
+// The property the two halves owe each other: anything this writes, it reads.
+func TestEveryValidFixtureSurvivesARoundTrip(t *testing.T) {
+	set := shipped(t)
+
+	entries, err := os.ReadDir(filepath.Join(fixtures, "valid"))
+	if err != nil {
+		t.Fatalf("reading the fixtures: %v", err)
+	}
+	if len(entries) == 0 {
+		t.Fatal("no valid fixtures, which would make this pass for nothing")
+	}
+
+	for _, entry := range entries {
+		t.Run(entry.Name(), func(t *testing.T) {
+			original, _, err := Load(filepath.Join(fixtures, "valid", entry.Name()), set)
+			if err != nil {
+				t.Fatalf("Load: %v", err)
+			}
+
+			path := filepath.Join(t.TempDir(), "components.json")
+			if err := Write(path, original, set); err != nil {
+				t.Fatalf("Write: %v", err)
+			}
+
+			again, found, err := Load(path, set)
+			if err != nil || !found {
+				t.Fatalf("reading back: %v found=%v", err, found)
+			}
+			if strings.Join(again.Selected, ",") != strings.Join(original.Selected, ",") {
+				t.Errorf("round trip changed the selection: %v became %v", original.Selected, again.Selected)
+			}
+		})
+	}
+}
+
+// Writing state relative to whatever directory the CLI was run from is not a
+// fallback, it is a different file — one the editor never reads.
+func TestPathRefusesToGuess(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", "")
+	t.Setenv("HOME", "")
+
+	if got, err := Path(); err == nil {
+		t.Errorf("Path() = %q with nowhere to put it, want an error", got)
 	}
 }
 

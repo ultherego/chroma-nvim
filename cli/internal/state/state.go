@@ -39,16 +39,22 @@ type State struct {
 
 // Path is where the selection lives: alongside the user's other configuration,
 // not inside the release tree, which is replaced wholesale by an update.
-func Path() string {
+//
+// It fails rather than guessing. With no XDG_CONFIG_HOME and no home directory
+// there is no answer, and the relative path this used to return —
+// `.config/chroma/components.json` — is not a worse answer, it is a different
+// file: one under whatever directory the CLI happened to be run from, which the
+// editor would never read and the user would never find.
+func Path() (string, error) {
 	config := os.Getenv("XDG_CONFIG_HOME")
 	if config == "" {
 		home, err := os.UserHomeDir()
 		if err != nil {
-			return filepath.Join(".config", "chroma", "components.json")
+			return "", fmt.Errorf("no XDG_CONFIG_HOME and no home directory, so there is nowhere to keep the selection: %w", err)
 		}
 		config = filepath.Join(home, ".config")
 	}
-	return filepath.Join(config, "chroma", "components.json")
+	return filepath.Join(config, "chroma", "components.json"), nil
 }
 
 // Load reads the selection and checks it against the components that exist.
@@ -155,11 +161,24 @@ func EnabledLegacy(set component.Set) []string {
 // Write replaces the file atomically. Not because this one is precious, but
 // because it will be read at startup by an editor that decides what to load
 // from it, and a half-written selection is a Chroma that comes up wrong.
-func Write(path string, state State) error {
+//
+// It refuses to write a selection this package would refuse to read. `set` is
+// the contract to check against, and it is required rather than optional: the
+// caller is a TUI, and a TUI is a thing people will change. Leaving the
+// invariants to it would mean the one guarantee that matters here — that a file
+// this wrote can be read back — held only as long as every future caller
+// remembered. Writing `core`, a duplicate or a component that does not exist
+// produces a file the next startup drops into safe mode over, which is a
+// perfectly avoidable way to switch somebody's editor off.
+func Write(path string, state State, set component.Set) error {
 	state.Schema = Schema
 	sort.Strings(state.Selected)
 	if state.Selected == nil {
 		state.Selected = []string{}
+	}
+
+	if err := state.validate(set); err != nil {
+		return fmt.Errorf("refusing to write %s: %w", path, err)
 	}
 
 	contents, err := json.MarshalIndent(state, "", "  ")
@@ -206,12 +225,23 @@ func Write(path string, state State) error {
 
 	// The rename is atomic but not yet durable: the directory entry it changed
 	// is not on the disk until the directory itself is flushed.
+	//
+	// Both failures were swallowed here, which made this paragraph and the one
+	// in DESIGN.md describe something the code did not do. A write that reports
+	// success without the entry reaching the disk is exactly the case fsync is
+	// for — the machine loses power, and the selection is either the old one or
+	// nothing.
 	handle, err := os.Open(dir)
 	if err != nil {
-		return nil
+		return fmt.Errorf("opening %s to flush it: %w", dir, err)
 	}
-	defer handle.Close()
-	_ = handle.Sync()
+	if err := handle.Sync(); err != nil {
+		handle.Close()
+		return fmt.Errorf("flushing %s: %w", dir, err)
+	}
+	if err := handle.Close(); err != nil {
+		return fmt.Errorf("closing %s: %w", dir, err)
+	}
 
 	return nil
 }
