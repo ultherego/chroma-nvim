@@ -80,7 +80,7 @@ return {
   {
     "towolf/vim-helm",
     enabled = function()
-      return require("chroma.state").is_enabled("helm")
+      return require("chroma.state").contributes("plugins", "vim-helm")
     end,
     -- Not lazy. Its whole job is detection, and detection cannot be triggered by
     -- the filetype it is there to decide. Loading it on `ft` meant a chart file

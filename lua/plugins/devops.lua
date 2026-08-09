@@ -3,8 +3,11 @@
 return {
   {
     "ramilito/kubectl.nvim",
+    -- Which component brings this is `components/kubernetes.json`'s to say, and
+    -- it says it. Naming the component here as well would be the same fact in
+    -- two files, free to disagree.
     enabled = function()
-      return require("chroma.state").is_enabled("kubernetes")
+      return require("chroma.state").contributes("plugins", "kubectl.nvim")
     end,
     -- A release tag selects the prebuilt binaries rather than a source build.
     version = "2.*",
@@ -49,7 +52,7 @@ return {
   {
     "mfussenegger/nvim-ansible",
     enabled = function()
-      return require("chroma.state").is_enabled("ansible")
+      return require("chroma.state").contributes("plugins", "nvim-ansible")
     end,
     -- ft alone is not enough: the plugin's own ftdetect has to load before a
     -- file can be detected as yaml.ansible in the first place.

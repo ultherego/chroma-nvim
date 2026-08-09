@@ -11,7 +11,7 @@ require("config.keymaps")
 require("config.commands")
 require("config.lazy")
 
--- These three live in lua/chroma-vault/, lua/chroma-terraform/ and lua/chroma-aws/, and
+-- The modules in lua/chroma-vault/, lua/chroma-terraform/ and lua/chroma-aws/
 -- depend on nothing in this configuration, so each can be lifted into its own
 -- repository unchanged.
 --
@@ -19,16 +19,10 @@ require("config.lazy")
 -- vault — a pair of autocmds, so there is nothing to gain from deferring them.
 -- The vault's write hook in particular must exist before any vault file is
 -- opened, which rules out lazy loading it.
--- Each only if its component is enabled. With no selection ever written that is
--- all three, exactly as before; see :help chroma-nvim-components.
-local enabled = require("chroma.state")
-
-if enabled.is_enabled("vault") then
-  require("chroma-vault").setup({ keymaps = true })
-end
-if enabled.is_enabled("terraform") then
-  require("chroma-terraform").setup({ keymaps = true })
-end
-if enabled.is_enabled("aws") then
-  require("chroma-aws").setup({ keymaps = true })
-end
+--
+-- Which of them run comes from the contract rather than from a list here:
+-- `components/vault.json` is where it is written down that Vault support means
+-- `chroma-vault`, and repeating that mapping in this file would let the two
+-- drift apart without anything noticing. With no selection ever written this is
+-- all of them, exactly as before; see :help chroma-nvim-components.
+require("chroma.modules").setup({ keymaps = true })

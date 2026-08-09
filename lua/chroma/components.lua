@@ -377,6 +377,31 @@ function M.contributions(kind, enabled)
   return out
 end
 
+---Whether any of `enabled` contributes `name` as `kind`.
+---
+---The question a plugin spec has, which is not "is component X on" but "does
+---anything switched on bring this plugin". Asking it this way is what keeps the
+---relation in one place: `components/kubernetes.json` says kubectl.nvim is
+---Kubernetes', and the spec repeats the plugin's own name rather than repeating
+---the mapping.
+---@param kind string one of servers, mason, linters, parsers, formatters, schemas, plugins, modules
+---@param name string
+---@param enabled string[] component ids
+---@return boolean
+function M.contributes(kind, name, enabled)
+  local set = M.load()
+
+  for _, id in ipairs(enabled) do
+    for _, contributed in ipairs(((set[id] or {}).nvim or {})[kind] or {}) do
+      if contributed == name then
+        return true
+      end
+    end
+  end
+
+  return false
+end
+
 ---Whether any of a tool's accepted names is on PATH.
 ---
 ---Presence only. Whether the version meets the contract is checked by `chroma

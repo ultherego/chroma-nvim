@@ -27,23 +27,40 @@ return {
   {
     "folke/which-key.nvim",
     event = "VeryLazy",
-    opts = {
-      preset = "modern",
-      spec = {
+    opts = function()
+      local state = require("chroma.state")
+
+      -- The four DevOps groups are labels for keys that only exist when their
+      -- component does, so with the component off the group is a heading over
+      -- an empty list. which-key shows it anyway, which reads as a feature that
+      -- is present and broken rather than one that was not selected.
+      local spec = {
         { "<leader>f", group = "Find" },
         { "<leader>p", group = "Project" },
         { "<leader>g", group = "Git" },
         { "<leader>l", group = "LSP" },
-        { "<leader>t", group = "Terraform" },
-        { "<leader>k", group = "Kubernetes" },
-        { "<leader>a", group = "Ansible" },
-        { "<leader>A", group = "AWS" },
         { "<leader>b", group = "Buffers" },
         { "<leader>w", group = "Windows" },
         { "<leader>s", group = "Sessions" },
         { "<leader>x", group = "Tools" },
-      },
-    },
+      }
+
+      for _, group in ipairs({
+        { component = "terraform", lhs = "<leader>t", name = "Terraform" },
+        { component = "kubernetes", lhs = "<leader>k", name = "Kubernetes" },
+        { component = "ansible", lhs = "<leader>a", name = "Ansible" },
+        { component = "aws", lhs = "<leader>A", name = "AWS" },
+      }) do
+        if state.is_enabled(group.component) then
+          table.insert(spec, { group.lhs, group = group.name })
+        end
+      end
+
+      return {
+        preset = "modern",
+        spec = spec,
+      }
+    end,
     keys = {
       {
         "<leader>?",
