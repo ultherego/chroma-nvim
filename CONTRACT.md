@@ -192,6 +192,38 @@ Terraform · Terragrunt · Helm · Docker · Kubernetes · YAML · Ansible
 
 ---
 
+## Development
+
+**The test suite.** The modules that touch secrets and infrastructure — vault,
+terraform, AWS — and the component layer that decides what runs are covered by
+it, because being wrong in any of them is expensive.
+
+```sh
+nvim --headless --noplugin -u tests/minimal_init.lua \
+     -c "lua MiniTest.run()" -c "qa!"
+```
+
+It loads mini.test and `lua/` only, not the configuration.
+
+**Every new test must be killed by a mutation.** Break the thing it claims to
+cover, watch it fail, put it back. A test that passes either way is worse than
+no test: it is a claim of cover that nobody will check again. Most of what the
+external audits have found in this repository was of exactly that shape.
+
+**The help tags are generated.** After editing `doc/chroma-nvim.txt`:
+
+```vim
+:helptags doc
+```
+
+CI fails if `doc/tags` is out of date, so this is not optional.
+
+**The CLI** is a Go module in `cli/` with its own tests, formatting and vet
+jobs. `cd cli && go test ./...`. Note that `selene` lints this repository as
+Lua 5.1, so `goto` and its labels do not parse — measured, after writing one.
+
+---
+
 ## Rule #2 — survey before building
 
 Before writing any custom plugin, survey what already exists: search, then
