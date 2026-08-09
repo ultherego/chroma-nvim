@@ -3,6 +3,10 @@ chroma-nvim-adding	chroma-nvim.txt	/*chroma-nvim-adding*
 chroma-nvim-aws	chroma-nvim.txt	/*chroma-nvim-aws*
 chroma-nvim-builtin-keys	chroma-nvim.txt	/*chroma-nvim-builtin-keys*
 chroma-nvim-completion	chroma-nvim.txt	/*chroma-nvim-completion*
+chroma-nvim-components	chroma-nvim.txt	/*chroma-nvim-components*
+chroma-nvim-components-contract	chroma-nvim.txt	/*chroma-nvim-components-contract*
+chroma-nvim-components-file	chroma-nvim.txt	/*chroma-nvim-components-file*
+chroma-nvim-components-modes	chroma-nvim.txt	/*chroma-nvim-components-modes*
 chroma-nvim-contents	chroma-nvim.txt	/*chroma-nvim-contents*
 chroma-nvim-formatting	chroma-nvim.txt	/*chroma-nvim-formatting*
 chroma-nvim-formatting-tf	chroma-nvim.txt	/*chroma-nvim-formatting-tf*

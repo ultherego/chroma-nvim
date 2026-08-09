@@ -950,6 +950,56 @@ the illusion of a deliberate choice.
 **What would change it.** Nothing, unless the bumping stops happening — at
 which point unpinning honestly beats pretending.
 
+### An unreadable selection runs core alone, not everything
+
+`$XDG_CONFIG_HOME/chroma/components.json` has three outcomes rather than two.
+Absent means legacy: every component, because a configuration from before any
+of this existed must not lose Terraform to an update. Valid means the selection.
+Present and unreadable means core alone, said loudly.
+
+The third one used to be the first one. That was right for about a week — while
+nothing recorded what anybody wanted, running everything was the only honest
+answer to a file nobody could parse. The moment an explicit selection existed
+the argument inverted: the file being there says a choice was made, and one of
+the things it could have said is `"selected": []`. Falling back to everything
+answers a deliberate core-only with Terraform, Vault, AWS, Kubernetes and
+Ansible, on the strength of a byte that failed to decode.
+
+Core alone is also wrong — it is not what was chosen either — but it is wrong in
+the direction that starts an editor, names the problem, and switches nothing on
+that nobody asked for. Callers are told which of the three they are in, rather
+than being handed a boolean that cannot express it.
+
+**What would change it.** A record of the last selection that read cleanly.
+With one, safe mode could be "what you had yesterday" instead of "the minimum",
+which is better than both. Nothing writes one yet.
+
+### The component contract says what, and a registry says how
+
+`components/*.json` carries `"schemas": ["kubernetes"]`. It does not carry the
+schema URL, the Kubernetes version it is pinned to, or the eight file patterns
+it applies to — those live in `lua/chroma/schemas.lua`, exactly as how to ask an
+executable for its version lives in the CLI's `toolver` and not in the manifest
+that requires it.
+
+The contract is meant to be readable by a web page or a different editor. A
+`fileMatch` array in yaml-language-server's settings shape is not a fact about
+Kubernetes support; it is a fact about one language server, and the day it moves
+the manifests would have to be rewritten to describe a product that had not
+changed.
+
+The same split decided where the boundary of a disabled component sits.
+Switching off `github-actions` removes actionlint. It does not reach into the
+SchemaStore catalogue and remove GitHub's workflow schema, because that
+catalogue is a Core capability that recognises documents on its own: a disabled
+component takes away what Chroma switched on for that domain, and does not make
+Core pretend it cannot read a file. The rule is written down in `cli/DESIGN.md`
+because it is the kind of line that gets redrawn by accident.
+
+**What would change it.** A component whose only sensible contribution is a
+schema the catalogue already covers — at which point the line above would have
+to be argued again rather than assumed.
+
 ### The repository does not test against real infrastructure
 
 The terraform runner is exercised against a stub binary; the Kubernetes views

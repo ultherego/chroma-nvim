@@ -26,7 +26,8 @@ CONTENTS                                                 *chroma-nvim-contents*
  16. AWS and sessions ................... |chroma-nvim-aws|
  17. Adding a plugin .................... |chroma-nvim-adding|
  18. Troubleshooting .................... |chroma-nvim-troubleshooting|
- 19. Rules .............................. |chroma-nvim-rules|
+ 19. Components ......................... |chroma-nvim-components|
+ 20. Rules .............................. |chroma-nvim-rules|
 
 ==============================================================================
 1. INTRODUCTION                                      *chroma-nvim-introduction*
@@ -1567,7 +1568,97 @@ Plugins are in a strange state ~
     :Lazy sync        install, clean and update to match the specs
 <
 ==============================================================================
-19. RULES                                                   *chroma-nvim-rules*
+19. COMPONENTS                                         *chroma-nvim-components*
+
+Chroma is not all-or-nothing. Everything past the editor itself belongs to a
+component, and a component can be switched off — its language servers, Mason
+packages, linters, treesitter parsers, formatters, schema mappings, plugins and
+modules all go with it.
+
+There are nine:
+
+  core                Always on, never a choice. The editor: plugin
+                      management, treesitter, pickers, YAML and Lua support.
+  terraform           Terraform and OpenTofu: plan and apply from the editor,
+                      `terraform fmt` on save, terragrunt.
+  kubernetes          Cluster views, contexts, namespaces, and the schema
+                      mapped onto manifest paths.
+  helm                Charts: filetype detection, helm_ls, rendering. It does
+                      not require kubernetes — `helm template` and `helm lint`
+                      work with no cluster at all.
+  ansible             Playbooks and roles, and the language server.
+  vault               Ansible Vault files, edited in place. It does not
+                      require ansible: nothing here needs playbooks.
+  aws                 Profile and region for the session, and Terraform plans
+                      bound to an identity.
+  docker              Dockerfiles and compose files.
+  github-actions      Workflow linting.
+
+Every one of them requires core, and nothing else requires anything else.
+
+Where the selection lives ~
+
+                                                  *chroma-nvim-components-file*
+>
+    $XDG_CONFIG_HOME/chroma/components.json
+<
+It belongs to you, not to the release: an update replaces the configuration
+tree wholesale, and what you chose has to survive that. The file is written by
+the `chroma` CLI, which is not released yet; until then, writing it by hand is
+supported and is the only way to select anything.
+>
+    {
+      "schema": 1,
+      "selected": ["terraform", "aws"]
+    }
+<
+`core` is not listed. It is always enabled, so naming it is an error rather
+than something quietly ignored — a file that lists it was written against a
+different idea of what this document means. Dependencies are not listed either:
+they are worked out when the file is read, so a component whose requirements
+change is never described by a stale copy of them.
+
+Three answers, not two ~
+
+                                                 *chroma-nvim-components-modes*
+The file being absent is not the same as it being empty, and neither is the
+same as it being broken:
+>
+    no file          legacy     every component runs
+    valid file       selected   the selection runs, dependencies included
+    "selected": []   selected   core alone
+    unreadable file  safe       core alone, with an error on startup
+<
+The first line is a promise to anyone who has been using this before components
+existed: nothing is switched off by an update. The last is the opposite case —
+the file is there, so a choice was made, and a choice that cannot be read is
+still a choice. Running everything would override it in the one direction that
+cannot be taken back, since `"selected": []` is a deliberate core-only.
+
+Safe mode says what is wrong with the file and leaves the editor working well
+enough to fix it. Fix the file, or delete it to go back to running everything.
+
+What is running now ~
+
+`:checkhealth chroma` reports the mode, the components enabled, and — for each
+component — whether the tools it needs are on PATH. It reads the files fresh,
+so it can be run straight after editing a selection.
+
+The contract ~
+
+                                              *chroma-nvim-components-contract*
+`components/*.json` in the configuration tree is the definition of each
+component: what it requires, which tools it needs and what it contributes to
+the editor. It is read by this configuration and by the CLI, and neither owns
+it. A component file is refused rather than half-read — an unknown field, a
+version that says two things, a list that is not a list — because a contract
+that decides what gets installed cannot have a typo that means "install less
+than asked".
+
+`cli/DESIGN.md` in the repository documents the format and the reasoning.
+
+==============================================================================
+20. RULES                                                   *chroma-nvim-rules*
 
 Two rules govern this repository. `CONTRACT.md` is the full version.
 

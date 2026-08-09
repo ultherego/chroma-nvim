@@ -75,7 +75,7 @@ other. The files are data, not configuration to be edited by users.
 
 ```json
 {
-  "contract": 1,
+  "contract": 4,
   "id": "terraform",
   "name": "Terraform / OpenTofu",
   "requires": ["core"],
@@ -84,16 +84,56 @@ other. The files are data, not configuration to be edited by users.
       { "any": ["terraform", "tofu"], "reason": "plan, apply and formatting all shell out" }
     ],
     "recommended": [
-      { "id": "terraform-ls", "reason": "completion and diagnostics" },
-      { "id": "tflint", "reason": "linting, as a language server" }
+      { "id": "terragrunt", "reason": "directories holding terragrunt.hcl are run and formatted with it" }
     ]
   },
   "nvim": {
-    "plugins": ["plugins.devops"],
+    "servers": ["terraformls", "tflint"],
+    "mason": ["tflint"],
+    "parsers": ["terraform", "hcl"],
+    "formatters": ["terraform_fmt", "tofu_fmt", "terragrunt_hclfmt"],
     "modules": ["chroma-terraform"]
   }
 }
 ```
+
+**The `nvim` block is a list of names, one list per kind of thing the editor
+switches on.** `servers`, `mason`, `linters`, `parsers`, `formatters`,
+`schemas`, `plugins`, `modules`. Each is a name the editor already uses for that
+thing: an nvim-lspconfig server name, a Mason package, a conform formatter, a
+lockfile key, a `require` path. The CLI does not act on any of it; it is here so
+that both halves of a component are one document.
+
+**`formatters` and `schemas` are the two that made this contract 4.** Until they
+existed, a selection decided servers, packages, linters, parsers, plugins and
+modules — and then `.tf` files were still formatted by `terraform fmt` on save
+and `k8s/**` was still validated against the Kubernetes schema, whatever anybody
+had chosen. A checkbox that leaves the behaviour it names running is not a
+checkbox.
+
+**`schemas` carries logical names, and nothing else.**
+
+```json
+{ "nvim": { "schemas": ["kubernetes"] } }
+```
+
+Not the URL, not the file patterns, not the shape yaml-language-server wants
+them in. Which document `kubernetes` is, which version it is pinned to and which
+paths it applies to live in `lua/chroma/schemas.lua` — the same split as tool
+versions above: the contract says *what*, an implementation registry knows
+*how*. A contract that a web page or a different editor is meant to be able to
+read has no business carrying one language server's settings shape.
+
+**And it is narrow on purpose.** `schemas` is for mappings Chroma adds
+deliberately — "these paths hold Kubernetes manifests" is a decision this
+configuration made, so it belongs to the component that made it. It is not a
+filter over what the SchemaStore catalogue can recognise by itself. A workflow
+file matching the GitHub Actions schema from the shared catalogue is core YAML
+support doing its job; switching off `github-actions` removes actionlint, not
+yaml-language-server's ability to read a document it recognises. The line is:
+
+> a disabled component takes away what Chroma switched on for that domain. It
+> does not make Core pretend it cannot read a file.
 
 Both sides read the same files, from a tree, at runtime:
 
@@ -343,8 +383,26 @@ schema it does not know, a `selected` that is not an array, a member that is not
 a string or is empty, a duplicate, `core`, and a component that does not exist.
 That last one fails closed because a typo and "a newer CLI wrote this for an
 older Chroma" look identical, and both mean the configuration about to run is
-not the one that was chosen. The editor says so loudly and then runs everything,
-because starting with less than yesterday is the worse outcome.
+not the one that was chosen.
+
+**A file that is refused is not the same as no file, and does not lead to the
+same place.** Absent means legacy, which is everything. Present and unreadable
+means safe mode, which is core alone, said loudly. The difference is that a file
+exists: somebody chose, and the choice cannot be read. Running everything would
+override that choice in the one direction that cannot be undone by the editor —
+`"selected": []` is a deliberate core-only, and a corrupted byte would answer it
+with Terraform, Vault, AWS and the rest. Core alone is still wrong, but it is
+wrong towards an editor that starts, says what is broken, and switches nothing
+on that nobody asked for.
+
+So there are three modes, and callers get told which one they are in rather than
+inferring it from a boolean:
+
+```
+no file        legacy     everything
+valid file     selected   the selection, resolved
+invalid file   safe       core alone, with an error
+```
 
 **It is not installation status.** `"selected": ["terraform"]` says somebody
 wants Terraform support. Whether terraform is installed, and new enough, is
