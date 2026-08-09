@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -254,5 +255,70 @@ func TestReadSumsRefusesWhatItCannotParse(t *testing.T) {
 	}
 	if sums["chroma-nvim-v1.0.0.tar.gz"] != strings.Repeat("a", 64) {
 		t.Errorf("parsed %v", sums)
+	}
+}
+
+// A release says "built from commit X" and a tag points at X. Both are false if
+// the runtime files differ from what X holds — the case this exists for, which
+// arrived as an archive carrying a lazy-lock.json that a `:Lazy sync` had
+// changed and nobody had committed.
+func TestAttributeReportsTheCommitAndWhatDiffersFromIt(t *testing.T) {
+	root := tree(t)
+	run := func(args ...string) {
+		t.Helper()
+		command := exec.Command("git", append([]string{"-C", root}, args...)...)
+		command.Env = append(os.Environ(),
+			"GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@example.com",
+			"GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@example.com")
+		if output, err := command.CombinedOutput(); err != nil {
+			t.Skipf("git is not usable here: %v %s", err, output)
+		}
+	}
+
+	run("init", "--quiet")
+	run("add", ".")
+	run("commit", "--quiet", "-m", "everything")
+
+	clean, err := Attribute(root)
+	if err != nil {
+		t.Fatalf("Attribute: %v", err)
+	}
+	if len(clean.Commit) != 40 {
+		t.Errorf("commit = %q, want a full sha", clean.Commit)
+	}
+	if len(clean.Dirty) != 0 {
+		t.Errorf("a freshly committed tree reported %v", clean.Dirty)
+	}
+
+	// A runtime file the archive carries.
+	if err := os.WriteFile(filepath.Join(root, "lazy-lock.json"), []byte(`{"catppuccin": {"commit": "beef"}}`+"\n"), 0o644); err != nil {
+		t.Fatalf("changing the lockfile: %v", err)
+	}
+	dirty, err := Attribute(root)
+	if err != nil {
+		t.Fatalf("Attribute: %v", err)
+	}
+	if len(dirty.Dirty) != 1 || !strings.Contains(dirty.Dirty[0], "lazy-lock.json") {
+		t.Errorf("dirty = %v, want the lockfile", dirty.Dirty)
+	}
+
+	// And a file that is not in the archive does not make it unattributable.
+	if err := os.WriteFile(filepath.Join(root, "CONTRACT.md"), []byte("changed\n"), 0o644); err != nil {
+		t.Fatalf("changing a file outside the archive: %v", err)
+	}
+	stillOne, err := Attribute(root)
+	if err != nil {
+		t.Fatalf("Attribute: %v", err)
+	}
+	if len(stillOne.Dirty) != 1 {
+		t.Errorf("dirty = %v; a file outside the archive is not the archive's problem", stillOne.Dirty)
+	}
+}
+
+// A tree that cannot say where it came from is not something to build a release
+// out of.
+func TestAttributeRefusesSomethingThatIsNotACheckout(t *testing.T) {
+	if _, err := Attribute(t.TempDir()); err == nil {
+		t.Error("attributed a directory that is not a checkout")
 	}
 }

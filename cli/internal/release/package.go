@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path"
 	"path/filepath"
 	"sort"
@@ -254,4 +255,62 @@ func ReadSums(contents []byte) (map[string]string, error) {
 		return nil, fmt.Errorf("%s lists nothing", SumsName)
 	}
 	return sums, nil
+}
+
+// Attribution is the commit an archive can honestly claim to have been built
+// from.
+//
+// A release says "this was built from commit X", and a tag points at X. Both
+// are false if the runtime files differ from what X contains — and that is not
+// hypothetical: this was written after an archive was built from a tree whose
+// lazy-lock.json had been changed by a `:Lazy sync` and never committed, which
+// would have published a configuration no commit describes.
+type Attribution struct {
+	// Commit is the SHA the tree is checked out at.
+	Commit string
+
+	// Dirty are the runtime files that differ from it. Only runtime files: a
+	// modified README of the maintainer's own notes does not make an archive
+	// unattributable, because it is not in the archive.
+	Dirty []string
+}
+
+// Attribute asks git what the tree is.
+//
+// An error means the question cannot be answered — no git, or not a checkout —
+// and a release that cannot say where it came from is not a release.
+func Attribute(tree string) (Attribution, error) {
+	commit, err := git(tree, "rev-parse", "HEAD")
+	if err != nil {
+		return Attribution{}, fmt.Errorf("asking git what %s is checked out at: %w", tree, err)
+	}
+
+	// Only the entries that end up in the archive, and `--` so a path that
+	// happens to look like a revision is still read as a path.
+	args := append([]string{"status", "--porcelain", "--"}, install.RuntimeEntries...)
+	status, err := git(tree, args...)
+	if err != nil {
+		return Attribution{}, fmt.Errorf("asking git what has changed in %s: %w", tree, err)
+	}
+
+	attribution := Attribution{Commit: strings.TrimSpace(commit)}
+	for _, line := range strings.Split(status, "\n") {
+		if trimmed := strings.TrimSpace(line); trimmed != "" {
+			attribution.Dirty = append(attribution.Dirty, trimmed)
+		}
+	}
+	return attribution, nil
+}
+
+func git(tree string, args ...string) (string, error) {
+	command := exec.Command("git", append([]string{"-C", tree}, args...)...)
+	output, err := command.Output()
+	if err != nil {
+		var exit *exec.ExitError
+		if errors.As(err, &exit) && len(exit.Stderr) > 0 {
+			return "", fmt.Errorf("%w: %s", err, strings.TrimSpace(string(exit.Stderr)))
+		}
+		return "", err
+	}
+	return string(output), nil
 }

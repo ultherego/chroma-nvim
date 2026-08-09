@@ -24,6 +24,7 @@ func cmdPackage(args []string, out, errOut *os.File) int {
 	tree := set.String("tree", ".", "the configuration tree to package")
 	version := set.String("version", "", "the version this release is, e.g. v1.0.0")
 	outDir := set.String("out", "dist", "where to write the archive and SHA256SUMS")
+	allowDirty := set.Bool("allow-dirty", false, "package a tree with uncommitted runtime changes; the result belongs to no commit")
 
 	if err := set.Parse(args); err != nil {
 		return exitMisuse
@@ -46,13 +47,38 @@ func cmdPackage(args []string, out, errOut *os.File) int {
 		return code
 	}
 
+	// A release says "built from commit X" and a tag points at X. Both are
+	// false if the runtime files differ from what X holds — which is not
+	// hypothetical: the first artefacts built here carried a lazy-lock.json a
+	// `:Lazy sync` had changed and nobody had committed, so the archive
+	// described no commit at all and its checksum was reproducible only by
+	// accident of one working tree.
+	attribution, err := release.Attribute(root)
+	if err != nil {
+		fmt.Fprintln(errOut, err)
+		return exitFailed
+	}
+	if len(attribution.Dirty) > 0 && !*allowDirty {
+		fmt.Fprintf(errOut, "%s has uncommitted changes to files that go into the archive:\n", root)
+		for _, entry := range attribution.Dirty {
+			fmt.Fprintf(errOut, "  %s\n", entry)
+		}
+		fmt.Fprint(errOut, "\nCommit or restore them, or pass --allow-dirty for a throwaway build.\nA release archive has to be something a commit describes.\n")
+		return exitMisuse
+	}
+
 	result, err := release.Package(root, *version, *outDir)
 	if err != nil {
 		fmt.Fprintln(errOut, err)
 		return exitFailed
 	}
 
-	fmt.Fprintf(out, "%s\n%s\n\n%s  %s\n",
-		result.Archive, result.Sums, result.SHA256, filepath.Base(result.Archive))
+	built := attribution.Commit
+	if len(attribution.Dirty) > 0 {
+		built += " (with uncommitted changes)"
+	}
+
+	fmt.Fprintf(out, "%s\n%s\n\nbuilt from %s\n%s  %s\n",
+		result.Archive, result.Sums, built, result.SHA256, filepath.Base(result.Archive))
 	return exitOK
 }
