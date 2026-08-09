@@ -360,9 +360,30 @@ local function read_one(path)
   return decoded
 end
 
+--- Read once and kept: the contract ships with the release and does not change
+--- while Neovim is running. Measured before it was added: 0.197 ms per read,
+--- and a startup asks eight times — parsers, linters, Mason, servers,
+--- formatters, schemas and the plugin specs — which is 1.6 ms of a budget the
+--- whole configuration keeps at about 26.
+---@type { components: table<string, table>, problems: string[] }|nil
+local loaded = nil
+
+---Forgets the contract, so the next read goes back to the files. For tests, and
+---for `:checkhealth chroma`, which is somebody looking at the contract and is
+---the one moment a cached copy would be the wrong answer: this repository is
+---also somebody's configuration directory, so the files can be edited in the
+---session that is reading them.
+function M.forget()
+  loaded = nil
+end
+
 ---Every component this configuration ships, keyed by id.
 ---@return table<string, table> components, string[] problems
 function M.load()
+  if loaded then
+    return loaded.components, loaded.problems
+  end
+
   local components, problems = {}, {}
 
   local dir = directory()
@@ -381,6 +402,7 @@ function M.load()
     end
   end
 
+  loaded = { components = components, problems = problems }
   return components, problems
 end
 

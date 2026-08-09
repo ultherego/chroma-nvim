@@ -198,6 +198,12 @@ local function check_components()
   health.start("Components")
 
   local contract = require("chroma.components")
+  -- From the files, not from the session's copy: this repository is also a
+  -- configuration directory, so a health check run after editing a component
+  -- should report the component as it now is.
+  contract.forget()
+  require("chroma.state").forget()
+
   local components, problems = contract.load()
 
   for _, problem in ipairs(problems) do
