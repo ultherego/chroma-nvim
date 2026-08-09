@@ -289,23 +289,24 @@ jobs:
             # showed; with ten it was a matter of time.
             export XDG_CACHE_HOME="$cache"
 
-            nvim --headless "+Lazy! sync" +qa
-
-            # `Lazy! sync` does not wait for parsers. The plugin spec asks
-            # nvim-treesitter to install what is missing and that call is
-            # asynchronous, so whether the downloads finish before Neovim exits
-            # is a race — and a parser that did not make it prints
-            # "Downloading ..." on the next start, which the silence check below
-            # reads as a startup message. Fails here, where it means what it
-            # says, rather than there.
+            # Plugins and parsers in one Neovim, on purpose.
             #
-            # The download and build scratch is removed first, not the parsers
-            # themselves — those are installed into share/nvim/site/parser. A
-            # run killed partway leaves a half-finished directory here, and the
-            # next attempt fails with ENOTEMPTY when it tries to rename over it.
-            # That is what took `hcl` down while every other parser succeeded.
-            rm -rf "${XDG_CACHE_HOME}/nvim/"tree-sitter-*
+            # They used to be two invocations with an `rm -rf` of the treesitter
+            # scratch between them, and that removal raced the first one:
+            # `Lazy! sync` starts parser installs asynchronously, `+qa` ends the
+            # editor while they are still writing, and the shell then deleted a
+            # directory a live process was filling — `rm: cannot remove
+            # .../tree-sitter-hcl: Directory not empty`, which failed the job.
+            # Giving each profile its own cache did not help, because the race
+            # was never between profiles; it was between a step and the step
+            # before it.
+            #
+            # In one process there is nothing to kill and nothing to clean up
+            # between: the sync completes, and only then does the parser install
+            # start. It is also closer to what the installer itself does.
             nvim --headless -c 'lua
+              require("lazy").sync({ wait = true, show = false })
+
               local wanted = require("config.parsers")
               local function missing()
                 local installed = {}
