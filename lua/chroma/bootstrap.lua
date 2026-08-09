@@ -148,8 +148,22 @@ function M.install(opts)
   local timeout = (opts or {}).timeout or M.TIMEOUT
 
   -- Plugins first: everything below is a plugin's API.
+  --
+  -- `install` with the lockfile, then `restore` — deliberately not `sync`.
+  -- Measured, by unpacking a release archive beside the installation it
+  -- produced: sync updates every plugin to the head of its branch and then
+  -- rewrites the lockfile, so an installation of v0.0.0-installer-dev.2 came up
+  -- with catppuccin and project.nvim at commits the release did not name. Two
+  -- people installing one release on two days would get two different editors,
+  -- which is the whole thing a lockfile is shipped to prevent — and which this
+  -- CLI refuses to package a tree without.
+  --
+  -- install clones what is missing at the pinned commit; restore moves anything
+  -- already present onto it, which is what makes a second run agree with the
+  -- first.
   local ok, err = pcall(function()
-    require("lazy").sync({ wait = true, show = false })
+    require("lazy").install({ wait = true, show = false, lockfile = true })
+    require("lazy").restore({ wait = true, show = false })
   end)
   if not ok then
     return false, ("installing plugins failed: %s"):format(err)
