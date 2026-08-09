@@ -32,6 +32,19 @@ type Transaction struct {
 	PreviousSelection []byte
 	HadSelection      bool
 
+	// StageDir is the tree being assembled beside the target, and is emptied
+	// when it becomes the target.
+	StageDir string
+
+	// Target is where the configuration was placed, Backup is where whatever
+	// was there before was renamed to, and the two booleans are the only thing
+	// rollback trusts: a path that is set but never happened would send it
+	// moving directories that are not there.
+	Target        string
+	Backup        string
+	Placed        bool
+	BackupCreated bool
+
 	selectionWritten bool
 	committed        bool
 }
@@ -79,26 +92,77 @@ func (tx *Transaction) Commit() {
 // quietly did not work is the one thing worse than the failure that caused it,
 // because the user is then told the previous state was restored when it was
 // not.
+// It undoes things in the reverse of the order they happened, and each step
+// clears its own fact only once it has worked — so a rollback that failed
+// partway can be run again and will resume where it stopped, rather than
+// repeating what already succeeded.
 func (tx *Transaction) Rollback() error {
-	if tx.committed || !tx.selectionWritten {
+	if tx.committed {
 		return nil
 	}
 
-	var err error
-	if tx.HadSelection {
-		err = state.Restore(tx.SelectionPath, tx.PreviousSelection)
-	} else {
-		// There was no file, so leaving one behind would be this installer
-		// inventing a selection the user never made.
-		if removeErr := os.Remove(tx.SelectionPath); removeErr != nil && !errors.Is(removeErr, os.ErrNotExist) {
-			err = removeErr
+	var problems []error
+
+	// The configuration first, because the selection is meaningless beside a
+	// tree that is not there.
+	if tx.Placed {
+		if err := os.RemoveAll(tx.Target); err != nil {
+			problems = append(problems, fmt.Errorf("removing the configuration placed at %s: %w", tx.Target, err))
+		} else {
+			tx.Placed = false
 		}
 	}
-	if err != nil {
-		return fmt.Errorf("restoring the selection at %s: %w", tx.SelectionPath, err)
+
+	// Only once the target is out of the way, and only if this transaction is
+	// the one that moved it.
+	if tx.BackupCreated && !tx.Placed {
+		if err := os.Rename(tx.Backup, tx.Target); err != nil {
+			problems = append(problems, fmt.Errorf("putting %s back as %s: %w", tx.Backup, tx.Target, err))
+		} else {
+			tx.BackupCreated = false
+		}
 	}
 
-	// Only now, so a rollback that failed can be attempted again.
-	tx.selectionWritten = false
+	if tx.StageDir != "" {
+		if err := os.RemoveAll(tx.StageDir); err != nil {
+			problems = append(problems, fmt.Errorf("removing the staging directory %s: %w", tx.StageDir, err))
+		} else {
+			tx.StageDir = ""
+		}
+	}
+
+	if tx.selectionWritten {
+		var err error
+		if tx.HadSelection {
+			err = state.Restore(tx.SelectionPath, tx.PreviousSelection)
+		} else {
+			// There was no file, so leaving one behind would be this installer
+			// inventing a selection the user never made.
+			if removeErr := os.Remove(tx.SelectionPath); removeErr != nil && !errors.Is(removeErr, os.ErrNotExist) {
+				err = removeErr
+			}
+		}
+		if err != nil {
+			problems = append(problems, fmt.Errorf("restoring the selection at %s: %w", tx.SelectionPath, err))
+		} else {
+			tx.selectionWritten = false
+		}
+	}
+
+	return errors.Join(problems...)
+}
+
+// Cleanup removes what a *successful* installation leaves behind — the staging
+// directory, if placement did not consume it. It is not a rollback and must not
+// be confused with one: it never touches the target, the backup or the
+// selection.
+func (tx *Transaction) Cleanup() error {
+	if tx.StageDir == "" {
+		return nil
+	}
+	if err := os.RemoveAll(tx.StageDir); err != nil {
+		return fmt.Errorf("removing the staging directory %s: %w", tx.StageDir, err)
+	}
+	tx.StageDir = ""
 	return nil
 }
