@@ -10,7 +10,9 @@ package component
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -167,8 +169,20 @@ func readOne(path string) (*Component, string) {
 	// the rest is never seen — a component file quietly half-read. Lua's decoder
 	// refuses the same input with "Expected the end", so requiring it here is
 	// also what keeps the two readers answering alike.
-	if decoder.More() {
+	//
+	// Asked for by decoding again and requiring io.EOF, rather than with More().
+	// More() is documented as reporting "whether there is another element in the
+	// current array or object being parsed", which is not a promise about the end
+	// of a top-level stream; it answers correctly today, and this contract is too
+	// strict a thing to rest on behaviour the standard library does not describe.
+	var extra json.RawMessage
+	switch err := decoder.Decode(&extra); {
+	case errors.Is(err, io.EOF):
+		// The only good case: one document, and then the end of it.
+	case err == nil:
 		return nil, "has more than one document in it"
+	default:
+		return nil, "has trailing content after the document"
 	}
 
 	if component.ID == "" {

@@ -13,7 +13,9 @@ package state
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -82,8 +84,17 @@ func Load(path string, set component.Set) (state State, found bool, err error) {
 	// holding two documents parses as the first one and says nothing about the
 	// second. A selection is one document; the same rule as the component
 	// reader, and the same rule Lua's decoder applies on its own.
-	if decoder.More() {
+	//
+	// io.EOF rather than More(), for the reason given in component.go: More()
+	// describes arrays and objects, not the end of a top-level stream.
+	var extra json.RawMessage
+	switch err := decoder.Decode(&extra); {
+	case errors.Is(err, io.EOF):
+		// One document, and then the end of it.
+	case err == nil:
 		return State{}, true, fmt.Errorf("%s: has more than one document in it", path)
+	default:
+		return State{}, true, fmt.Errorf("%s: has trailing content after the document", path)
 	}
 
 	if err := state.validate(set); err != nil {
