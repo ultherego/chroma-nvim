@@ -62,14 +62,43 @@ end
 
 -- A server or Mason package a component asks for, that nothing pins, would be
 -- enabled and never installed.
+--
+-- This reads what the specs produce rather than how they are written. The
+-- earlier version scraped `"name@version"` out of the source text, which made
+-- it a test of spelling: when the tool installer's pins had to become
+-- `{ name, version = ... }` — because that plugin does not parse the string
+-- form, and had therefore never installed anything — the scrape stopped
+-- finding them and the layer looked broken while it was being fixed.
 T["shipped"]["names servers and packages the LSP layer pins"] = function()
-  local root = vim.fn.fnamemodify(vim.fn.resolve(debug.getinfo(1, "S").source:sub(2)), ":p:h:h")
-  local source = table.concat(vim.fn.readfile(vim.fs.joinpath(root, "lua", "plugins", "lsp.lua")), "\n")
+  -- Everything enabled, so every pin is in the lists: an empty XDG means no
+  -- selection, which means legacy.
+  local saved = vim.env.XDG_CONFIG_HOME
+  vim.env.XDG_CONFIG_HOME = vim.fn.tempname()
+  require("chroma.state").forget()
+  package.loaded["plugins.lsp"] = nil
 
   local pinned = {}
-  for name in source:gmatch('"([%w_%-%.]+)@[^"]+"') do
-    pinned[name] = true
-  end
+  local ok, err = pcall(function()
+    for _, entry in ipairs(require("plugins.lsp")) do
+      if type(entry.opts) == "function" then
+        for _, item in ipairs(entry.opts().ensure_installed or {}) do
+          -- mason-lspconfig takes "name@version"; mason-tool-installer takes
+          -- { name, version = "..." }. Both are pins, in the form each plugin
+          -- documents.
+          if type(item) == "table" then
+            pinned[item[1]] = true
+          else
+            pinned[item:match("^([^@]+)")] = true
+          end
+        end
+      end
+    end
+  end)
+
+  vim.env.XDG_CONFIG_HOME = saved
+  require("chroma.state").forget()
+  package.loaded["plugins.lsp"] = nil
+  assert(ok, err)
 
   local missing = {}
   for id, component in pairs(components.load()) do

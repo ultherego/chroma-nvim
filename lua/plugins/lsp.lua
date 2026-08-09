@@ -38,27 +38,35 @@ return {
     opts = function()
       -- Pinned by hand here; which of them are wanted comes from the enabled
       -- components, so a machine that never selected Ansible does not fetch
-      -- ansible-lint. `:MasonVersions` prints them in this form.
+      -- ansible-lint.
+      --
+      -- `{ name, version = ... }`, not `"name@version"`. This plugin passes a
+      -- string entry to the registry as a package name and nothing splits it,
+      -- so `"yamllint@1.38.0"` raised `Cannot find package` and nothing was
+      -- ever installed — measured during the first real end-to-end install,
+      -- and invisible until then because the tools were already on the machine
+      -- that wrote the pins. Upstream's own README documents the table form.
+      -- mason-lspconfig, which pins the servers below, is a different plugin
+      -- and does parse `name@version`.
       local pins = {
         -- Runs as a language server, so plugins/lint.lua must not register it
         -- with nvim-lint as well.
-        "tflint@v0.64.0",
+        { "tflint", version = "v0.64.0" },
         -- nvim-lint linters (see plugins/lint.lua)
-        "ansible-lint@26.6.0",
-        "yamllint@1.38.0",
-        "hadolint@v2.15.1",
-        "actionlint@v1.7.12",
+        { "ansible-lint", version = "26.6.0" },
+        { "yamllint", version = "1.38.0" },
+        { "hadolint", version = "v2.15.1" },
+        { "actionlint", version = "v1.7.12" },
         -- conform formatters (see plugins/formatting.lua)
-        "stylua@v2.5.2",
-        "shfmt@v3.13.1",
-        "jq@jq-1.7",
+        { "stylua", version = "v2.5.2" },
+        { "shfmt", version = "v3.13.1" },
+        { "jq", version = "jq-1.7" },
       }
 
       local wanted = require("chroma.components").contributions("mason", require("chroma.state").enabled_ids())
       local keep = {}
       for _, pin in ipairs(pins) do
-        local name = pin:match("^([^@]+)")
-        if vim.tbl_contains(wanted, name) then
+        if vim.tbl_contains(wanted, pin[1]) then
           table.insert(keep, pin)
         end
       end
