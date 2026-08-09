@@ -490,6 +490,48 @@ nor `any`. That is a Go test, and it protects the Lua side as much as the CLI.
 
 ---
 
+## The release artefact
+
+A release is two files, and the installer will accept nothing else.
+
+```
+chroma-nvim-v1.0.0.tar.gz
+SHA256SUMS
+```
+
+**Every entry lives under `chroma-nvim-<version>/`.** A tarball that unpacks
+into the working directory is rude to anybody who opens it by hand, and a
+required prefix gives the extractor one more thing it can check: an archive
+whose entries are not all under the name it claims to be is not the archive that
+was built.
+
+**What is in it is `install.RuntimeEntries`, and that list exists once.** The
+packager writes those entries and the installer copies exactly the same ones
+when it stages a checkout, so an installation from a release and one from a tree
+are the same files. Two lists would be two products with one version number.
+
+Out of it, therefore: `cli/` — the installer is not the configuration —
+`tests/`, `.github/`, the governance documents, the linter configuration, and
+`.git`, which is out for a reason of its own: an installed configuration that is
+a checkout invites `git pull` on top of a managed installation, which arrives at
+a version no install state describes.
+
+**The archive is reproducible.** Entries are sorted, ownership is nobody, and
+modification times are fixed, so packaging one tree twice produces one checksum.
+A digest that moved between builds would be a record of when the archive was
+made rather than of what is in it.
+
+**`SHA256SUMS` is what `sha256sum` writes**: a hex digest, two spaces, a name.
+A line that cannot be parsed is refused rather than skipped, in a file whose
+whole job is to be unambiguous.
+
+**Built by `chroma package`,** which is developer-only and lives in the same
+binary as everything else on purpose: the release workflow has to build the
+archive with the code that was tested, not with a shell pipeline that agrees
+with it today.
+
+---
+
 ## Implementation order
 
 The audit series is closed. Two of them ran back to back over the component

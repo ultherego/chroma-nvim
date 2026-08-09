@@ -47,6 +47,8 @@ func run(args []string, out, errOut *os.File) int {
 		return cmdDoctor(args[1:], out, errOut)
 	case "install":
 		return cmdInstall(args[1:], out, errOut)
+	case "package":
+		return cmdPackage(args[1:], out, errOut)
 	case "update", "uninstall", "rollback":
 		fmt.Fprintf(errOut, "%s is not implemented yet — see cli/DESIGN.md\n", args[0])
 		return exitMisuse
@@ -65,8 +67,10 @@ func usage(w *os.File) {
 
   components   list the components of a configuration tree
   doctor       report what each component needs and what is missing
-  install      --dry-run only for now: builds the plan and prints it
+  install      install a release, or a checkout with --source-tree
   version      this CLI, and the contract it understands
+
+  package      build a release archive and its checksums (developer-only)
 
   update, uninstall, rollback   not implemented yet
 
