@@ -69,6 +69,31 @@ local function wait_for(wanted, installed, timeout)
   return absent(wanted, installed)
 end
 
+---Makes lazy load the plugins a step is about to drive.
+---
+---This exists for a bug that a real installation found and no unit test could
+---have. mason-tool-installer's list of packages comes from its `opts`, and lazy
+---applies those when it loads the plugin — on `VeryLazy`, which in a headless
+---Neovim may never arrive at all. Calling `check_install()` before that gives
+---an empty list: nothing is installed, nothing fails, and the wait below
+---reports four packages missing a quarter of an hour later.
+---
+---So the step loads what it is about to use, and does not assume a startup
+---sequence that a headless editor has no reason to run.
+---@param names string[]
+local function load_plugins(names)
+  local ok, lazy = pcall(require, "lazy")
+  if not ok then
+    return
+  end
+
+  for _, name in ipairs(names) do
+    -- One at a time: lazy reports an unknown plugin by raising, and a name
+    -- that is not in this release should not stop the ones that are.
+    pcall(lazy.load, { plugins = { name }, wait = true })
+  end
+end
+
 ---Installs the plugins, tools and parsers the enabled components need.
 ---
 ---Loud on failure, and failure means failure: a parser that did not compile is
@@ -92,6 +117,43 @@ function M.install(opts)
   -- question with an answer: is it installed.
   local packages = contributions("mason")
   if #packages > 0 then
+    load_plugins({ "mason.nvim", "mason-tool-installer.nvim" })
+
+    local registry = require("mason-registry")
+
+    local function installed(name)
+      return registry.is_installed(name)
+    end
+
+    -- Whether anything is still being fetched. `is_installed` alone is true too
+    -- early: measured, the first end-to-end install saw all four packages as
+    -- present, returned, and `qa!` closed the editor while one of them was
+    -- still downloading — mason said so on the way out ("Neovim is exiting
+    -- while packages are still installing"), the package was aborted, and the
+    -- installation reported success over it. A step that asks "is it there yet"
+    -- has to also ask "and has it stopped arriving".
+    local function settled()
+      for _, name in ipairs(packages) do
+        local found, package = pcall(registry.get_package, name)
+        if found and package:is_installing() then
+          return false
+        end
+      end
+      return true
+    end
+
+    -- The plugin says when it has finished with all of them, which is the only
+    -- signal that covers a package that failed rather than arrived.
+    local completed = false
+    vim.api.nvim_create_autocmd("User", {
+      group = vim.api.nvim_create_augroup("chroma_bootstrap_mason", { clear = true }),
+      pattern = "MasonToolsUpdateCompleted",
+      once = true,
+      callback = function()
+        completed = true
+      end,
+    })
+
     ok, err = pcall(function()
       require("mason-tool-installer").check_install(false)
     end)
@@ -99,10 +161,12 @@ function M.install(opts)
       return false, ("installing tools failed: %s"):format(err)
     end
 
-    local registry = require("mason-registry")
-    local missing = wait_for(packages, function(name)
-      return registry.is_installed(name)
-    end, timeout)
+    vim.wait(timeout, function()
+      return completed or (#absent(packages, installed) == 0 and settled())
+    end, INTERVAL)
+
+    -- The registry is the authority, asked after everything has stopped moving.
+    local missing = absent(packages, installed)
     if #missing > 0 then
       return false, ("these tools did not install: %s"):format(table.concat(missing, ", "))
     end
@@ -114,6 +178,8 @@ function M.install(opts)
   -- than awaited.
   local parsers = contributions("parsers")
   if #parsers > 0 then
+    load_plugins({ "nvim-treesitter" })
+
     ok, err = pcall(function()
       require("nvim-treesitter").install(parsers)
     end)
