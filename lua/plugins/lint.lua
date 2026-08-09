@@ -72,7 +72,7 @@ return {
         return vim.tbl_filter(function(name)
           local linter = lint.linters[name]
           local cmd = type(linter) == "table" and linter.cmd or nil
-          return cmd == nil or vim.fn.executable(cmd) == 1
+          return cmd == nil or require("chroma.tools").have(cmd)
         end, names)
       end
 

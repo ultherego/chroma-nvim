@@ -34,20 +34,28 @@ no `kubectl.nvim`, enables no `helm_ls`, and compiles no Helm parsers. See
 | curl, tar, unzip, gzip | any |
 | A C compiler | any |
 
-A Nerd Font is recommended. `lazygit` and `yazi` are used if present.
+A Nerd Font is recommended. That table is the whole list, and the versions in
+it are floors rather than pins — each one is a requirement stated by something
+Chroma depends on: lazy.nvim needs partial clones, nvim-treesitter names its CLI
+version, fzf-lua names its fzf. Anything newer works.
 
-Tools such as `terraform`, `kubectl`, `helm` or `ansible` are needed only for
-the components that use them, and `:checkhealth chroma` says which are missing
-and what stops working without each one. Language servers and linters install
-themselves through Mason.
+## External tools
 
-Those are floors, not pins, and they are the only ones. Chroma uses the tools
-you already have and does not upgrade, replace or shadow them — if you run
-OpenTofu instead of Terraform, that satisfies the component. Every version
-above is a requirement stated by something Chroma depends on: lazy.nvim needs
-partial clones, nvim-treesitter names its CLI version, fzf-lua names its fzf.
-What Chroma does pin is its own runtime — plugins, servers, parsers — so that
-one release installs the same editor twice.
+Terraform, OpenTofu, kubectl, Helm, Ansible, the AWS CLI and Docker are **not
+installed or managed by Chroma**, and enabling a component does not ask for
+them. Choosing Kubernetes asks for Chroma's Kubernetes features — the plugin,
+the language server, the schemas, the parser. The `kubectl` those features shell
+out to is yours to provide, and Chroma will not install, upgrade or shadow it.
+
+So a missing one never blocks an installation. `chroma install` says at the end
+which are not on PATH, `:checkhealth chroma` and `chroma doctor` say it again
+whenever you ask, and the feature that needs one tells you when you use it —
+which is the moment it matters. If you run OpenTofu rather than Terraform, that
+is simply what the Terraform component uses.
+
+What Chroma does pin is its own runtime — plugins, language servers, formatters,
+linters and parsers, installed through lazy.nvim and Mason — so that one release
+installs the same editor twice. You never have to think about that half.
 
 ## Installation
 

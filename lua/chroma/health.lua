@@ -3,17 +3,18 @@
 local M = {}
 
 local health = vim.health
+local tools = require("chroma.tools")
 
 ---@class devops.Tool
 ---@field cmd string          executable to look for
 ---@field what string         what stops working without it
 ---@field advice? string      how to get it
 
----@param tools devops.Tool[]
+---@param entries devops.Tool[]
 ---@param severity fun(msg: string, advice?: string|string[])
-local function check_all(tools, severity)
-  for _, tool in ipairs(tools) do
-    if vim.fn.executable(tool.cmd) == 1 then
+local function check_all(entries, severity)
+  for _, tool in ipairs(entries) do
+    if tools.have(tool.cmd) then
       -- Version output is noisy and inconsistent between tools, so only the
       -- fact of presence is reported.
       health.ok(("`%s` found — %s"):format(tool.cmd, tool.what))
@@ -95,8 +96,9 @@ local function check_core()
     },
   }, health.error)
 
-  if vim.fn.executable("cc") == 1 or vim.fn.executable("gcc") == 1 or vim.fn.executable("clang") == 1 then
-    health.ok("A C compiler is available — treesitter parsers can be built")
+  local compiler = tools.first({ "cc", "gcc", "clang" })
+  if compiler then
+    health.ok(("A C compiler is available (%s) — treesitter parsers can be built"):format(compiler))
   else
     health.error("No C compiler found — treesitter parsers cannot be built", "install gcc or clang")
   end
@@ -148,10 +150,15 @@ local function check_pickers()
 end
 
 local function check_devops()
-  health.start("DevOps tooling")
+  health.start("External tools")
 
-  -- These are all optional in the sense that the editor still works without
-  -- them; they are only needed for the workflow they belong to.
+  -- Named the same as the report `chroma install` and `chroma doctor` print,
+  -- and said the same way: these belong to the machine, not to Chroma, which
+  -- neither installs nor upgrades them. The editor works without every one of
+  -- them; each is wanted by the workflow it belongs to, and the feature that
+  -- wants it says so when used.
+  health.info("Chroma does not install or manage these. A feature that needs one says so when you use it.")
+
   check_all({
     { cmd = "kubectl", what = "the Kubernetes views (<leader>kk)" },
     { cmd = "helm", what = "the Helm view inside kubectl.nvim" },
@@ -162,8 +169,9 @@ local function check_devops()
 
   -- Terraform is called out separately because its absence has a specific,
   -- easily misdiagnosed symptom.
-  if vim.fn.executable("terraform") == 1 or vim.fn.executable("tofu") == 1 then
-    health.ok("`terraform` or `tofu` found — .tf files can be formatted")
+  local runner = tools.first({ "terraform", "tofu" })
+  if runner then
+    health.ok(("`%s` found — .tf files can be formatted"):format(runner))
   else
     health.warn(
       "Neither `terraform` nor `tofu` found — .tf files will not be formatted",
@@ -181,7 +189,7 @@ local function check_devops()
     health.warn(plan_err, ":TerraformPlan will refuse rather than write a plan outside it")
   end
 
-  if vim.fn.executable("kubectl") == 1 then
+  if tools.have("kubectl") then
     -- KUBECONFIG is a path LIST, not a path: kubectl merges every entry.
     local separator = vim.fn.has("win32") == 1 and ";" or ":"
     local entries = vim.env.KUBECONFIG and vim.split(vim.env.KUBECONFIG, separator, { trimempty = true })

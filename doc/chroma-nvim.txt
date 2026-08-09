@@ -67,16 +67,25 @@ Strongly recommended ~
 
   ripgrep (rg)        Backend for grep pickers.
   fd                  Required by project.nvim for session handling.
-  fzf > 0.36          Backend for every picker.
+  fzf >= 0.36         Backend for every picker.
   A Nerd Font         Icons in pickers, file trees and completion.
   lazygit, yazi       Git UI and file manager integration.
 
-DevOps tooling, as needed ~
+External tools, as needed ~
 
-  terraform or tofu, terragrunt, kubectl, helm, ansible, docker
+  terraform or tofu, terragrunt, kubectl, helm, ansible, aws, docker
 
-Language servers and linters are installed automatically by Mason and do not
-need to be present beforehand.
+These belong to your system. Chroma does not install, upgrade or replace any of
+them, and enabling a component does not ask for one: choosing Kubernetes asks
+for Chroma's Kubernetes features, not for kubectl. A missing one never blocks an
+installation. `chroma install` names what is not on PATH when it finishes,
+`:checkhealth chroma` and `chroma doctor` name it again whenever you ask, and
+the feature that needs it says so when you use it.
+
+Language servers and linters are a different matter: those are Chroma's own
+runtime, they are installed automatically by Mason, they are pinned so that one
+release installs the same editor twice, and they do not need to be present
+beforehand.
 
 ==============================================================================
 3. INSTALLATION                                      *chroma-nvim-installation*

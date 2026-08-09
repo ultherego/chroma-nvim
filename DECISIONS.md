@@ -190,13 +190,23 @@ which case Chroma follows and the health check already names what went.
 | | examples | policy |
 |---|---|---|
 | Chroma's runtime needs | Neovim, git, curl, tar | floor, only where an upstream states one |
-| The user's own tools | terraform, tofu, kubectl, helm, ansible, aws, docker | detected, never pinned, never touched |
+| The user's own tools | terraform, tofu, kubectl, helm, ansible, aws, docker | reported, never installed, never touched |
 | Chroma's internal runtime | plugins, LSP servers, formatters, parsers | pinned, reproducible |
 
 **Why.** A configuration that installs its own terraform beside the one on the
-machine has taken over a system it was invited into. Detection is the whole
-job for that class: if `terraform` is there it is used, if only `tofu` is there
-the component says that satisfies it, and neither is replaced or upgraded.
+machine has taken over a system it was invited into. So the middle row is not
+"install it for them if they agree" — it is not Chroma's to install at all.
+There is no package-manager table, no `sudo`, and nothing that could grow into
+one; an earlier design had `pacman -S` behind a confirmation and it was deleted
+rather than left unused.
+
+Enabling a component asks for Chroma's features for that technology, not for
+the CLI they drive. So a missing `kubectl` never blocks an installation: the
+installer says at the end which external tools are not on PATH, `doctor` says
+it again on request, and the feature that shells out to it says so when used —
+which is the moment somebody can act on it. The boundary is `core`: a tool
+`core` asks for is Chroma's own and can stop an installation, a tool any other
+component asks for cannot.
 
 The internal runtime is the opposite case, and the reason is measured rather
 than argued: a release built with `lazy.sync` installed plugin versions that
