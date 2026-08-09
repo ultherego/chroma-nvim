@@ -74,7 +74,7 @@ other. The files are data, not configuration to be edited by users.
 
 ```json
 {
-  "contract": 4,
+  "contract": 5,
   "id": "terraform",
   "name": "Terraform / OpenTofu",
   "requires": ["core"],
@@ -159,12 +159,40 @@ happens before any of them decides anything.
 { "id": "tree-sitter", "version": { "min": "0.26.1" }, "reason": "compiling parsers" }
 ```
 
-`exact`, or `min` and/or `max` — never both kinds, because "exactly 1.2 and at
-least 1.0" is two answers to one question. Deliberately not a constraint
-language: `>=1.2,<2.0 || >=3.0` is a grammar, a parser and a class of bug, and
-nothing here has needed one. That is what took the contract from 1 to 2; the
-readers of contract 1 correctly refuse a `version` field they have never heard
-of, which is the version check doing its job.
+**A version constraint expresses a compatibility boundary, and nothing else.**
+
+```
+min   the earliest version known to work
+max   the latest version known to work, and only when a real
+      incompatibility has been found — not a guess about the future
+```
+
+Neither says which version Chroma would prefer, because Chroma has no
+preference about a tool that is not its own. A floor belongs here only when
+something states one: `git >= 2.19` because lazy.nvim needs partial clones,
+`tree-sitter >= 0.26.1` and `fzf >= 0.36` because nvim-treesitter and fzf-lua
+say so. "It is what the machine we developed on had" is not a reason.
+
+**There is no `exact`, and that is what took the contract from 4 to 5.**
+Contract 4 had one, and it was the single way this schema could say "this
+machine must run kubectl 1.35.2" — Chroma deciding the version of a tool that
+belongs to the user, which is exactly what the external-tools policy says it
+does not do. Leaving the field in place and forbidding it in prose would have
+been worse than either: the next person reads the struct, sees both readers
+support it, and quite reasonably uses it. **A schema should not be able to
+express what the product will not do.**
+
+Removing it is a breaking change to a document both languages read, so it is a
+contract bump rather than a quiet edit. A contract-5 reader refuses `exact` as
+an unknown field; had the number stayed at 4, the same document would have been
+valid to one reader and invalid to another, which is the drift the number exists
+to prevent.
+
+Deliberately still not a constraint language: `>=1.2,<2.0 || >=3.0` is a
+grammar, a parser and a class of bug, and nothing here has needed one. Versions
+as data rather than as prose is what took the contract from 1 to 2; the readers
+of contract 1 correctly refuse a `version` field they have never heard of, which
+is the version check doing its job.
 
 **How to read a version is not in the contract.** A manifest says *what* is
 required, which is a fact about the product. That `kubectl` needs `version

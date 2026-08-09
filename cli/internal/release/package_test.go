@@ -28,7 +28,7 @@ func tree(t *testing.T) string {
 		{"LICENSE", "MIT\n"},
 		{"lua/chroma/state.lua", "return {}\n"},
 		{"lua/chroma/bootstrap.lua", "return {}\n"},
-		{"components/core.json", `{"contract": 4, "id": "core"}` + "\n"},
+		{"components/core.json", `{"contract": 5, "id": "core"}` + "\n"},
 		{"after/lsp/yamlls.lua", "return {}\n"},
 		{"doc/chroma-nvim.txt", "help\n"},
 		{"assets/logo.png", "not really a png\n"},

@@ -1,5 +1,5 @@
 {
-  "contract": 4,
+  "contract": 5,
   "id": "github-actions",
   "name": "GitHub Actions",
   "description": "Workflow files: linting, and the schema that validates them.",

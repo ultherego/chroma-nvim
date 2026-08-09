@@ -1,1 +1,1 @@
-{ "contract": 4, "id": "x", "tools": { "required": [ { "id": "t", "any": ["u"], "reason": "r" } ] } }
+{ "contract": 5, "id": "x", "tools": { "required": [ { "id": "t", "any": ["u"], "reason": "r" } ] } }

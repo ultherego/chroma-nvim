@@ -1,5 +1,5 @@
 {
-  "contract": 4,
+  "contract": 5,
   "id": "everything",
   "name": "Every field the contract has",
   "description": "Not shipped: this exists so both readers are asked about every field at once.",
@@ -24,7 +24,8 @@
         "id": "tflint",
         "reason": "linting",
         "version": {
-          "exact": "0.64.0"
+          "min": "0.50.0",
+          "max": "0.64.0"
         }
       }
     ],

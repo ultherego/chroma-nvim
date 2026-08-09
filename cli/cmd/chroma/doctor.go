@@ -103,8 +103,6 @@ func want(tool component.Tool) string {
 	switch {
 	case v == nil:
 		return "and that is enough"
-	case v.Exact != "":
-		return "and exactly " + v.Exact + " is required"
 	case v.Min != "" && v.Max != "":
 		return "and " + v.Min + " to " + v.Max + " is required"
 	case v.Min != "":

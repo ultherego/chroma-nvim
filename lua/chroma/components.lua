@@ -13,7 +13,7 @@ local M = {}
 --- declaring a higher one was written for a newer Chroma than this, and reading
 --- it as though the difference did not matter is how the two sides drift apart
 --- quietly. See cli/DESIGN.md, "The component contract".
-M.CONTRACT = 4
+M.CONTRACT = 5
 
 ---Dotted numbers, with an optional leading v and whatever suffix a release
 ---carries: 0.26.1, v1.14.3, 2.51.0-rc1.
@@ -84,7 +84,7 @@ local KNOWN = {
   },
   tools = { required = true, recommended = true, optional = true },
   tool = { id = true, any = true, reason = true, version = true },
-  version = { min = true, max = true, exact = true },
+  version = { min = true, max = true },
   nvim = {
     servers = true,
     mason = true,
@@ -236,6 +236,12 @@ end
 
 ---Whether a version constraint says one thing, and says it in numbers.
 ---The rules are the Go reader's, because a contract with two meanings has none.
+---
+---`min` and `max` are compatibility boundaries: the earliest version known to
+---work, and the latest, the second only where a real incompatibility was found.
+---Neither says which version Chroma would prefer. Contract 5 removed `exact`
+---because it was the one way to write "the machine must run this release" about
+---a tool that belongs to the user, so `exact` now fails as an unknown field.
 ---@param version table|nil
 ---@return string|nil problem
 local function version_problem_of(version)
@@ -246,18 +252,12 @@ local function version_problem_of(version)
     return "is not an object"
   end
 
-  local min, max, exact = version.min, version.max, version.exact
-  if not min and not max and not exact then
+  local min, max = version.min, version.max
+  if not min and not max then
     return "says nothing"
   end
 
-  -- Exact answers the question on its own; a bound beside it is a second answer
-  -- that some reader would have to choose between.
-  if exact and (min or max) then
-    return "sets exact together with min or max"
-  end
-
-  for name, value in pairs({ min = min, max = max, exact = exact }) do
+  for name, value in pairs({ min = min, max = max }) do
     if type(value) ~= "string" or not M.looks_like_version(value) then
       return ("has a %s that is not a version: %s"):format(name, vim.inspect(value))
     end

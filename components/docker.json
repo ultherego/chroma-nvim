@@ -1,5 +1,5 @@
 {
-  "contract": 4,
+  "contract": 5,
   "id": "docker",
   "name": "Docker and Compose",
   "description": "Dockerfiles and compose files: language servers and linting.",

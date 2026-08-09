@@ -135,7 +135,7 @@ func TestLoadReportsBadFiles(t *testing.T) {
 		},
 		{
 			name:     "no id",
-			files:    map[string]string{"anonymous.json": `{"contract": 4}`},
+			files:    map[string]string{"anonymous.json": `{"contract": 5}`},
 			problems: 1,
 			contains: "has no id",
 		},
@@ -147,31 +147,31 @@ func TestLoadReportsBadFiles(t *testing.T) {
 		},
 		{
 			name:     "a field it does not know",
-			files:    map[string]string{"typo.json": `{"contract": 4, "id": "typo", "require": ["core"]}`},
+			files:    map[string]string{"typo.json": `{"contract": 5, "id": "typo", "require": ["core"]}`},
 			problems: 1,
 			contains: "unknown field",
 		},
 		{
 			name:     "an unknown field inside a tool",
-			files:    map[string]string{"deep.json": `{"contract": 4, "id": "deep", "tools": {"required": [{"id": "x", "reason": "y", "min": "1.0"}]}}`},
+			files:    map[string]string{"deep.json": `{"contract": 5, "id": "deep", "tools": {"required": [{"id": "x", "reason": "y", "min": "1.0"}]}}`},
 			problems: 1,
 			contains: "unknown field",
 		},
 		{
 			name:     "a tool with both id and any",
-			files:    map[string]string{"both.json": `{"contract": 4, "id": "both", "tools": {"required": [{"id": "x", "any": ["y"], "reason": "z"}]}}`},
+			files:    map[string]string{"both.json": `{"contract": 5, "id": "both", "tools": {"required": [{"id": "x", "any": ["y"], "reason": "z"}]}}`},
 			problems: 1,
 			contains: "both id and any",
 		},
 		{
 			name:     "a tool with neither",
-			files:    map[string]string{"neither.json": `{"contract": 4, "id": "neither", "tools": {"required": [{"reason": "z"}]}}`},
+			files:    map[string]string{"neither.json": `{"contract": 5, "id": "neither", "tools": {"required": [{"reason": "z"}]}}`},
 			problems: 1,
 			contains: "neither id nor any",
 		},
 		{
 			name:     "a tool with no reason",
-			files:    map[string]string{"silent.json": `{"contract": 4, "id": "silent", "tools": {"required": [{"id": "x"}]}}`},
+			files:    map[string]string{"silent.json": `{"contract": 5, "id": "silent", "tools": {"required": [{"id": "x"}]}}`},
 			problems: 1,
 			contains: "no reason",
 		},
@@ -182,40 +182,44 @@ func TestLoadReportsBadFiles(t *testing.T) {
 			contains: "declares contract 3",
 		},
 		{
-			name:     "exact together with a bound",
-			files:    map[string]string{"both.json": `{"contract": 4, "id": "both", "tools": {"required": [{"id": "x", "reason": "y", "version": {"exact": "1.2", "min": "1.0"}}]}}`},
+			// Contract 5 removed `exact`, so the schema no longer has a way to
+			// say "this machine must run exactly 1.35.2" about a tool that is
+			// not Chroma's. It is refused as what it now is: a field the
+			// contract does not define.
+			name:     "a version pinned to one release",
+			files:    map[string]string{"pinned.json": `{"contract": 5, "id": "pinned", "tools": {"required": [{"id": "x", "reason": "y", "version": {"exact": "1.2"}}]}}`},
 			problems: 1,
-			contains: "sets exact together with min or max",
+			contains: `unknown field "exact"`,
 		},
 		{
 			name:     "a version that says nothing",
-			files:    map[string]string{"empty.json": `{"contract": 4, "id": "empty", "tools": {"required": [{"id": "x", "reason": "y", "version": {}}]}}`},
+			files:    map[string]string{"empty.json": `{"contract": 5, "id": "empty", "tools": {"required": [{"id": "x", "reason": "y", "version": {}}]}}`},
 			problems: 1,
 			contains: "says nothing",
 		},
 		{
 			name:     "a min above its max",
-			files:    map[string]string{"inverted.json": `{"contract": 4, "id": "inverted", "tools": {"required": [{"id": "x", "reason": "y", "version": {"min": "2.0", "max": "1.0"}}]}}`},
+			files:    map[string]string{"inverted.json": `{"contract": 5, "id": "inverted", "tools": {"required": [{"id": "x", "reason": "y", "version": {"min": "2.0", "max": "1.0"}}]}}`},
 			problems: 1,
 			contains: "above max",
 		},
 		{
 			name:     "a version that is not one",
-			files:    map[string]string{"prose.json": `{"contract": 4, "id": "prose", "tools": {"required": [{"id": "x", "reason": "y", "version": {"min": "latest"}}]}}`},
+			files:    map[string]string{"prose.json": `{"contract": 5, "id": "prose", "tools": {"required": [{"id": "x", "reason": "y", "version": {"min": "latest"}}]}}`},
 			problems: 1,
 			contains: "not a version",
 		},
 		{
 			name:     "an unknown field inside version",
-			files:    map[string]string{"deepver.json": `{"contract": 4, "id": "deepver", "tools": {"required": [{"id": "x", "reason": "y", "version": {"minimum": "1.0"}}]}}`},
+			files:    map[string]string{"deepver.json": `{"contract": 5, "id": "deepver", "tools": {"required": [{"id": "x", "reason": "y", "version": {"minimum": "1.0"}}]}}`},
 			problems: 1,
 			contains: "unknown field",
 		},
 		{
 			name: "two files, one id",
 			files: map[string]string{
-				"a.json": `{"contract": 4, "id": "same"}`,
-				"b.json": `{"contract": 4, "id": "same"}`,
+				"a.json": `{"contract": 5, "id": "same"}`,
+				"b.json": `{"contract": 5, "id": "same"}`,
 			},
 			problems: 1,
 			contains: "already declared",
@@ -248,14 +252,14 @@ func TestResolveProblems(t *testing.T) {
 	}{
 		{
 			name:     "a dependency that is not declared",
-			files:    map[string]string{"orphan.json": `{"contract": 4, "id": "orphan", "requires": ["nothing"]}`},
+			files:    map[string]string{"orphan.json": `{"contract": 5, "id": "orphan", "requires": ["nothing"]}`},
 			contains: `requires "nothing"`,
 		},
 		{
 			name: "a cycle",
 			files: map[string]string{
-				"a.json": `{"contract": 4, "id": "a", "requires": ["b"]}`,
-				"b.json": `{"contract": 4, "id": "b", "requires": ["a"]}`,
+				"a.json": `{"contract": 5, "id": "a", "requires": ["b"]}`,
+				"b.json": `{"contract": 5, "id": "b", "requires": ["a"]}`,
 			},
 			contains: "cycle",
 		},
@@ -283,9 +287,9 @@ func TestResolveProblems(t *testing.T) {
 // perfectly ordinary contracts.
 func TestDiamondIsNotACycle(t *testing.T) {
 	set, problems, err := Load(write(t, map[string]string{
-		"core.json": `{"contract": 4, "id": "core"}`,
-		"mid.json":  `{"contract": 4, "id": "mid", "requires": ["core"]}`,
-		"leaf.json": `{"contract": 4, "id": "leaf", "requires": ["mid", "core"]}`,
+		"core.json": `{"contract": 5, "id": "core"}`,
+		"mid.json":  `{"contract": 5, "id": "mid", "requires": ["core"]}`,
+		"leaf.json": `{"contract": 5, "id": "leaf", "requires": ["mid", "core"]}`,
 	}))
 	if err != nil || len(problems) > 0 {
 		t.Fatalf("Load: %v %v", err, problems)

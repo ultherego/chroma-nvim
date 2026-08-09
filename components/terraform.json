@@ -1,5 +1,5 @@
 {
-  "contract": 4,
+  "contract": 5,
   "id": "terraform",
   "name": "Terraform / OpenTofu",
   "description": "Plan, review and apply from the editor, and formatting.",

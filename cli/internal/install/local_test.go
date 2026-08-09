@@ -29,9 +29,9 @@ func tree(t *testing.T) string {
 		t.Fatalf("creating components: %v", err)
 	}
 	write(t, filepath.Join(root, "components", "core.json"),
-		`{"contract": 4, "id": "core", "name": "Core editor"}`+"\n")
+		`{"contract": 5, "id": "core", "name": "Core editor"}`+"\n")
 	write(t, filepath.Join(root, "components", "terraform.json"),
-		`{"contract": 4, "id": "terraform", "name": "Terraform", "requires": ["core"]}`+"\n")
+		`{"contract": 5, "id": "terraform", "name": "Terraform", "requires": ["core"]}`+"\n")
 
 	return root
 }
@@ -159,7 +159,7 @@ func TestLocalSourceRefusesWhatIsNotAChromaTree(t *testing.T) {
 			name: "a contract that does not resolve",
 			break_: func(t *testing.T, root string) string {
 				write(t, filepath.Join(root, "components", "orphan.json"),
-					`{"contract": 4, "id": "orphan", "requires": ["nothing"]}`+"\n")
+					`{"contract": 5, "id": "orphan", "requires": ["nothing"]}`+"\n")
 				return root
 			},
 			mention: "does not resolve",
@@ -172,7 +172,7 @@ func TestLocalSourceRefusesWhatIsNotAChromaTree(t *testing.T) {
 				remove(t, filepath.Join(root, "components", "core.json"))
 				remove(t, filepath.Join(root, "components", "terraform.json"))
 				write(t, filepath.Join(root, "components", "lonely.json"),
-					`{"contract": 4, "id": "lonely"}`+"\n")
+					`{"contract": 5, "id": "lonely"}`+"\n")
 				return root
 			},
 			mention: `declares no "core"`,

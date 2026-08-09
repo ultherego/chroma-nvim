@@ -224,6 +224,32 @@ not belong in the contract.
 version of a user tool. Then that floor is written down with its reason, and
 still as a floor.
 
+### Contract 5 removes `exact`
+
+**Decision.** A tool version is `min` and/or `max` — a compatibility boundary.
+The `exact` field is gone, and the contract number moves from 4 to 5.
+
+**Why.** It was the one way the schema could say "this machine must run kubectl
+1.35.2", which is Chroma deciding the version of a tool that is not its own —
+the thing the decision above says it does not do. Nothing used it.
+
+Leaving it in place and forbidding it in prose would have been the worst of the
+three options: a schema that permits what the policy forbids is a trap with a
+delay on it. Somebody reads `Version.Exact`, sees both readers implement it
+including the conflict validation, and quite reasonably concludes it is
+supported. Then the argument is "it works, but you may not" — which is not an
+argument anybody wins. A schema should not be able to express what the product
+will not do.
+
+**Why a bump rather than an edit.** Both readers are strict about unknown
+fields, so removing `exact` changes what "contract 4" means: the same document
+would be valid to an older reader and invalid to a newer one. That divergence,
+silent and in a file two languages share, is exactly what the number is for.
+
+**What would change it.** Nothing about a user's tool. If Chroma's own runtime
+ever needed one specific version of something, that is a pin on Chroma's side —
+a lockfile or a Mason pin — not a constraint on the machine.
+
 ### Neovim's own defaults are not re-implemented
 
 **Decision.** Do not map what the editor already maps.

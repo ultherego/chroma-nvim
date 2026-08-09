@@ -103,7 +103,7 @@ func TestAReaderRefusesWhatItDoesNotUnderstand(t *testing.T) {
 		{"not JSON at all", `{ not json`, "install.json"},
 		{
 			name: "two documents",
-			contents: `{"schema": 1, "version": "v1", "contract": 4, "appname": "chroma-nvim",` +
+			contents: `{"schema": 1, "version": "v1", "contract": 5, "appname": "chroma-nvim",` +
 				`"config_dir": "/a", "data_dir": "/b", "state_dir": "/c", "selection_file": "/d",` +
 				`"installed_at": "now", "source": {"type": "tree"}}` + "\n" + `{"schema": 1}`,
 			mention: "more than one document",

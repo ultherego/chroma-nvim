@@ -22,23 +22,32 @@ import (
 // Contract is the version this CLI understands. A component declaring a higher
 // one was written for a newer Chroma; reading it anyway is how the two sides
 // drift apart quietly. See cli/DESIGN.md, "The component contract".
-const Contract = 4
+const Contract = 5
 
-// Version is what a tool has to be, when being present is not enough. Either
-// Exact, or a Min and/or Max — never both kinds, because "exactly 1.2, and at
-// least 1.0" is two answers to one question.
+// Version is a compatibility boundary, and only that.
+//
+// Min is the earliest version known to work. Max is the latest, and belongs
+// here only when a real incompatibility has been found — not as a guess about
+// the future. Neither says which version Chroma prefers, because Chroma does
+// not have a preference about a tool that is not its own.
+//
+// There is no `exact`. Contract 4 had one, and it was the one way this schema
+// let somebody write "this machine must run kubectl 1.35.2" — which is Chroma
+// deciding the version of a tool that belongs to the user. Removing it is the
+// point: a schema should not be able to express what the product will not do,
+// or the next person reads the field, sees both readers support it, and quite
+// reasonably uses it.
 //
 // Deliberately not a constraint language. `>=1.2,<2.0 || >=3.0` is a parser, a
 // grammar and a class of bug, and nothing here has yet needed one.
 type Version struct {
-	Min   string `json:"min"`
-	Max   string `json:"max"`
-	Exact string `json:"exact"`
+	Min string `json:"min"`
+	Max string `json:"max"`
 }
 
 // Constrained reports whether this says anything at all.
 func (v Version) Constrained() bool {
-	return v.Min != "" || v.Max != "" || v.Exact != ""
+	return v.Min != "" || v.Max != ""
 }
 
 // Tool is something that has to be on PATH. Exactly one of ID or Any is set:
@@ -289,13 +298,7 @@ func validateVersion(v *Version) string {
 		return "says nothing"
 	}
 
-	// Exact answers the question on its own; a bound next to it is a second,
-	// possibly contradictory answer that some reader would have to pick between.
-	if v.Exact != "" && (v.Min != "" || v.Max != "") {
-		return "sets exact together with min or max"
-	}
-
-	for name, value := range map[string]string{"min": v.Min, "max": v.Max, "exact": v.Exact} {
+	for name, value := range map[string]string{"min": v.Min, "max": v.Max} {
 		if value == "" {
 			continue
 		}
@@ -386,18 +389,13 @@ func (v *Version) Satisfies(found string) bool {
 		return false
 	}
 
-	switch {
-	case v.Exact != "":
-		return CompareVersions(found, v.Exact) == 0
-	default:
-		if v.Min != "" && CompareVersions(found, v.Min) < 0 {
-			return false
-		}
-		if v.Max != "" && CompareVersions(found, v.Max) > 0 {
-			return false
-		}
-		return true
+	if v.Min != "" && CompareVersions(found, v.Min) < 0 {
+		return false
 	}
+	if v.Max != "" && CompareVersions(found, v.Max) > 0 {
+		return false
+	}
+	return true
 }
 
 // ResolveProblems reports dependencies that are not declared, and cycles. A

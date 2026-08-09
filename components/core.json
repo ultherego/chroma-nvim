@@ -1,5 +1,5 @@
 {
-  "contract": 4,
+  "contract": 5,
   "id": "core",
   "name": "Core editor",
   "description": "The editor itself: plugin management, treesitter, pickers.",
