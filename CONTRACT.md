@@ -222,6 +222,24 @@ CI fails if `doc/tags` is out of date, so this is not optional.
 jobs. `cd cli && go test ./...`. Note that `selene` lints this repository as
 Lua 5.1, so `goto` and its labels do not parse — measured, after writing one.
 
+**Installations are tested in a container, never on a development machine.**
+`chroma install` fetches plugins, Mason packages and treesitter parsers; running
+that against somebody's home directory writes hundreds of megabytes that no
+single deletion undoes. `docker/Dockerfile` builds a machine to install onto,
+and `--rm` is the cleanup:
+
+```sh
+docker build -t chroma-test docker/
+cd cli && go build -o ../dist/chroma ./cmd/chroma && cd ..
+docker run --rm -t -v "$PWD:/src:ro" -v "$PWD/dist/chroma:/usr/local/bin/chroma:ro" \
+  chroma-test chroma install --source-tree /src --components '' --yes
+```
+
+The repository goes in read-only, so nothing the container does can reach back
+out. It is Ubuntu rather than the maintainer's distribution on purpose: a
+configuration that only installs on the machine it was written on is not
+installable.
+
 ---
 
 ## Rule #2 — survey before building
