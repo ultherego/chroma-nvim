@@ -485,7 +485,7 @@ end
 ---Everything the enabled components contribute of one kind, deduplicated and
 ---sorted. The answer to "which servers should be enabled", asked once per kind
 ---rather than by each spec inventing its own filter.
----@param kind string one of servers, mason, linters, parsers, plugins, modules
+---@param kind string one of servers, mason, linters, parsers, formatters, schemas, plugins, modules
 ---@param enabled string[] component ids
 ---@return string[]
 function M.contributions(kind, enabled)

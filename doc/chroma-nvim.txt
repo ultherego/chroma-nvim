@@ -1624,10 +1624,11 @@ Three answers, not two ~
 The file being absent is not the same as it being empty, and neither is the
 same as it being broken:
 >
-    no file          legacy     every component runs
-    valid file       selected   the selection runs, dependencies included
-    "selected": []   selected   core alone
-    unreadable file  safe       core alone, with an error on startup
+    no file            legacy     every component runs
+    valid file         selected   the selection runs, dependencies included
+    "selected": []     selected   core alone
+    unreadable file    safe       core alone, with an error on startup
+    broken components/ safe       core alone, with an error on startup
 <
 The first line is a promise to anyone who has been using this before components
 existed: nothing is switched off by an update. The last is the opposite case —
@@ -1637,6 +1638,13 @@ cannot be taken back, since `"selected": []` is a deliberate core-only.
 
 Safe mode says what is wrong with the file and leaves the editor working well
 enough to fix it. Fix the file, or delete it to go back to running everything.
+
+It has a second cause, and it is worth telling them apart before editing
+anything. A component file in the configuration tree that cannot be read also
+drops Chroma into safe mode, even when the selection is perfectly good: the
+contract is what says which component requires what, so half of it is not
+something to resolve a selection against. `:checkhealth chroma` names which of
+the two happened; a startup message names the file.
 
 What is running now ~
 

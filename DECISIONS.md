@@ -974,6 +974,31 @@ than being handed a boolean that cannot express it.
 With one, safe mode could be "what you had yesterday" instead of "the minimum",
 which is better than both. Nothing writes one yet.
 
+### A partial contract is not a contract
+
+`components.load()` reports every file it could not read and returns the rest.
+That is right for `:checkhealth chroma`, which exists to list what is wrong, and
+it was wrong for deciding what runs: the runtime took the first return value and
+dropped the problems on the floor.
+
+The failure was measured rather than argued about. Make `core.json` unreadable
+and `core` is simply absent from the set; `enabled` skips ids it does not know,
+so a selection of Terraform resolved to Terraform **alone** — a component
+running without the one thing every component requires — and the mode came back
+as `selected`, which asserts that nothing is wrong. A missing components
+directory arrived at the same place by a different route: no components, no
+problems, and a legacy startup with nothing in it.
+
+So the contract is checked before the selection is, and a contract with any
+problem in it, or with no `core` in it, drops to safe mode. Even one unreadable
+optional component is enough, and that is deliberate: the file that failed to
+parse is the file that would have said what depends on what, so there is nothing
+left to resolve a selection against.
+
+**What would change it.** Nothing about the rule. If the noise ever becomes a
+problem — one broken optional component switching off a whole editor — the
+answer is a better error, not a partial contract.
+
 ### The component contract says what, and a registry says how
 
 `components/*.json` carries `"schemas": ["kubernetes"]`. It does not carry the
