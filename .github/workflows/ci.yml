@@ -196,101 +196,189 @@ jobs:
           # Upstream is explicit that the npm build is not supported.
           cargo install tree-sitter-cli --locked --version "${TREE_SITTER_VERSION}"
 
-      - name: Bootstrap plugins
-        env:
-          XDG_CONFIG_HOME: ${{ github.workspace }}/.xdg-config
+      - name: Cold start, once per profile
+        # Five real installations, not five unit tests.
+        #
+        # Until this loop existed, every cold start CI ever did was the legacy
+        # one: no selection, so every component enabled. That is the shape least
+        # likely to break, because it is the shape the configuration had before
+        # any of this. The ones worth proving are the others — `"selected": []`
+        # loading an editor with no DevOps layer at all, and a single component
+        # bringing exactly its own servers, parsers and plugins through a real
+        # `Lazy! sync` rather than through a resolver a test asked politely.
+        #
+        # One job with a loop rather than a matrix, deliberately: the tree-sitter
+        # CLI above is a Rust build of several minutes, and a matrix would pay
+        # for it once per profile. Each iteration still gets its own
+        # XDG_CONFIG_HOME and XDG_DATA_HOME, so plugins, Mason and parsers are
+        # installed from nothing every time. The ::group:: markers keep the log
+        # readable, and every message names the profile it came from.
         run: |
           set -euo pipefail
-          mkdir -p "$XDG_CONFIG_HOME"
-          ln -s "$GITHUB_WORKSPACE" "$XDG_CONFIG_HOME/nvim"
-          nvim --headless "+Lazy! sync" +qa
 
-      - name: Install treesitter parsers
-        env:
-          XDG_CONFIG_HOME: ${{ github.workspace }}/.xdg-config
-        # `Lazy! sync` does not wait for these. The plugin spec asks
-        # nvim-treesitter to install what is missing and that call is
-        # asynchronous, so whether the downloads finish before Neovim exits is a
-        # race — and a parser that did not make it prints "Downloading ..." on the
-        # next start, which the check below reads as a startup message. Fails the
-        # job here, where it means what it says, rather than there.
+          for profile in legacy core-only terraform helm vault; do
+            echo "::group::cold start — $profile"
+
+            config="$GITHUB_WORKSPACE/.ci/$profile/config"
+            data="$GITHUB_WORKSPACE/.ci/$profile/data"
+            mkdir -p "$config" "$data"
+            ln -s "$GITHUB_WORKSPACE" "$config/nvim"
+
+            # legacy is the absence of the file, which is not the same document
+            # as an empty selection and must not be written as one.
+            case "$profile" in
+              legacy)    ;;
+              core-only) selected='[]' ;;
+              *)         selected="[\"$profile\"]" ;;
+            esac
+            if [ "$profile" != legacy ]; then
+              mkdir -p "$config/chroma"
+              printf '{ "schema": 1, "selected": %s }\n' "$selected" > "$config/chroma/components.json"
+            fi
+
+            export XDG_CONFIG_HOME="$config"
+            export XDG_DATA_HOME="$data"
+
+            nvim --headless "+Lazy! sync" +qa
+
+            # `Lazy! sync` does not wait for parsers. The plugin spec asks
+            # nvim-treesitter to install what is missing and that call is
+            # asynchronous, so whether the downloads finish before Neovim exits
+            # is a race — and a parser that did not make it prints
+            # "Downloading ..." on the next start, which the silence check below
+            # reads as a startup message. Fails here, where it means what it
+            # says, rather than there.
+            #
+            # The download and build scratch is removed first, not the parsers
+            # themselves — those are installed into share/nvim/site/parser. A
+            # run killed partway leaves a half-finished directory here, and the
+            # next attempt fails with ENOTEMPTY when it tries to rename over it.
+            # That is what took `hcl` down while every other parser succeeded.
+            rm -rf "${HOME}/.cache/nvim/"tree-sitter-*
+            nvim --headless -c 'lua
+              local wanted = require("config.parsers")
+              local function missing()
+                local installed = {}
+                for _, name in ipairs(require("nvim-treesitter.config").get_installed("parsers")) do
+                  installed[name] = true
+                end
+                local absent = {}
+                for _, name in ipairs(wanted) do
+                  if not installed[name] then table.insert(absent, name) end
+                end
+                return absent
+              end
+
+              require("nvim-treesitter").install(wanted)
+
+              -- Polled rather than awaited. The task install() returns comes back
+              -- while its per-parser jobs are still running — measured: the check
+              -- reported one missing while the log was still installing others.
+              -- vim.wait drives the event loop, so the downloads make progress.
+              vim.wait(900000, function() return #missing() == 0 end, 500)
+
+              local absent = missing()
+              if #absent > 0 then
+                io.write("parsers still missing: " .. table.concat(absent, ", ") .. "\n")
+                vim.cmd("cquit 1")
+              end
+              io.write("All parsers installed.\n")
+            ' -c 'qa!'
+
+            out=$(nvim --headless -c 'lua io.write(vim.fn.execute("messages"))' -c 'qa!' 2>&1)
+            if [ -n "$out" ]; then
+              echo "::error::Neovim produced output on startup with profile $profile"
+              echo "$out"
+              exit 1
+            fi
+
+            nvim --headless -c 'lua
+              local failed = {}
+              for name, _ in vim.fs.dir("lua/plugins") do
+                local mod = "plugins." .. name:gsub("%.lua$", "")
+                local ok, err = pcall(require, mod)
+                if not ok then table.insert(failed, mod .. ": " .. tostring(err)) end
+              end
+              for _, mod in ipairs({ "chroma-vault", "chroma-terraform", "chroma-aws", "chroma.health" }) do
+                local ok, err = pcall(require, mod)
+                if not ok then table.insert(failed, mod .. ": " .. tostring(err)) end
+              end
+              if #failed > 0 then
+                io.write(table.concat(failed, "\n") .. "\n")
+                vim.cmd("cquit 1")
+              end
+              io.write("All modules load.\n")
+            ' -c 'qa!'
+
+            # What the profile actually resolved to, checked against the file
+            # that was written rather than against the resolver's own opinion.
+            nvim --headless -c "lua
+              local state = require('chroma.state')
+              local ids, mode = state.enabled_ids()
+              local expected = '$profile'
+              io.write(('%s → %s (%s)\n'):format(expected, table.concat(ids, ' '), mode))
+
+              local wrong = nil
+              if expected == 'legacy' then
+                if mode ~= state.LEGACY then wrong = 'expected legacy mode' end
+              elseif expected == 'core-only' then
+                if mode ~= state.SELECTED or #ids ~= 1 or ids[1] ~= 'core' then
+                  wrong = 'expected core alone'
+                end
+              else
+                if mode ~= state.SELECTED or not vim.tbl_contains(ids, expected) then
+                  wrong = 'expected ' .. expected .. ' to be enabled'
+                end
+                if #ids ~= 2 then wrong = 'expected core and ' .. expected .. ' only' end
+              end
+
+              if wrong then
+                io.write(wrong .. '\n')
+                vim.cmd('cquit 1')
+              end
+            " -c 'qa!'
+
+            echo "::endgroup::"
+          done
+
+          echo "Every profile installed and started clean."
+
+      # The other half of the selection contract, and the only startup that is
+      # allowed to say something: a file that exists and cannot be read starts
+      # the editor with core alone rather than with everything.
+      - name: A broken selection starts, says so, and runs core alone
         run: |
           set -euo pipefail
-          # The download and build scratch, not the parsers themselves — those are
-          # installed into share/nvim/site/parser. The step before this one starts
-          # installing and is killed partway, and a half-finished directory here
-          # makes the next attempt fail with ENOTEMPTY when it tries to rename over
-          # it. That is what took `hcl` down while every other parser succeeded.
-          rm -rf "${HOME}/.cache/nvim/"tree-sitter-*
+
+          config="$GITHUB_WORKSPACE/.ci/broken/config"
+          mkdir -p "$config/chroma"
+          ln -s "$GITHUB_WORKSPACE" "$config/nvim"
+          printf '{ "schema": 1, "selected": ["magic"] }\n' > "$config/chroma/components.json"
+
+          # The plugins and parsers of the legacy profile, so this measures the
+          # selection and not a missing installation.
+          export XDG_CONFIG_HOME="$config"
+          export XDG_DATA_HOME="$GITHUB_WORKSPACE/.ci/legacy/data"
+
           nvim --headless -c 'lua
-            local wanted = require("config.parsers")
-            local function missing()
-              local installed = {}
-              for _, name in ipairs(require("nvim-treesitter.config").get_installed("parsers")) do
-                installed[name] = true
-              end
-              local absent = {}
-              for _, name in ipairs(wanted) do
-                if not installed[name] then table.insert(absent, name) end
-              end
-              return absent
-            end
-
-            require("nvim-treesitter").install(wanted)
-
-            -- Polled rather than awaited. The task install() returns comes back
-            -- while its per-parser jobs are still running — measured: the check
-            -- reported one missing while the log was still installing others.
-            -- vim.wait drives the event loop, so the downloads make progress.
-            vim.wait(900000, function() return #missing() == 0 end, 500)
-
-            local absent = missing()
-            if #absent > 0 then
-              io.write("parsers still missing: " .. table.concat(absent, ", ") .. "\n")
+            local state = require("chroma.state")
+            local ids, mode = state.enabled_ids()
+            if mode ~= state.SAFE or #ids ~= 1 or ids[1] ~= "core" then
+              io.write(("expected safe mode with core alone, got %s: %s\n"):format(mode, table.concat(ids, " ")))
               vim.cmd("cquit 1")
             end
-            io.write("All parsers installed.\n")
-          ' -c 'qa!'
 
-      - name: Fail on any startup message
-        env:
-          XDG_CONFIG_HOME: ${{ github.workspace }}/.xdg-config
-        run: |
-          set -euo pipefail
-          out=$(nvim --headless -c 'lua io.write(vim.fn.execute("messages"))' -c 'qa!' 2>&1)
-          if [ -n "$out" ]; then
-            echo "Neovim produced output on startup:"
-            echo "$out"
-            exit 1
-          fi
-          echo "Startup is silent."
-
-      - name: Every module loads
-        env:
-          XDG_CONFIG_HOME: ${{ github.workspace }}/.xdg-config
-        run: |
-          set -euo pipefail
-          nvim --headless -c 'lua
-            local failed = {}
-            for name, _ in vim.fs.dir("lua/plugins") do
-              local mod = "plugins." .. name:gsub("%.lua$", "")
-              local ok, err = pcall(require, mod)
-              if not ok then table.insert(failed, mod .. ": " .. tostring(err)) end
-            end
-            for _, mod in ipairs({ "chroma-vault", "chroma-terraform", "chroma-aws", "chroma.health" }) do
-              local ok, err = pcall(require, mod)
-              if not ok then table.insert(failed, mod .. ": " .. tostring(err)) end
-            end
-            if #failed > 0 then
-              io.write(table.concat(failed, "\n") .. "\n")
+            local said = vim.fn.execute("messages")
+            if not said:find("unknown component", 1, true) then
+              io.write("the editor did not say what was wrong with the file\n")
               vim.cmd("cquit 1")
             end
-            io.write("All modules load.\n")
+            io.write("Safe mode: core alone, and it said why.\n")
           ' -c 'qa!'
 
       - name: Help tags are current
         env:
-          XDG_CONFIG_HOME: ${{ github.workspace }}/.xdg-config
+          XDG_CONFIG_HOME: ${{ github.workspace }}/.ci/legacy/config
         run: |
           set -euo pipefail
           nvim --headless -c 'helptags doc' -c 'qa!'
