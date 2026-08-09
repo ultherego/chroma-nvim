@@ -249,6 +249,10 @@ jobs:
         # XDG_CONFIG_HOME and XDG_DATA_HOME, so plugins, Mason and parsers are
         # installed from nothing every time. The ::group:: markers keep the log
         # readable, and every message names the profile it came from.
+        #
+        # All four XDG directories, not two: config and data are the obvious
+        # ones, and the cache is the one whose absence went unnoticed until the
+        # loop grew from five profiles to ten.
         run: |
           set -euo pipefail
 
@@ -257,7 +261,9 @@ jobs:
 
             config="$GITHUB_WORKSPACE/.ci/$profile/config"
             data="$GITHUB_WORKSPACE/.ci/$profile/data"
-            mkdir -p "$config" "$data"
+            state="$GITHUB_WORKSPACE/.ci/$profile/state"
+            cache="$GITHUB_WORKSPACE/.ci/$profile/cache"
+            mkdir -p "$config" "$data" "$state" "$cache"
             ln -s "$GITHUB_WORKSPACE" "$config/nvim"
 
             # legacy is the absence of the file, which is not the same document
@@ -274,6 +280,14 @@ jobs:
 
             export XDG_CONFIG_HOME="$config"
             export XDG_DATA_HOME="$data"
+            export XDG_STATE_HOME="$state"
+            # The cache as well, and this one is not tidiness. nvim-treesitter
+            # does its download and build scratch under XDG_CACHE_HOME, and
+            # leaving that shared meant one profile's cleanup raced the previous
+            # profile's still-finishing jobs — `rm: cannot remove ...: Directory
+            # not empty`, which failed the job. With one profile that never
+            # showed; with ten it was a matter of time.
+            export XDG_CACHE_HOME="$cache"
 
             nvim --headless "+Lazy! sync" +qa
 
@@ -290,7 +304,7 @@ jobs:
             # run killed partway leaves a half-finished directory here, and the
             # next attempt fails with ENOTEMPTY when it tries to rename over it.
             # That is what took `hcl` down while every other parser succeeded.
-            rm -rf "${HOME}/.cache/nvim/"tree-sitter-*
+            rm -rf "${XDG_CACHE_HOME}/nvim/"tree-sitter-*
             nvim --headless -c 'lua
               local wanted = require("config.parsers")
               local function missing()
