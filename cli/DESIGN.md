@@ -490,6 +490,110 @@ nor `any`. That is a Go test, and it protects the Lua side as much as the CLI.
 
 ---
 
+## Implementation order
+
+The audit series is closed. Two of them ran back to back over the component
+layer and both are archived; the third would find something, because a third
+always does, and it would not be the thing standing between this repository and
+a product. **The installer is the active track.** Audits become a gate inside a
+stage rather than a stage of their own: run one before a public release, and
+after touching anything on the list below.
+
+**What blocks a milestone.** Only a finding that can:
+
+- overwrite somebody else's configuration,
+- lose a backup,
+- install a version other than the one the plan showed,
+- record an install state that is not true,
+- skip bootstrap or verify,
+- run an external command in an uncontrolled way,
+- let two mutating operations touch one installation at once.
+
+Everything else is a backlog entry, and the work continues.
+
+**The order.** Each stage is only allowed to depend on the ones above it.
+
+```
+ 1  split the command layer                 no behaviour change
+ 2  install.Options and Paths               one source of truth for where things go
+ 3  LocalSource                             a tree to install, from development
+ 4  selection as part of the transaction
+ 5  staging, backup, placement
+ 6  bootstrap                               the placed tree installs its own plugins
+ 7  verify                                  the result is a Chroma that starts
+ 8  install.json                            written only after verify
+ 9  real `chroma install`                   the end of --dry-run only
+10  GitHub release source
+11  detect and package managers
+12  TUI
+13  release workflow
+    ----------------------------------------- installer V1 ends here
+14  update
+15  components
+16  rollback
+17  uninstall
+18  completions, packaging, signing
+```
+
+`record` stays last, always. `install.json` must never describe an installation
+that has not been verified.
+
+### Open decisions
+
+These are not backlog. Each one changes an interface between the CLI and a
+release, and each is cheapest to settle before the stage that first depends on
+it. They are written down here so they are settled once rather than discovered
+during implementation.
+
+**1. The contract version is checked for equality, and `--version` accepts any
+tag.** `component.Load` refuses anything that is not exactly `Contract`, which
+means a CLI at contract 4 cannot read a release built at contract 3 — so
+`chroma install --version <older tag>` cannot work as the command contract
+promises. Either the reader accepts a range, or `--version` is documented as
+bounded by the contract this CLI understands and says so when it refuses.
+*Needed by stage 10.*
+
+**2. `lua/chroma/bootstrap.lua` is a second contract between the CLI and a
+release.** The installer calls `require("chroma.bootstrap").install()` in the
+tree it just placed, so every release the CLI may install has to carry that
+module — and releases from before it exists do not. Its presence belongs in the
+source validation, before placement, rather than being discovered halfway
+through a transaction. *Needed by stage 6.*
+
+**3. The selection is global; the installation is not.** `components.json` lives
+at `$XDG_CONFIG_HOME/chroma/components.json`, one file, while `--default` and
+the isolated install are two different targets. V1 does not support two parallel
+installations, which is a fine limit — but the second install currently
+overwrites the first one's selection without saying so, and `uninstall
+--purge-selection` would remove a selection another installation is still
+reading. *Needed by stage 4.*
+
+**4. Profiles have nowhere to live.** `--profile minimal|terraform|...` is in the
+command contract, and neither the component contract nor `components/*.json`
+knows what a profile is. The contract is frozen, so this is CLI knowledge — the
+same shape as `toolver` and the package-name registry. *Needed by stage 4.*
+
+**5. The minimum Neovim version is not in the contract.** It is stated in three
+places that cannot check each other: prose in README, `has("nvim-0.12")` in
+`lua/chroma/health.lua`, and `NEOVIM_VERSION` in CI. Preflight needs it before
+it can bootstrap anything, and hardcoding it in Go makes a fourth copy — which
+is the duplication `components/` exists to prevent. *Needed by stage 11.*
+
+**6. Rollback does not bootstrap, and update does.** `lazy-lock.json` ships
+inside the configuration tree, so restoring a generation of configuration leaves
+the previous lockfile beside plugins installed for the newer one. A headless
+verify would pass on that, and the user would be told the rollback succeeded.
+Either rollback ends with a bootstrap, as update does, or the data directory
+becomes part of what a generation means. *Needed by stage 16.*
+
+**7. `latest` and rate limits.** Resolving `latest` and fetching `SHA256SUMS`
+are calls to an API that limits unauthenticated clients by address. A user
+behind shared egress can meet that limit in the middle of an installation, so
+the failure needs a message that says what happened and what to do, rather than
+a bare 403. *Needed by stage 10.*
+
+---
+
 ## What would change this design
 
 A second consumer of the component contract — a web page, a different editor,
