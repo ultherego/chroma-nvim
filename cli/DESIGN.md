@@ -554,11 +554,13 @@ bounded by the contract this CLI understands and says so when it refuses.
 *Needed by stage 10.*
 
 **2. `lua/chroma/bootstrap.lua` is a second contract between the CLI and a
-release.** The installer calls `require("chroma.bootstrap").install()` in the
-tree it just placed, so every release the CLI may install has to carry that
-module — and releases from before it exists do not. Its presence belongs in the
-source validation, before placement, rather than being discovered halfway
-through a transaction. *Needed by stage 6.*
+release.** *Settled at stage 6:* the module exists, it exposes `install` and
+`verify`, and `run` turns a failed step into an exit code — because
+`nvim --headless -c 'lua ...'` reports a Lua error and then carries on to the
+next command, so without it a failed bootstrap would end in a process that
+exited zero. Its presence is checked when a source is prepared, before anything
+has been moved, rather than discovered halfway through a transaction that then
+has to be rolled back. A release from before it existed is refused by name.
 
 **3. The selection is global; the installation is not.** `components.json` lives
 at `$XDG_CONFIG_HOME/chroma/components.json`, one file, while `--default` and

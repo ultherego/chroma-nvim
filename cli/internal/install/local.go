@@ -56,6 +56,13 @@ func (s LocalSource) Prepare(_ context.Context) (PreparedSource, error) {
 		{"init.lua", "there is nothing for Neovim to load"},
 		{"components", "there is no component contract"},
 		{"lazy-lock.json", "plugin versions would not be pinned"},
+		// The second contract between a release and this CLI, and the one that
+		// is easiest to forget exists. The installer drives
+		// `require("chroma.bootstrap")` in the tree it places, so a release
+		// without that module cannot be installed by this CLI — and finding
+		// that out belongs here, before anything has been moved, rather than
+		// halfway through a transaction that then has to be rolled back.
+		{filepath.Join("lua", "chroma", "bootstrap.lua"), "the installer would have no way to bootstrap it"},
 	} {
 		if _, err := os.Stat(filepath.Join(root, required.path)); err != nil {
 			return PreparedSource{}, fmt.Errorf("%s has no %s, so %s", root, required.path, required.why)

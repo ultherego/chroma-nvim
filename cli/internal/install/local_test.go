@@ -20,6 +20,11 @@ func tree(t *testing.T) string {
 	write(t, filepath.Join(root, "init.lua"), "-- a configuration\n")
 	write(t, filepath.Join(root, "lazy-lock.json"), "{}\n")
 
+	if err := os.MkdirAll(filepath.Join(root, "lua", "chroma"), 0o755); err != nil {
+		t.Fatalf("creating lua/chroma: %v", err)
+	}
+	write(t, filepath.Join(root, "lua", "chroma", "bootstrap.lua"), "return {}\n")
+
 	if err := os.MkdirAll(filepath.Join(root, "components"), 0o755); err != nil {
 		t.Fatalf("creating components: %v", err)
 	}
@@ -130,6 +135,17 @@ func TestLocalSourceRefusesWhatIsNotAChromaTree(t *testing.T) {
 				return root
 			},
 			mention: "would not be pinned",
+		},
+		{
+			// A release that predates the bootstrap entrypoint cannot be
+			// installed by a CLI that drives it, and the place to say so is
+			// before anything has been moved.
+			name: "no bootstrap entrypoint",
+			break_: func(t *testing.T, root string) string {
+				remove(t, filepath.Join(root, "lua", "chroma", "bootstrap.lua"))
+				return root
+			},
+			mention: "no way to bootstrap it",
 		},
 		{
 			name: "a component that does not read",
