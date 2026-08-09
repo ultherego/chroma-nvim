@@ -305,9 +305,11 @@ jobs:
             # between: the sync completes, and only then does the parser install
             # start. It is also closer to what the installer itself does.
             nvim --headless -c 'lua
-              -- The pinned set, not the latest one: `sync` updates every
-              -- plugin to the head of its branch, which is neither what a
-              -- release installs nor what this repository pins a lockfile for.
+              -- The pinned set, not the latest one: sync updates every plugin
+              -- to the head of its branch, which is neither what a release
+              -- installs nor what this repository pins a lockfile for.
+              -- (No backticks in here: shellcheck reads this single-quoted
+              -- block as shell and calls them a command substitution.)
               require("lazy").install({ wait = true, show = false, lockfile = true })
               require("lazy").restore({ wait = true, show = false })
 

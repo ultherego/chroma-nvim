@@ -240,6 +240,20 @@ out. It is Ubuntu rather than the maintainer's distribution on purpose: a
 configuration that only installs on the machine it was written on is not
 installable.
 
+**`actionlint` needs `shellcheck` on PATH, or it checks strictly less than CI
+does.** Without it the shellcheck integration is skipped silently and every
+`run:` block goes unread — a local pass then means nothing. CI's runner has
+shellcheck, so the difference surfaces there. Run it as:
+
+```sh
+actionlint -shellcheck "$(command -v shellcheck)"
+```
+
+which fails outright when shellcheck is absent instead of quietly passing. One
+consequence worth knowing: a single-quoted `run:` block is shell to shellcheck
+even when its contents are Lua, so backticks in a comment inside one read as a
+command substitution (SC2016).
+
 ---
 
 ## Rule #2 — survey before building
