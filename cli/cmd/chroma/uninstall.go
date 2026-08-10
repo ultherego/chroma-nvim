@@ -38,7 +38,7 @@ func cmdUninstall(args []string, out, errOut *os.File) int {
 		return code
 	}
 
-	held, code := locked(paths, errOut)
+	held, code := locked(errOut)
 	if code != exitOK {
 		return code
 	}

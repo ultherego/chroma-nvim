@@ -73,11 +73,17 @@ func onPath(name string) bool {
 // `doctor` does not, because it reads. Refused rather than queued: a CLI that
 // blocks is indistinguishable from a CLI that has hung, and the useful thing to
 // say is that something else is running.
-func locked(paths install.Paths, errOut *os.File) (*lock.Lock, int) {
-	held, err := lock.Acquire(filepath.Join(paths.StateDir, "lock"))
+func locked(errOut *os.File) (*lock.Lock, int) {
+	path, err := lock.Path()
+	if err != nil {
+		fmt.Fprintln(errOut, err)
+		return nil, exitFailed
+	}
+
+	held, err := lock.Acquire(path)
 	switch {
 	case errors.Is(err, lock.ErrBusy):
-		fmt.Fprintf(errOut, "%v.\nWait for it to finish, or check %s.\n", err, paths.LogDir)
+		fmt.Fprintf(errOut, "%v.\nWait for it to finish.\n", err)
 		return nil, exitMisuse
 	case err != nil:
 		fmt.Fprintln(errOut, err)

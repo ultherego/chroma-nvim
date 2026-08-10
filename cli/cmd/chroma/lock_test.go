@@ -26,6 +26,11 @@ func machine(t *testing.T) install.Paths {
 		t.Setenv(pair[0], filepath.Join(root, pair[1]))
 	}
 
+	t.Setenv("XDG_RUNTIME_DIR", filepath.Join(root, "run"))
+	if err := os.MkdirAll(filepath.Join(root, "run"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
 	paths, err := install.ResolvePaths(false)
 	if err != nil {
 		t.Fatalf("ResolvePaths: %v", err)
@@ -94,16 +99,23 @@ func TestEveryMutatingCommandTakesTheLock(t *testing.T) {
 	}{
 		// install locks after it has a tree to install and before it looks at
 		// the target, so a source tree is needed to reach the lock at all.
-		{"install", []string{"--source-tree", filepath.Join("..", "..", ".."), "--components", "", "--dry-run"}, cmdInstall},
+		// install takes the lock after the plan and the confirmation, because
+		// until the interactive flow has answered it does not know which
+		// installation it would touch. So this drives it past both.
+		{"install", []string{"--source-tree", filepath.Join("..", "..", ".."), "--components", "", "--yes"}, cmdInstall},
 		{"update", []string{"--dry-run"}, cmdUpdate},
 		{"components", []string{"--set", "terraform", "--yes"}, cmdComponents},
 		{"rollback", []string{"--dry-run"}, cmdRollback},
 		{"uninstall", []string{"--dry-run"}, cmdUninstall},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			paths := machine(t)
+			machine(t)
 
-			held, err := lock.Acquire(filepath.Join(paths.StateDir, "lock"))
+			lockPath, err := lock.Path()
+			if err != nil {
+				t.Fatal(err)
+			}
+			held, err := lock.Acquire(lockPath)
 			if err != nil {
 				t.Fatalf("Acquire: %v", err)
 			}
@@ -125,9 +137,13 @@ func TestEveryMutatingCommandTakesTheLock(t *testing.T) {
 
 // And the reading command is not held off, because it changes nothing.
 func TestDoctorDoesNotTakeTheLock(t *testing.T) {
-	paths := machine(t)
+	machine(t)
 
-	held, err := lock.Acquire(filepath.Join(paths.StateDir, "lock"))
+	lockPath, err := lock.Path()
+	if err != nil {
+		t.Fatal(err)
+	}
+	held, err := lock.Acquire(lockPath)
 	if err != nil {
 		t.Fatalf("Acquire: %v", err)
 	}
@@ -191,5 +207,111 @@ func TestTheUninstallPlanDoesNotOfferAHandedBackConfiguration(t *testing.T) {
 	}
 	if !strings.Contains(plan, "already been given back") {
 		t.Errorf("the plan does not say what it worked out:\n%s", plan)
+	}
+}
+
+// blank gives a test an empty machine: XDG dirs of its own, no installation.
+func blank(t *testing.T) (isolated install.Paths, takeover install.Paths) {
+	t.Helper()
+
+	root := t.TempDir()
+	for _, pair := range [][2]string{
+		{"XDG_CONFIG_HOME", "config"}, {"XDG_DATA_HOME", "data"},
+		{"XDG_STATE_HOME", "state"}, {"XDG_CACHE_HOME", "cache"},
+	} {
+		t.Setenv(pair[0], filepath.Join(root, pair[1]))
+	}
+
+	isolated, err := install.ResolvePaths(false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	takeover, err = install.ResolvePaths(true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return isolated, takeover
+}
+
+// answering points os.Stdin at a script of replies.
+func answering(t *testing.T, lines ...string) {
+	t.Helper()
+
+	file, err := os.CreateTemp(t.TempDir(), "stdin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := file.WriteString(strings.Join(lines, "\n") + "\n"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := file.Seek(0, 0); err != nil {
+		t.Fatal(err)
+	}
+
+	saved := os.Stdin
+	os.Stdin = file
+	t.Cleanup(func() { os.Stdin = saved; file.Close() })
+}
+
+// Audit finding 4A: the lock is taken before the question that decides which
+// installation is about to be changed.
+//
+// `install` locks the isolated placement, then the interactive flow may answer
+// "take over ~/.config/nvim". The paths are recomputed; the lock is not. So a
+// takeover proceeds while another process holds the lock for exactly that
+// installation.
+func TestInstallLocksTheInstallationItWillActuallyTouch(t *testing.T) {
+	blank(t)
+	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
+
+	// Another process is already mutating a Chroma installation.
+	path, err := lock.Path()
+	if err != nil {
+		t.Fatal(err)
+	}
+	held, err := lock.Acquire(path)
+	if err != nil {
+		t.Fatalf("Acquire: %v", err)
+	}
+	defer held.Release()
+
+	// 2 = take over ~/.config/nvim, then accept an empty component selection.
+	answering(t, "2", "")
+
+	code, errOut := captured(t, func(errFile *os.File) int {
+		return cmdInstall([]string{
+			"--source-tree", filepath.Join("..", "..", ".."),
+			"--yes",
+		}, os.Stdout, errFile)
+	})
+
+	if !strings.Contains(errOut, "already in progress") {
+		t.Errorf("install went ahead with a takeover while that installation was locked (exit %d):\n%s", code, errOut)
+	}
+}
+
+// The lock is taken after the plan and the confirmation, which is what makes a
+// dry run leave nothing at all. Taking it earlier was how `install --dry-run`
+// created a lock file on a machine it had been asked not to touch.
+func TestADryRunLeavesNoLockBehind(t *testing.T) {
+	blank(t)
+	runtime := t.TempDir()
+	t.Setenv("XDG_RUNTIME_DIR", runtime)
+
+	answering(t, "1", "")
+
+	captured(t, func(errFile *os.File) int {
+		return cmdInstall([]string{
+			"--source-tree", filepath.Join("..", "..", ".."),
+			"--dry-run",
+		}, os.Stdout, errFile)
+	})
+
+	entries, err := os.ReadDir(runtime)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range entries {
+		t.Errorf("a dry run left %s behind", entry.Name())
 	}
 }

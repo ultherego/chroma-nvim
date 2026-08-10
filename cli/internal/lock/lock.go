@@ -24,6 +24,44 @@ import (
 	"syscall"
 )
 
+// Path is where the one lock lives.
+//
+// One lock for the whole CLI, not one per installation. What is being protected
+// is not a directory: it is the selection, which both placements share, the
+// discovery of which installation is managed, the choice between taking a
+// directory over and living beside it, recovery, and the generations. A
+// per-installation lock could not cover any of those, and measurably did not —
+// `install` took the isolated lock, the interactive flow then chose the
+// takeover, and the operation ran against an installation somebody else held.
+//
+// It lives in the runtime directory rather than in an installation's state,
+// because a lock inside a directory `uninstall` removes is a lock that stops
+// working halfway through an uninstall: the name goes, the flock survives on an
+// inode nobody can reach, and the next process makes a second file and locks
+// that instead. Two exclusive locks, one installation — measured, and the
+// reason this comment exists.
+//
+// Runtime state also expires by itself: nothing has to clean it up, and a
+// reboot leaves nothing behind. Where there is no runtime directory the
+// fallback is state rather than a shared temporary directory, because
+// `/tmp/chroma.lock` is a name any account can take first.
+func Path() (string, error) {
+	if runtime := os.Getenv("XDG_RUNTIME_DIR"); runtime != "" {
+		return filepath.Join(runtime, "chroma-nvim.lock"), nil
+	}
+
+	state := os.Getenv("XDG_STATE_HOME")
+	if state == "" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", fmt.Errorf("finding somewhere to coordinate operations: %w", err)
+		}
+		state = filepath.Join(home, ".local", "state")
+	}
+	// Not under any installation's directory, so no uninstall removes it.
+	return filepath.Join(state, "chroma", "lock"), nil
+}
+
 // ErrBusy is returned when another process holds the lock.
 var ErrBusy = errors.New("another Chroma operation is already in progress")
 

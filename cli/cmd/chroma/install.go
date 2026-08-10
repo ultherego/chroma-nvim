@@ -97,12 +97,6 @@ func cmdInstall(args []string, out, errOut *os.File) int {
 		return exitMisuse
 	}
 
-	held, code := locked(paths, errOut)
-	if code != exitOK {
-		return code
-	}
-	defer held.Release()
-
 	loaded, code := load(filepath.Join(prepared.Root, "components"), errOut)
 	if code != exitOK {
 		return code
@@ -169,6 +163,20 @@ func cmdInstall(args []string, out, errOut *os.File) int {
 		fmt.Fprint(out, "Nothing was changed.\n")
 		return exitDeclined
 	}
+
+	// Taken here, and not before: until the interactive flow has answered, this
+	// does not know which installation it is about to touch, and a lock on the
+	// wrong one protects nothing. Everything before this point asks questions,
+	// downloads and prints; everything after it mutates. A dry run therefore
+	// leaves no lock behind either.
+	//
+	// What could have changed while somebody was reading the plan is
+	// revalidated inside the transaction: Apply checks the target again.
+	held, code := locked(errOut)
+	if code != exitOK {
+		return code
+	}
+	defer held.Release()
 
 	installer := &install.Installer{
 		Runner: install.ExecRunner{Log: logFile(paths, errOut)},
