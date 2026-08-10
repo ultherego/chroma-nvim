@@ -1613,8 +1613,9 @@ Where the selection lives ~
 <
 It belongs to you, not to the release: an update replaces the configuration
 tree wholesale, and what you chose has to survive that. The file is written by
-the `chroma` CLI, which is not released yet; until then, writing it by hand is
-supported and is the only way to select anything.
+`chroma install` and `chroma components`, which validate a selection against the
+contract of the release that is installed. Writing it by hand is supported and
+read the same way.
 >
     {
       "schema": 1,

@@ -1,9 +1,9 @@
 # `chroma` — installer and CLI, V1 architecture
 
-The architecture. A skeleton of it exists — the component reader, `version`,
-`components` and `doctor`; everything that writes to a disk does not. Rule #1
-applies here as it does everywhere else: read the current documentation of every
-Go library before using it.
+The architecture, and it is built: `install`, `update`, `components`,
+`rollback`, `uninstall`, `doctor`, `version`, and `package` for making a
+release. Rule #1 applies here as it does everywhere else: read the current
+documentation of every Go library before using it.
 
 This describes what the CLI is, what it refuses to do, and the one interface it
 shares with the Lua side. It does not describe how to write Go.
@@ -1072,6 +1072,10 @@ environment variable or build tag to arm it.
 ---
 
 ## Implementation order
+
+Done, in this order. Kept because the reasoning for each step is in the commits
+that carried it out, and because the order itself is the argument: nothing that
+writes to a disk was built before the thing that could put it back.
 
 The audit series is closed. Two of them ran back to back over the component
 layer and both are archived; the third would find something, because a third

@@ -59,68 +59,100 @@ installs the same editor twice. You never have to think about that half.
 
 ## Installation
 
-This repository **is** a Neovim configuration directory. It does not install
-into one — it becomes one.
+Download `chroma` for your machine from the
+[latest release](https://github.com/ultherego/chroma-nvim/releases/latest),
+check it against the published `SHA256SUMS`, and run it:
 
-An installer (`chroma`, in [`cli/`](./cli)) is being built and is not released
-yet; until it is, install it the way below.
+```sh
+curl -fsSLO https://github.com/ultherego/chroma-nvim/releases/latest/download/chroma-linux-amd64
+curl -fsSLO https://github.com/ultherego/chroma-nvim/releases/latest/download/SHA256SUMS
+sha256sum --ignore-missing -c SHA256SUMS
+chmod +x chroma-linux-amd64 && sudo mv chroma-linux-amd64 /usr/local/bin/chroma
 
-### Alongside your current setup
+chroma install
+```
 
-`$NVIM_APPNAME` gives Neovim a configuration directory of its own, so nothing
-you already have is touched or shared.
+It asks where to put the configuration and which components you want, shows the
+whole plan, and writes nothing until you agree. By default it installs beside
+whatever Neovim configuration you already have:
+
+```sh
+NVIM_APPNAME=chroma-nvim nvim
+```
+
+Choosing the other placement takes over `~/.config/nvim` and keeps what was
+there, to be given back if you ever uninstall.
+
+Everything the installer fetches is verified before it is unpacked: the archive
+is checked against the checksum published with the release, and unpacking
+refuses anything that is not a plain file or directory under the release's own
+prefix. Every operation is a transaction — if a step fails, what you had is put
+back and the record still describes it.
+
+## Components
+
+A component is one technology's support: its language servers, linters,
+formatters, parsers, plugins and schemas. What you did not choose is not
+installed and not loaded.
+
+```sh
+chroma components                          # choose, starting from what you have
+chroma components --set terraform,helm     # or say it outright
+```
+
+Changing components does not change which release you are on, and changing
+release does not change your components.
+
+## Managing an installation
+
+```sh
+chroma doctor      # what each component needs, and what this machine has
+chroma update      # move to another release, keeping your components
+chroma rollback    # go back to the previous one, keeping your components
+```
+
+An update keeps the release it replaced, so `rollback` is a local operation
+rather than a re-download. Rolling back again returns you to where you were.
+
+## Uninstalling
+
+```sh
+chroma uninstall
+```
+
+It prints the exact list of paths before it removes anything. What Chroma made
+— the configuration, the kept generations, the plugins, the Mason packages, the
+parsers, the cache, the state and your component selection — is removed. A
+configuration that was in `~/.config/nvim` before Chroma took it over is
+**given back**, not deleted. External tools and Neovim itself are never touched.
+
+## Development
+
+The repository is itself a Neovim configuration directory, which is how it is
+worked on. This is not the installation route: it skips the release
+verification, the transaction, the install state and everything `update`,
+`rollback` and `uninstall` depend on.
 
 ```sh
 git clone https://github.com/ultherego/chroma-nvim.git ~/.config/chroma-nvim
 NVIM_APPNAME=chroma-nvim nvim
 ```
 
-### As your main configuration
-
-Move anything that is there aside first — you will want it back if you change
-your mind.
-
-```sh
-[ -e ~/.config/nvim ] && mv ~/.config/nvim ~/.config/nvim.backup
-git clone https://github.com/ultherego/chroma-nvim.git ~/.config/nvim
-nvim
-```
-
-Cloning elsewhere and symlinking works too; nothing here depends on where the
-clone lives. See `:help chroma-nvim-installation`.
-
-### First start
-
-lazy.nvim bootstraps itself, Mason fetches the language servers and treesitter
-compiles the parsers. Give it a minute, then run:
-
-```vim
-:checkhealth chroma
-```
+`CONTRACT.md` covers the test suite, the linters and how installations are
+tested in a container. `chroma install --source-tree .` installs a checkout
+through the real installer, which is how the two are kept honest.
 
 ## Troubleshooting
 
 Most of this configuration drives external programs, and when one is missing
 the symptom is usually silence rather than an error. `:checkhealth chroma`
 reports what is absent, what stops working without it, and which components are
-enabled. `:Lazy` and `:Mason` cover the plugins and the packages.
+enabled. `chroma doctor` answers the same question from a shell. `:Lazy` and
+`:Mason` cover the plugins and the packages.
 
 If something behaves oddly rather than being absent, `:help
 chroma-nvim-troubleshooting` lists the cases that have come up before and what
 each one turned out to be.
-
-## Uninstalling
-
-Nothing is installed outside these directories:
-
-```
-~/.config/nvim          or ~/.config/<appname>
-~/.local/share/nvim     plugins, Mason packages, treesitter parsers
-~/.local/state/nvim     undo history, sessions, logs
-~/.config/chroma        the component selection, if you made one
-```
-
-Remove those, restore whatever you moved aside, and no trace remains.
 
 ## Documentation
 
