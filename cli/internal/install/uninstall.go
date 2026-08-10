@@ -39,6 +39,39 @@ type RemovalPlan struct {
 	RestoreTo string
 }
 
+// RefuseSymlinkedConfiguration reports why a symlinked configuration cannot be
+// uninstalled.
+//
+// Renaming a symlink moves the link, not what it points at, and removing it
+// removes the link. An uninstall that did that would report a complete removal
+// while the entire configuration sat where it always was — measured, not
+// imagined: it deleted the link, left nine entries behind and said "6 paths
+// removed".
+//
+// Following it instead is worse. What is on the other end was not made by
+// Chroma; the README's own second installation route is to clone the repository
+// somewhere and link to it, so the thing at the end of the link is quite likely
+// a checkout with somebody's work in it. Neither lying nor deleting is
+// acceptable, which leaves saying so.
+//
+// Exported because the refusal has to happen before the plan is printed — a
+// destructive list nobody is going to act on reads as a threat — and the check
+// still runs inside Uninstall, so no caller can skip it.
+func RefuseSymlinkedConfiguration(configDir string) error {
+	info, err := os.Lstat(configDir)
+	if err != nil || info.Mode()&os.ModeSymlink == 0 {
+		return nil
+	}
+
+	destination, readErr := os.Readlink(configDir)
+	if readErr != nil {
+		destination = "somewhere this cannot read"
+	}
+	return fmt.Errorf(
+		"%s is a symbolic link to %s.\nChroma will not remove what is on the other end of it, and removing only the link would leave the configuration in place while reporting that it had gone.\nRemove the link yourself, and delete %s if you want it gone",
+		configDir, destination, destination)
+}
+
 // PlanUninstall works out what an uninstall would do.
 //
 // The single rule, and everything here follows from it: **what Chroma made for
@@ -87,6 +120,10 @@ func (i *Installer) Uninstall(paths Paths, current installstate.State) (Removal,
 	sink := i.Sink
 	if sink == nil {
 		sink = Discard{}
+	}
+
+	if err := RefuseSymlinkedConfiguration(current.ConfigDir); err != nil {
+		return Removal{}, err
 	}
 
 	plan := PlanUninstall(paths, current)

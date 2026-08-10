@@ -44,6 +44,13 @@ func cmdUninstall(args []string, out, errOut *os.File) int {
 	}
 	defer held.Release()
 
+	// Before the plan, not after it: a destructive list nobody is going to act
+	// on reads as a threat rather than as information.
+	if err := install.RefuseSymlinkedConfiguration(current.ConfigDir); err != nil {
+		fmt.Fprintln(errOut, err)
+		return exitMisuse
+	}
+
 	plan := install.PlanUninstall(paths, current)
 
 	fmt.Fprint(out, "Uninstall Chroma Neovim\n\n")

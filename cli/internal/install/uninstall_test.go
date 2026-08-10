@@ -3,6 +3,7 @@ package install
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/ultherego/chroma-nvim/cli/internal/installstate"
@@ -204,5 +205,51 @@ func TestAFailedRestoreLeavesEverythingWhereItWas(t *testing.T) {
 		if !exists(path) {
 			t.Errorf("%s was removed although the uninstall could not go ahead", path)
 		}
+	}
+}
+
+// Measured, not imagined: an uninstall over a symlinked configuration removed
+// the link, left every file where it was, and reported "6 paths removed".
+//
+// Following the link would be worse than the lie. What is on the other end was
+// not made by Chroma — the README's second installation route is to clone the
+// repository somewhere and link to it — so this refuses and says where to look.
+func TestUninstallRefusesASymlinkedConfiguration(t *testing.T) {
+	fixed(t)
+
+	paths, current := installed(t, nil)
+
+	// Something in the data directory, so that "nothing was touched" is a claim
+	// about a directory that exists rather than one that never did.
+	if err := os.MkdirAll(filepath.Join(paths.DataDir, "lazy"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	real := paths.ConfigDir + ".real"
+	if err := os.Rename(paths.ConfigDir, real); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(real, paths.ConfigDir); err != nil {
+		t.Fatal(err)
+	}
+
+	installer := &Installer{}
+	_, err := installer.Uninstall(paths, current)
+	if err == nil {
+		t.Fatal("an uninstall over a symlink reported success")
+	}
+	if !strings.Contains(err.Error(), real) {
+		t.Errorf("the refusal does not say what the link points at: %v", err)
+	}
+
+	// And nothing was touched, which is the point of refusing before the hold.
+	if !exists(filepath.Join(real, "init.lua")) {
+		t.Error("the configuration behind the link is gone")
+	}
+	if !exists(paths.InstallState) {
+		t.Error("the record was removed although the uninstall refused")
+	}
+	if !exists(paths.DataDir) {
+		t.Error("the data directory was removed although the uninstall refused")
 	}
 }
