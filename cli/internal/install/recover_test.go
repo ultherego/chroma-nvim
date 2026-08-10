@@ -70,31 +70,37 @@ func TestRecoveryPutsBackACommittedGenerationWithAnEmptyTarget(t *testing.T) {
 	}
 }
 
-// An update killed after the place: the target holds a generation nothing ever
-// recorded, and the committed one is beside it. The record wins.
-func TestRecoveryPrefersTheCommittedGenerationOverAnUncommittedOne(t *testing.T) {
+// An update killed after the place cannot be told from a complete installation
+// with a stray directory beside it, and this records that limit rather than
+// papering over it.
+//
+// From the filesystem alone the two arrangements are identical: a target that
+// is there, every recorded path where the record says it is, and one
+// unreferenced backup. H4 showed what happens when a rule is invented to tell
+// them apart — the stray directory was moved over a perfectly good installation
+// and the good one deleted. So this is refused, and the refusal says what to do.
+//
+// The cost is real and worth stating: a genuine update killed in that window is
+// not repaired automatically any more. It is reported, and nothing is moved.
+func TestAnInterruptedUpdateWithATargetInPlaceIsRefusedRatherThanGuessedAt(t *testing.T) {
 	fixed(t)
 
 	paths, current := interrupted(t, "v2-uncommitted", "v1")
+	before := held(t, paths.ConfigDir)
 
-	if _, err := Recover(paths, current); err != nil {
-		t.Fatalf("Recover: %v", err)
+	_, err := Recover(paths, current)
+	if err == nil {
+		t.Fatal("an ambiguous arrangement was reconciled anyway")
+	}
+	if !strings.Contains(err.Error(), "will not guess") {
+		t.Errorf("the refusal does not say why it stopped: %v", err)
 	}
 
-	if got := held(t, paths.ConfigDir); got != "v1" {
-		t.Errorf("the target holds %q, want the committed v1", got)
+	if got := held(t, paths.ConfigDir); got != before {
+		t.Errorf("the target changed to %q despite the refusal", got)
 	}
-
-	// The uncommitted tree is gone, and so is any trace of the recovery.
-	entries, err := os.ReadDir(filepath.Dir(paths.ConfigDir))
-	if err != nil {
-		t.Fatal(err)
-	}
-	base := filepath.Base(paths.ConfigDir)
-	for _, entry := range entries {
-		if entry.Name() != base && strings.HasPrefix(entry.Name(), base) {
-			t.Errorf("%s was left behind", entry.Name())
-		}
+	if len(backupsBeside(t, paths)) != 1 {
+		t.Error("the backup was moved or removed despite the refusal")
 	}
 }
 
@@ -338,5 +344,56 @@ func TestAPendingHandoverWithNothingLeftIsRefused(t *testing.T) {
 
 	if _, _, err := ReconcileHandover(current); err == nil {
 		t.Error("a handover was concluded with neither directory present")
+	}
+}
+
+// H4's last target. The committed topology is complete: the target holds the
+// installed generation and the recorded previous is where the record says. A
+// stray `*.chroma-backup-*` beside them explains nothing that is missing,
+// because nothing is missing.
+//
+// An unreferenced backup is evidence of an interrupted transaction only when its
+// presence closes a gap in the committed state. On its own it is a directory
+// with a familiar name, and a familiar name is not proof of ownership.
+func TestAStrayBackupBesideACompleteTopologyIsNotTreatedAsRecovery(t *testing.T) {
+	fixed(t)
+
+	paths, current := twoGenerations(t, nil)
+	mark(t, paths.ConfigDir, "installed")
+	mark(t, current.Previous.Path, "previous")
+
+	stray := paths.ConfigDir + backupMark + "20260810T999999Z"
+	if err := os.MkdirAll(filepath.Join(stray, "lua", "chroma"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	write(t, filepath.Join(stray, "lua", "chroma", "bootstrap.lua"), "return {}\n")
+	write(t, filepath.Join(stray, "init.lua"), "-- who knows\n")
+	mark(t, stray, "stray")
+
+	before, err := os.ReadFile(paths.InstallState)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := Recover(paths, current); err != nil {
+		t.Logf("recovery refused, which is one acceptable answer: %v", err)
+	}
+
+	if got := held(t, paths.ConfigDir); got != "installed" {
+		t.Errorf("the installed generation was replaced by %q", got)
+	}
+	if got := held(t, current.Previous.Path); got != "previous" {
+		t.Errorf("the recorded previous generation became %q", got)
+	}
+	if got := held(t, stray); got != "stray" {
+		t.Errorf("the stray directory was moved or replaced: %q", got)
+	}
+
+	after, err := os.ReadFile(paths.InstallState)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(after) != string(before) {
+		t.Error("the record changed although nothing was missing from the topology")
 	}
 }

@@ -88,6 +88,7 @@ func DetectInterruption(paths Paths, current installstate.State) (*Interruption,
 
 	previousMissing := current.Previous != nil && current.Previous.Path != "" &&
 		!present(current.Previous.Path)
+	targetMissing := !present(paths.ConfigDir)
 
 	switch {
 	case len(orphans) == 0 && !previousMissing:
@@ -109,6 +110,27 @@ func DetectInterruption(paths Paths, current installstate.State) (*Interruption,
 	orphan := orphans[0]
 	if !isChromaTree(orphan) {
 		return nil, fmt.Errorf("%s is not a Chroma configuration, so it cannot be the generation to restore", orphan)
+	}
+
+	// An unreferenced backup is evidence of an interrupted transaction only
+	// where its presence closes a gap in the committed state. With the target in
+	// place and every recorded path where the record says it is, nothing is
+	// missing — so the directory beside them explains nothing, and a familiar
+	// name is not proof of ownership.
+	//
+	// Measured, and it is why this exists: without the check, a stray
+	// `*.chroma-backup-*` was treated as the committed generation, moved over a
+	// perfectly good installation, and the good one deleted.
+	//
+	// The honest cost is that an update killed between placing the new tree and
+	// writing the record is no longer distinguished from a complete state with a
+	// stray directory beside it. From the filesystem alone the two are the same
+	// arrangement, and inventing a rule that told them apart would be inventing
+	// a fact. So that case is reported and refused rather than guessed at.
+	if !targetMissing && !previousMissing {
+		return nil, fmt.Errorf(
+			"%s is a Chroma backup that nothing in %s refers to, and the installation is otherwise complete.\nIt may be what an interrupted update left behind, or something copied there; this cannot tell which and will not guess.\nMove it away or delete it, and run this again",
+			orphan, paths.InstallState)
 	}
 
 	found := &Interruption{Orphan: orphan}

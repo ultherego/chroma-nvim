@@ -910,12 +910,25 @@ lie this whole area exists to prevent.
 ### Recovering an interrupted transaction
 
 Two of the three kills leave the record describing something other than what is
-at the target, and the evidence needed to notice is already durable — no journal
-required. **A `*.chroma-backup-*` directory the record does not reference cannot
-exist in any committed state.** An installation records what it moved aside as
-`user_backup`; an update and a rollback record it as `previous.path`. One that
-nothing points at is proof that a process died between its backup step and its
-commit.
+at the target, and no journal is needed to notice — but the rule is narrower than
+it first looked.
+
+**An unreferenced `*.chroma-backup-*` is evidence of an interrupted transaction
+only where its presence closes a gap in the committed state.** A missing target,
+or a recorded `previous.path` that is not there: the orphan explains what is
+absent, and there is exactly one arrangement it could have come from.
+
+On its own it explains nothing. H4 measured what happens when a directory is
+given a role because its name and position fit: a stray backup beside a complete
+installation was treated as the committed generation, moved over the working one,
+and the working one deleted. A familiar name is not proof of ownership.
+
+The honest cost is that an update killed between placing the new tree and writing
+the record is no longer repaired automatically. From the filesystem alone that
+arrangement — a target present, every recorded path in place, one unreferenced
+backup — is identical to a complete installation with something copied beside it,
+and a rule that told them apart would be inventing a fact. It is reported and
+refused instead, naming the directory and saying Chroma will not guess.
 
 **The committed record wins, and the direction is rollback rather than
 roll-forward.** Until a new `install.json` has been written atomically, the
