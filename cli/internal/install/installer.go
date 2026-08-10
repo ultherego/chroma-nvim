@@ -103,6 +103,65 @@ func (i *Installer) Update(
 	return i.carryOut(ctx, paths, prepared, set, selected, true, previous)
 }
 
+// Reconfigure changes which components are enabled, and nothing else.
+//
+// **It does not make a generation.** A generation is a release of Chroma;
+// which parts of it somebody wants is a different fact with a different
+// lifetime, and conflating them would mean a rollback undid a preference or a
+// preference invented a version. So there is no staging, no backup of the
+// configuration, and no install.json written — the tree on disk is the tree
+// that was already there.
+//
+// What it does do is the same transaction discipline as everything else. The
+// new selection is written, the editor is brought to it, the result is
+// verified, and only then is the change kept. A bootstrap that fails leaves the
+// old selection authoritative, which is what decides whether a mistyped
+// component costs somebody their editor.
+func (i *Installer) Reconfigure(
+	ctx context.Context,
+	paths Paths,
+	set component.Set,
+	selected []string,
+) (Result, error) {
+	sink := i.Sink
+	if sink == nil {
+		sink = Discard{}
+	}
+
+	result := Result{Paths: paths}
+	result.Selected = selected
+	result.Enabled = state.State{Schema: state.Schema, Selected: selected}.Enabled(set)
+
+	tx := NewTransaction(paths)
+
+	fail := func(step string, cause error) (Result, error) {
+		sink.Emit(Event{Step: step, Status: StatusFailed, Message: cause.Error()})
+
+		result.RolledBack = true
+		if problem := tx.Rollback(); problem != nil {
+			result.RollbackProblem = problem
+		}
+		return result, cause
+	}
+
+	sink.Emit(Event{Step: "selection", Status: StatusStart})
+	if err := tx.WriteSelection(selected, set); err != nil {
+		return fail("selection", err)
+	}
+
+	if err := tx.Bootstrap(ctx, paths, i.Runner, sink); err != nil {
+		return fail("bootstrap", err)
+	}
+
+	if err := tx.Verify(ctx, paths, result.Enabled, i.Runner, sink); err != nil {
+		return fail("verify", err)
+	}
+
+	tx.Commit()
+	sink.Emit(Event{Step: "components", Status: StatusDone})
+	return result, nil
+}
+
 // carryOut is the transaction both of them are.
 func (i *Installer) carryOut(
 	ctx context.Context,

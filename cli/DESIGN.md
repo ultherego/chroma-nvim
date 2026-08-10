@@ -685,6 +685,50 @@ and `install.json` still describes it, because the record is written last.
 
 ---
 
+## Changing components
+
+**A selection is not a generation.** This is the boundary the whole lifecycle
+rests on, and it is worth stating before `rollback` needs it:
+
+```
+generation = which release of Chroma is installed
+selection  = which parts of it the user wants
+```
+
+So `chroma components` writes no `install.json`, moves no directory and makes
+no backup. The version, the source and the previous generation are exactly what
+they were. A rollback later moves the version without moving the selection —
+and conversely, adding a component does not invent a version to go back to.
+
+**`--set` is the primitive, and it names a target state.** `--set
+terraform,kubernetes` means "afterwards, have exactly these", not "add these".
+`--set ''` means core alone, said out loud, the same as it means to `install`.
+Mutations like `--enable` can be built on that later; a target state cannot be
+built on a series of mutations without knowing what came before.
+
+The interactive form is the same primitive with the current selection already
+ticked, through the same selector `install` uses. Two selectors would be two
+ideas of what a component list looks like, and the one nobody looks at is the
+one that goes wrong.
+
+**It is still a transaction.** The new selection is written, the editor is
+brought to it, the result is verified, and only then is the change kept. A
+bootstrap or verify that fails restores the selection that was in force — which
+is what decides whether a mistyped component costs somebody their editor.
+
+**Nothing is deleted.** A component switched off stops being activated; the
+Mason packages, parsers and plugin directories it used may stay on disk, and
+that is correct rather than untidy. The configuration is what decides what runs.
+A garbage collector would be a subsystem earning its keep only if somebody ever
+runs out of disk, and it can be `chroma clean` on the day that happens.
+
+One consequence, recorded because it changed a precondition: `Bootstrap` and
+`Verify` used to require that *this* transaction had placed the tree. They now
+require that a tree is there. The flag was a fair proxy while installing was the
+only thing that ran the editor, and stopped being one here.
+
+---
+
 ## Implementation order
 
 The audit series is closed. Two of them ran back to back over the component
@@ -724,7 +768,7 @@ Everything else is a backlog entry, and the work continues.
 13  release workflow                        a tag builds and publishes; last job writes
     ----------------------------------------- installer V1 ends here
 14  update                                  generations: current and previous
-15  components
+15  components                              a selection is not a generation
 16  rollback
 17  uninstall
 18  completions, packaging, signing

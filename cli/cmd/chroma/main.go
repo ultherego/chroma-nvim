@@ -67,7 +67,7 @@ func run(args []string, out, errOut *os.File) int {
 func usage(w *os.File) {
 	fmt.Fprint(w, `chroma — install and maintain Chroma Neovim
 
-  components   list the components of a configuration tree
+  components   change which components an installation enables (--tree lists a tree)
   doctor       report what each component needs and what is missing
   install      install a release, or a checkout with --source-tree
   update       replace a managed installation with another release

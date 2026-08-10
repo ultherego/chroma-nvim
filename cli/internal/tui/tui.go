@@ -63,7 +63,7 @@ func Ask(opts install.Options, set component.Set, in io.Reader, out io.Writer) (
 	// means somebody said "core alone", which is an answer and is not asked
 	// again. Profile is an answer too.
 	if opts.Selected == nil && opts.Profile == "" {
-		selected, err := askComponents(reader, out, set)
+		selected, err := askComponents(reader, out, set, nil)
 		if err != nil {
 			return opts, err
 		}
@@ -71,6 +71,15 @@ func Ask(opts install.Options, set component.Set, in io.Reader, out io.Writer) (
 	}
 
 	return opts, nil
+}
+
+// Components asks which parts somebody wants, starting from the ones they have.
+//
+// The same screen `install` uses, called on its own by `chroma components`.
+// Sharing it is the point: two selectors would be two ideas of what a component
+// list looks like, and the one nobody looks at would be the one that goes wrong.
+func Components(set component.Set, current []string, in io.Reader, out io.Writer) ([]string, error) {
+	return askComponents(bufio.NewReader(in), out, set, current)
 }
 
 func welcome(out io.Writer) {
@@ -109,13 +118,18 @@ func askLocation(reader *bufio.Reader, out io.Writer) (bool, error) {
 //
 // Core is not in the list. It is not a choice, and offering a checkbox that
 // cannot be cleared is a worse lie than not offering one.
-func askComponents(reader *bufio.Reader, out io.Writer, set component.Set) ([]string, error) {
+func askComponents(reader *bufio.Reader, out io.Writer, set component.Set, current []string) ([]string, error) {
 	optional := optionalIn(set)
 	if len(optional) == 0 {
 		return []string{}, nil
 	}
 
+	// Seeded with what is already chosen, so changing one thing means toggling
+	// one number rather than retyping a selection somebody made a year ago.
 	chosen := map[string]bool{}
+	for _, id := range current {
+		chosen[id] = true
+	}
 
 	for {
 		fmt.Fprint(out, "\nWhich parts do you want?\n\n")

@@ -3,6 +3,8 @@ package install
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 )
@@ -27,8 +29,8 @@ const BootstrapTimeout = 30 * time.Minute
 // `lua/chroma/bootstrap.lua`, which the source validation required before any
 // of this started. This function knows only how to run it and how long to wait.
 func (tx *Transaction) Bootstrap(ctx context.Context, paths Paths, runner Runner, sink ProgressSink) error {
-	if !tx.Placed {
-		return fmt.Errorf("nothing has been placed at %s to bootstrap", paths.ConfigDir)
+	if err := bootstrappable(paths); err != nil {
+		return err
 	}
 	return runStep(ctx, paths, runner, sink, "install", nil)
 }
@@ -36,10 +38,26 @@ func (tx *Transaction) Bootstrap(ctx context.Context, paths Paths, runner Runner
 // Verify asks the placed configuration whether it is a Chroma that starts, and
 // whether it is the one that was asked for.
 func (tx *Transaction) Verify(ctx context.Context, paths Paths, expected []string, runner Runner, sink ProgressSink) error {
-	if !tx.Placed {
-		return fmt.Errorf("nothing has been placed at %s to verify", paths.ConfigDir)
+	if err := bootstrappable(paths); err != nil {
+		return err
 	}
 	return runStep(ctx, paths, runner, sink, "verify", expected)
+}
+
+// bootstrappable checks that there is a configuration to run.
+//
+// The tree on disk, not `tx.Placed`. That flag says "this transaction put it
+// there", which was a fair proxy while installing was the only thing that ran
+// the editor — and stopped being one when `components` began bringing an
+// installation that was already placed to a new selection. It also asks a
+// slightly better question: a transaction that placed an empty directory would
+// have passed the flag and failed here.
+func bootstrappable(paths Paths) error {
+	entry := filepath.Join(paths.ConfigDir, "init.lua")
+	if _, err := os.Stat(entry); err != nil {
+		return fmt.Errorf("there is no configuration at %s to run: %w", paths.ConfigDir, err)
+	}
+	return nil
 }
 
 // runStep drives one verb of the bootstrap entrypoint.
