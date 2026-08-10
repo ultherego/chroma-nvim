@@ -45,11 +45,13 @@ func run(args []string, out, errOut *os.File) int {
 		return cmdComponents(args[1:], out, errOut)
 	case "doctor":
 		return cmdDoctor(args[1:], out, errOut)
+	case "update":
+		return cmdUpdate(args[1:], out, errOut)
 	case "install":
 		return cmdInstall(args[1:], out, errOut)
 	case "package":
 		return cmdPackage(args[1:], out, errOut)
-	case "update", "uninstall", "rollback":
+	case "uninstall", "rollback":
 		fmt.Fprintf(errOut, "%s is not implemented yet — see cli/DESIGN.md\n", args[0])
 		return exitMisuse
 	case "-h", "--help", "help":
@@ -68,11 +70,12 @@ func usage(w *os.File) {
   components   list the components of a configuration tree
   doctor       report what each component needs and what is missing
   install      install a release, or a checkout with --source-tree
+  update       replace a managed installation with another release
   version      this CLI, and the contract it understands
 
   package      build a release archive and its checksums (developer-only)
 
-  update, uninstall, rollback   not implemented yet
+  uninstall, rollback   not implemented yet
 
 Both reading commands take --tree to point at a configuration; the default is
 the directory this is run from.

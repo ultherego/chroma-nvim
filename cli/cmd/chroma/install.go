@@ -254,10 +254,18 @@ func confirmed(opts install.Options, out *os.File) bool {
 	if opts.AssumeYes || opts.NonInteractive {
 		return true
 	}
+	return asked(out, "\nProceed? [y/N] ")
+}
 
-	fmt.Fprint(out, "\nProceed? [y/N] ")
+// asked puts one yes-or-no question on stdin.
+//
+// Anything that is not yes is no, including a read that fails: a pipe with
+// nothing left in it has not agreed to replace somebody's editor.
+func asked(out *os.File, prompt string) bool {
+	fmt.Fprint(out, prompt)
+
 	answer, err := bufio.NewReader(os.Stdin).ReadString('\n')
-	if err != nil {
+	if err != nil && strings.TrimSpace(answer) == "" {
 		return false
 	}
 

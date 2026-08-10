@@ -63,24 +63,64 @@ func (i *Installer) Apply(
 	prepared PreparedSource,
 	set component.Set,
 ) (Result, error) {
+	needsBackup, err := CheckTarget(paths)
+	if err != nil {
+		return Result{Paths: paths}, err
+	}
+
+	selected, err := opts.Selection(set)
+	if err != nil {
+		return Result{Paths: paths}, err
+	}
+
+	return i.carryOut(ctx, paths, prepared, set, selected, needsBackup, nil)
+}
+
+// Update replaces a managed installation with another release, keeping the
+// components its owner already chose.
+//
+// The same transaction as an installation, and deliberately so: an update that
+// took a different path to placing a tree would be a second installer, and the
+// half of it nobody exercises daily is the half that breaks. Three things
+// differ, and all three are decided before this is called — the selection comes
+// from the installation rather than from a question, the backup is not
+// optional, and what was moved aside is recorded as the generation it was.
+func (i *Installer) Update(
+	ctx context.Context,
+	paths Paths,
+	prepared PreparedSource,
+	set component.Set,
+	selected []string,
+	current installstate.State,
+) (Result, error) {
+	previous := &installstate.Generation{
+		Version:     current.Version,
+		Contract:    current.Contract,
+		InstalledAt: current.InstalledAt,
+		Source:      current.Source,
+	}
+
+	return i.carryOut(ctx, paths, prepared, set, selected, true, previous)
+}
+
+// carryOut is the transaction both of them are.
+func (i *Installer) carryOut(
+	ctx context.Context,
+	paths Paths,
+	prepared PreparedSource,
+	set component.Set,
+	selected []string,
+	needsBackup bool,
+	previous *installstate.Generation,
+) (Result, error) {
 	sink := i.Sink
 	if sink == nil {
 		sink = Discard{}
 	}
 
 	result := Result{Paths: paths}
-
-	selected, err := opts.Selection(set)
-	if err != nil {
-		return result, err
-	}
 	result.Selected = selected
 	result.Enabled = state.State{Schema: state.Schema, Selected: selected}.Enabled(set)
-
-	needsBackup, err := CheckTarget(paths)
-	if err != nil {
-		return result, err
-	}
 
 	tx := NewTransaction(paths)
 
@@ -114,6 +154,13 @@ func (i *Installer) Apply(
 		sink.Emit(Event{Step: "backup", Status: StatusDone, Message: tx.Backup})
 	}
 
+	// The generation only becomes real once its directory has actually moved.
+	// Recording a path the backup step never produced would promise a way back
+	// to somewhere nothing is.
+	if previous != nil {
+		previous.Path = tx.Backup
+	}
+
 	sink.Emit(Event{Step: "place", Status: StatusStart})
 	if err := tx.Place(paths); err != nil {
 		return fail("place", err)
@@ -136,6 +183,7 @@ func (i *Installer) Apply(
 		StateDir:      paths.StateDir,
 		SelectionFile: paths.SelectionFile,
 		Backup:        tx.Backup,
+		Previous:      previous,
 		InstalledAt:   now().Format(time.RFC3339),
 		Source:        sourceOf(prepared),
 	}

@@ -640,6 +640,51 @@ that matters here: `v0.0.0-release-dev.1` must not become what
 
 ---
 
+## Updating
+
+**An update is the installation transaction, not a second one.** `install` and
+`update` differ in three decisions, all taken before the transaction starts —
+where the selection comes from, whether the backup is optional, and whether a
+previous generation is recorded — and then run the same code. An update that
+placed a tree its own way would be a second installer, and the half nobody
+exercises daily is the half that breaks.
+
+**It does not ask about components.** What somebody chose has a longer life than
+any release, and re-asking on every update is how a person ends up with a
+different editor because they pressed return too quickly. The selection document
+is read and carried over. It is validated against the contract of the release
+being installed, so a component the new release no longer has is a refusal
+before anything moves rather than a silent drop.
+
+**An installation is a generation.**
+
+```
+current   v0.2.0   ~/.config/chroma-nvim
+previous  v0.1.0   ~/.config/chroma-nvim.chroma-backup-<stamp>
+```
+
+`install.json` records the previous generation — its version, its contract, its
+source, and where its directory went. That is schema 2, and the reason for the
+bump: schema 1 could say what had been moved aside but not what it was, which is
+enough to restore a directory and not enough to name a version. Rollback reads
+it; nothing else writes it.
+
+The generation is recorded only after the backup step has actually moved
+something. A path the transaction never produced would promise a way back to
+somewhere nothing is.
+
+**Already on that release is not a transaction.** The target tag is resolved
+before anything is downloaded, and an installation already on it says so and
+stops. Doing the whole thing to arrive at the same tree is a risk taken for no
+change.
+
+**A failure puts the working generation back.** Every step after the backup
+rolls back through the same transaction an install uses, so a refused bootstrap
+or a failed verify leaves the editor that was working exactly where it was —
+and `install.json` still describes it, because the record is written last.
+
+---
+
 ## Implementation order
 
 The audit series is closed. Two of them ran back to back over the component
@@ -678,7 +723,7 @@ Everything else is a backlog entry, and the work continues.
 12  TUI                                     line-oriented; it produces Options
 13  release workflow                        a tag builds and publishes; last job writes
     ----------------------------------------- installer V1 ends here
-14  update
+14  update                                  generations: current and previous
 15  components
 16  rollback
 17  uninstall

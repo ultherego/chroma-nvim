@@ -99,6 +99,18 @@ func TestAReaderRefusesWhatItDoesNotUnderstand(t *testing.T) {
 		mention  string
 	}{
 		{"a schema from the future", `{"schema": 99, "config_dir": "/x"}`, "declares schema 99"},
+		{
+			// The number is pinned deliberately. Write and validate share the
+			// constant, so nothing else notices if it moves — and what it
+			// controls is whether a record an older Chroma wrote is read or
+			// refused. Schema 1 could not say what a backup held, so a rollback
+			// against one would restore a directory it cannot name.
+			name: "a schema from before generations",
+			contents: `{"schema": 1, "version": "v1", "contract": 5, "appname": "chroma-nvim",` +
+				`"config_dir": "/a", "data_dir": "/b", "state_dir": "/c", "selection_file": "/d",` +
+				`"installed_at": "now", "source": {"type": "release"}}`,
+			mention: "declares schema 1",
+		},
 		{"a field it does not know", `{"schema": 1, "colour": "peach"}`, "unknown field"},
 		{"not JSON at all", `{ not json`, "install.json"},
 		{
@@ -146,6 +158,85 @@ func TestATreeInstallationIsRecordedAsOne(t *testing.T) {
 	}
 	if read.Version != "" || read.Source.Type != FromTree {
 		t.Errorf("read %+v, want an unversioned tree installation", read)
+	}
+}
+
+// Schema 2 exists for this field, and rollback is the only reader of it.
+func TestAPreviousGenerationSurvivesARoundTrip(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "install.json")
+
+	record := whole()
+	record.Version = "v2.0.0"
+	record.Backup = "/home/somebody/.config/chroma-nvim.chroma-backup-20260809T134200Z"
+	record.Previous = &Generation{
+		Version:     "v1.0.0",
+		Contract:    5,
+		Path:        record.Backup,
+		InstalledAt: "2026-08-09T13:42:00Z",
+		Source:      Source{Type: FromRelease, Ref: "v1.0.0", SHA256: "abc123"},
+	}
+
+	if err := Write(path, record); err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+
+	read, found, err := Load(path)
+	if err != nil || !found {
+		t.Fatalf("Load: %v found=%v", err, found)
+	}
+	if read.Previous == nil {
+		t.Fatal("the previous generation did not survive")
+	}
+	if read.Previous.Version != "v1.0.0" || read.Previous.Path != record.Backup {
+		t.Errorf("read back %+v", read.Previous)
+	}
+	if read.Previous.Source.Ref != "v1.0.0" {
+		t.Errorf("the previous source did not survive: %+v", read.Previous.Source)
+	}
+}
+
+// A generation with nowhere to go back to is worse than no generation at all:
+// it promises rollback a directory that is not there.
+func TestAPreviousGenerationWithoutAPathIsRefused(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "install.json")
+
+	record := whole()
+	record.Previous = &Generation{Version: "v1.0.0", Source: Source{Type: FromRelease}}
+
+	if err := Write(path, record); err == nil {
+		t.Error("a previous generation with no path was recorded")
+	}
+	if _, found, _ := Load(path); found {
+		t.Error("the refused record was written anyway")
+	}
+}
+
+func TestAPreviousGenerationWithAnUnknownSourceIsRefused(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "install.json")
+
+	record := whole()
+	record.Previous = &Generation{Path: "/somewhere", Source: Source{Type: "carrier pigeon"}}
+
+	if err := Write(path, record); err == nil {
+		t.Error("a previous generation with an unknown source type was recorded")
+	}
+}
+
+// A first installation has no previous generation, and saying it has one would
+// give rollback something to restore that was never replaced.
+func TestAFirstInstallationRecordsNoPreviousGeneration(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "install.json")
+
+	if err := Write(path, whole()); err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+
+	read, _, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if read.Previous != nil {
+		t.Errorf("previous = %+v, want none", read.Previous)
 	}
 }
 

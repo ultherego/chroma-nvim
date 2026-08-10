@@ -25,7 +25,14 @@ import (
 )
 
 // Schema is the version of this document.
-const Schema = 1
+//
+// 2 added `previous`. An installation is a generation rather than a state of
+// affairs: `update` moves the current one aside and records what it replaced,
+// so that `rollback` has something to go back to and so that a person can be
+// told what they are on and what they were on. Schema 1 could say what was
+// moved aside but not what it was, which is enough to restore a directory and
+// not enough to name a version.
+const Schema = 2
 
 // Source is where an installation came from.
 type Source struct {
@@ -46,6 +53,29 @@ const (
 	FromRelease = "release"
 	FromTree    = "tree"
 )
+
+// Generation is an installation that was replaced, and what it was.
+//
+// Deliberately not a whole State. What rollback needs is where the directory
+// went and which release it holds; the rest of a State describes paths that
+// have not changed, and copying them would be two records of one fact.
+type Generation struct {
+	// Version is the release it was, empty for a tree.
+	Version string `json:"version,omitempty"`
+
+	// Contract is its component contract version, so a rollback to a
+	// generation this CLI no longer understands can be refused rather than
+	// carried out.
+	Contract int `json:"contract,omitempty"`
+
+	// Path is where it was moved to. This is what rollback restores.
+	Path string `json:"path"`
+
+	// InstalledAt is when that generation was itself recorded.
+	InstalledAt string `json:"installed_at,omitempty"`
+
+	Source Source `json:"source"`
+}
 
 // State is one installation, as it was carried out.
 type State struct {
@@ -72,8 +102,14 @@ type State struct {
 	SelectionFile string `json:"selection_file"`
 
 	// Backup is what was moved aside, and is empty when there was nothing
-	// there. It is the only thing rollback has to go on.
+	// there. For an update it is the same path as Previous.Path — kept as its
+	// own field because it also carries the case Previous cannot: a directory
+	// that was not a Chroma installation at all, moved aside by `--default`.
 	Backup string `json:"backup,omitempty"`
+
+	// Previous is the Chroma generation this one replaced, and is nil for a
+	// first installation. Rollback reads it; nothing else may write it.
+	Previous *Generation `json:"previous,omitempty"`
 
 	// InstalledAt is when this was recorded, which is after it was verified.
 	InstalledAt string `json:"installed_at"`
@@ -149,6 +185,20 @@ func (s State) validate() error {
 	case FromRelease, FromTree:
 	default:
 		return fmt.Errorf("records an unknown source type %q", s.Source.Type)
+	}
+
+	if s.Previous != nil {
+		// A generation that does not say where it went is a generation rollback
+		// cannot restore, which makes recording it worse than not recording it:
+		// it promises a way back that is not there.
+		if s.Previous.Path == "" {
+			return errors.New("records a previous generation with no path")
+		}
+		switch s.Previous.Source.Type {
+		case FromRelease, FromTree:
+		default:
+			return fmt.Errorf("records a previous generation with an unknown source type %q", s.Previous.Source.Type)
+		}
 	}
 
 	return nil

@@ -160,6 +160,19 @@ func (s GitHubSource) Prepare(ctx context.Context) (install.PreparedSource, erro
 	}, nil
 }
 
+// Resolve turns "latest" into a tag, without downloading anything.
+//
+// `update` needs the answer before it needs the archive: an installation
+// already on the newest release should say so and stop, not fetch forty
+// megabytes to discover it has nothing to do.
+func (s GitHubSource) Resolve(ctx context.Context) (string, error) {
+	metadata, err := s.resolve(ctx)
+	if err != nil {
+		return "", err
+	}
+	return metadata.TagName, nil
+}
+
 // resolve turns "latest" into a tag, and checks that a named tag exists.
 func (s GitHubSource) resolve(ctx context.Context) (releaseMetadata, error) {
 	url := fmt.Sprintf("%s/repos/%s/%s/releases/tags/%s", s.api(), Owner, Repo, s.Version)
