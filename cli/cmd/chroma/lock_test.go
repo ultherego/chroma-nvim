@@ -179,8 +179,21 @@ func TestTheUninstallPlanDoesNotOfferAHandedBackConfiguration(t *testing.T) {
 	}
 	// The state a kill inside the transfer leaves: the intention recorded, the
 	// rename done, the completion not written.
-	record.UserBackup = userBackup
-	record.Handover = installstate.HandoverPending
+	// The identity is the one the directory now standing at ConfigDir has: the
+	// rename carried it there, and that is exactly what makes the handover
+	// provable rather than guessed at.
+	identity, err := install.Identify(paths.ConfigDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	record.Borrowed = []installstate.Borrowed{{
+		Kind:     "configuration",
+		Original: paths.ConfigDir,
+		Backup:   userBackup,
+		Device:   identity.Device,
+		Inode:    identity.Inode,
+		Handover: installstate.HandoverPending,
+	}}
 	if _, err := installstate.Write(paths.InstallState, record); err != nil {
 		t.Fatal(err)
 	}

@@ -6,6 +6,7 @@ import (
 	"os"
 
 	"github.com/ultherego/chroma-nvim/cli/internal/component"
+	"github.com/ultherego/chroma-nvim/cli/internal/installstate"
 	"github.com/ultherego/chroma-nvim/cli/internal/state"
 )
 
@@ -45,6 +46,24 @@ type Transaction struct {
 	Placed        bool
 	BackupCreated bool
 
+	// BackupIdentity is what the directory at Backup was when it was moved, so
+	// that whatever records it as a generation records what it is and not only
+	// where it went.
+	BackupIdentity Identity
+
+	// Held are Chroma's own directories moved out of the way so that borrowed
+	// ones can go back where they belong. Moved rather than deleted: until the
+	// directory that replaces one has actually arrived, the held copy is the
+	// only thing at that path, and deleting first would make a failed restore
+	// leave nothing at all.
+	Held []heldAside
+
+	// Borrowed are the directories that were not Chroma's, moved aside so that
+	// Chroma could take their place. Separate from Backup and never mixed with
+	// it: a backup is Chroma's own tree kept as a generation and may be
+	// removed, and these are somebody else's work and may only be given back.
+	Borrowed []installstate.Borrowed
+
 	// RestoredFrom is where a generation was moved *from* when it was put back
 	// into place, and Restored says it happened.
 	//
@@ -58,6 +77,65 @@ type Transaction struct {
 
 	selectionWritten bool
 	committed        bool
+}
+
+// heldAside is one Chroma directory moved out of the way, and where it went.
+type heldAside struct {
+	Original string
+	Aside    string
+}
+
+// HoldAside moves a Chroma directory to a sibling of itself, so that whatever
+// belongs at its path can be put back.
+//
+// Reports the path it was moved to, or an empty string when there was nothing
+// there — which is not a failure: an installation whose cache was never written
+// has no cache to hold.
+func (tx *Transaction) HoldAside(original string) (string, error) {
+	if _, err := os.Lstat(original); errors.Is(err, os.ErrNotExist) {
+		return "", nil
+	} else if err != nil {
+		return "", fmt.Errorf("looking at %s: %w", original, err)
+	}
+
+	aside, err := asideFrom(original)
+	if err != nil {
+		return "", err
+	}
+	if err := os.Rename(original, aside); err != nil {
+		return "", fmt.Errorf("moving %s aside to %s: %w", original, aside, err)
+	}
+
+	tx.Held = append(tx.Held, heldAside{Original: original, Aside: aside})
+	return aside, nil
+}
+
+// giveBackHeld puts Chroma's own directories back where they were, in reverse.
+func (tx *Transaction) giveBackHeld() error {
+	var problems []error
+	kept := tx.Held[:0]
+
+	for index := len(tx.Held) - 1; index >= 0; index-- {
+		one := tx.Held[index]
+		if _, err := os.Lstat(one.Original); err == nil {
+			// Something is there, so this cannot go back without destroying it.
+			// Reported rather than forced: the aside is still on disk under a
+			// name that says what it is.
+			problems = append(problems, fmt.Errorf("not putting %s back as %s: something is already there", one.Aside, one.Original))
+			kept = append(kept, one)
+			continue
+		}
+		if err := os.Rename(one.Aside, one.Original); err != nil {
+			problems = append(problems, fmt.Errorf("putting %s back as %s: %w", one.Aside, one.Original, err))
+			kept = append(kept, one)
+		}
+	}
+
+	for left, right := 0, len(kept)-1; left < right; left, right = left+1, right-1 {
+		kept[left], kept[right] = kept[right], kept[left]
+	}
+	tx.Held = kept
+	return errors.Join(problems...)
 }
 
 // NewTransaction starts a transaction against one installation's paths.
@@ -88,7 +166,7 @@ func (tx *Transaction) WriteSelection(selected []string, set component.Set) erro
 	// transaction that believed otherwise would roll back without putting the
 	// old selection back — leaving the change it just reported as failed in
 	// force.
-	result, err := state.Write(tx.SelectionPath, state.State{Selected: selected}, set)
+	result, err := writeSelection(tx.SelectionPath, state.State{Selected: selected}, set)
 	tx.selectionWritten = result.Replaced
 	if err != nil {
 		return err
@@ -148,6 +226,22 @@ func (tx *Transaction) Rollback() error {
 			problems = append(problems, fmt.Errorf("putting %s back as %s: %w", tx.Backup, tx.Target, err))
 		} else {
 			tx.BackupCreated = false
+		}
+	}
+
+	// Chroma's own directories, put back before the borrowed ones so that a
+	// half-done handover leaves the installation it was removing intact.
+	if len(tx.Held) > 0 {
+		if err := tx.giveBackHeld(); err != nil {
+			problems = append(problems, err)
+		}
+	}
+
+	// Last of the directory moves, because everything above wants the paths
+	// these would be put back at to be free.
+	if len(tx.Borrowed) > 0 && !tx.Placed && !tx.Restored && !tx.BackupCreated {
+		if err := tx.giveBackBorrowed(); err != nil {
+			problems = append(problems, err)
 		}
 	}
 

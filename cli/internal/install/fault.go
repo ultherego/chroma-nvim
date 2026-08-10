@@ -1,5 +1,10 @@
 package install
 
+import (
+	"github.com/ultherego/chroma-nvim/cli/internal/installstate"
+	"github.com/ultherego/chroma-nvim/cli/internal/state"
+)
+
 // Fault points: the boundaries between two steps that both succeeded.
 //
 // These exist because a real operating system cannot be aimed. Permissions,
@@ -60,3 +65,20 @@ func hit(point faultPoint) error {
 	}
 	return faults(point)
 }
+
+// writeRecord and writeSelection are the two durable writes this package makes.
+//
+// Package variables rather than direct calls, for the same reason the fault
+// points above exist: the window between "the rename committed" and "the caller
+// was told" cannot be produced by any real failure, and it is the one where a
+// transaction either keeps a commit or rolls back past it. A test replaces
+// these with the real write followed by an error, which is exactly that window.
+//
+// This replaced an exported hook in internal/atomicfile. A test seam belongs in
+// the package whose behaviour is under test, not in the API of the primitive it
+// happens to be built on — atomicfile now keeps its own, unexported, and proves
+// its own half of the boundary in its own tests.
+var (
+	writeRecord    = installstate.Write
+	writeSelection = state.Write
+)

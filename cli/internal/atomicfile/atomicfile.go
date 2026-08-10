@@ -107,14 +107,18 @@ func Replace(path string, contents []byte, mode fs.FileMode) (Result, error) {
 }
 
 // afterRename stops a replacement between the rename and the directory flush.
-// Nil everywhere except a test that set it: that window cannot be produced by
-// permissions or a full disk, and it is the one where the file has already been
-// replaced and the caller has not been told yet.
-var AfterRename func(path string) error
+// Nil everywhere except a test in this package that set it: that window cannot
+// be produced by permissions or a full disk, and it is the one where the file
+// has already been replaced and the caller has not been told yet.
+//
+// Unexported, and it stays that way. Callers that need the same window in their
+// own transactions build it from their own seams; a primitive does not carry a
+// way to make itself fail in every binary that links it.
+var afterRename func(path string) error
 
 func hit(path string) error {
-	if AfterRename == nil {
+	if afterRename == nil {
 		return nil
 	}
-	return AfterRename(path)
+	return afterRename(path)
 }

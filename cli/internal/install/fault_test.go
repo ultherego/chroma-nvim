@@ -161,8 +161,8 @@ func TestUninstallStoppedAfterTheRestoreLeavesTheUserAlone(t *testing.T) {
 	if err != nil || !found {
 		t.Fatalf("reloading the record: %v found=%v", err, found)
 	}
-	if reloaded.UserBackup != "" {
-		t.Errorf("the record still offers to restore %q after it has been given back", reloaded.UserBackup)
+	if got := borrowedBackup(reloaded, "configuration"); handoverOf(reloaded, "configuration") != installstate.HandoverHandedBack {
+		t.Errorf("the record still offers to restore %q after it has been given back", got)
 	}
 
 	if _, err := installer.Uninstall(paths, reloaded); err != nil {

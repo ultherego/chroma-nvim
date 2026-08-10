@@ -16,8 +16,8 @@ func TestAFailureAfterTheRenameLeavesTheNewContents(t *testing.T) {
 	}
 
 	stopped := errors.New("the directory could not be flushed")
-	AfterRename = func(string) error { return stopped }
-	t.Cleanup(func() { AfterRename = nil })
+	afterRename = func(string) error { return stopped }
+	t.Cleanup(func() { afterRename = nil })
 
 	_, err := Replace(path, []byte("NEW"), 0o644)
 

@@ -33,8 +33,7 @@ func takenOverUnder(t *testing.T, root string) (Paths, installstate.State, strin
 		t.Fatal(err)
 	}
 
-	current.UserBackup = userBackup
-	current.Handover = installstate.HandoverHeld
+	current.Borrowed = []installstate.Borrowed{borrowedNow(t, "configuration", paths.ConfigDir, userBackup)}
 	if _, err := installstate.Write(paths.InstallState, current); err != nil {
 		t.Fatalf("Write: %v", err)
 	}
@@ -126,8 +125,8 @@ func TestThePlanNeverRemovesTheUsersOwnConfiguration(t *testing.T) {
 			t.Fatalf("the plan removes %s, which belongs to the user", userBackup)
 		}
 	}
-	if plan.Restore != userBackup {
-		t.Errorf("restore = %q, want %q", plan.Restore, userBackup)
+	if len(plan.GiveBack) != 1 || plan.GiveBack[0].Backup != userBackup {
+		t.Errorf("give back = %+v, want %q", plan.GiveBack, userBackup)
 	}
 }
 
@@ -267,8 +266,7 @@ func TestThePlanDoesNotOfferToRemoveAConfigurationAlreadyHandedBack(t *testing.T
 	fixed(t)
 
 	paths, current, _ := takenOver(t)
-	current.UserBackup = ""
-	current.Handover = installstate.HandoverHandedBack
+	current.Borrowed[0].Handover = installstate.HandoverHandedBack
 
 	plan := PlanUninstall(paths, current)
 
@@ -277,8 +275,8 @@ func TestThePlanDoesNotOfferToRemoveAConfigurationAlreadyHandedBack(t *testing.T
 			t.Errorf("the plan offers to remove %s, which has been given back", current.ConfigDir)
 		}
 	}
-	if plan.Restore != "" {
-		t.Errorf("the plan offers to restore %q again", plan.Restore)
+	if len(plan.GiveBack) != 0 {
+		t.Errorf("the plan offers to restore %+v again", plan.GiveBack)
 	}
 	// And the rest of Chroma is still on it, or the retry would do nothing.
 	if len(plan.Remove) == 0 {

@@ -166,14 +166,14 @@ func TestUninstallKilledBetweenRestoreAndRecord(t *testing.T) {
 	if err != nil || !found {
 		t.Fatalf("the record is unreadable: %v found=%v", err, found)
 	}
-	if record.Handover != installstate.HandoverPending {
-		t.Fatalf("handover = %q, want pending: the kill was inside the transfer", record.Handover)
+	if handoverOf(record, "configuration") != installstate.HandoverPending {
+		t.Fatalf("handover = %q, want pending: the kill was inside the transfer", handoverOf(record, "configuration"))
 	}
-	if record.UserBackup == "" {
+	if borrowedBackup(record, "configuration") == "" {
 		t.Fatal("the record names nothing to restore, so this is not the window under test")
 	}
-	if exists(record.UserBackup) {
-		t.Fatalf("%s still exists, so the restore had not happened", record.UserBackup)
+	if exists(borrowedBackup(record, "configuration")) {
+		t.Fatalf("%s still exists, so the restore had not happened", borrowedBackup(record, "configuration"))
 	}
 
 	// The two disagree, and the filesystem wins. A second run works out that the
@@ -186,7 +186,7 @@ func TestUninstallKilledBetweenRestoreAndRecord(t *testing.T) {
 	if why == "" {
 		t.Fatal("the disagreement was not noticed at all")
 	}
-	if repaired.Handover != installstate.HandoverHandedBack || repaired.UserBackup != "" {
+	if handoverOf(repaired, "configuration") != installstate.HandoverHandedBack {
 		t.Errorf("the repair did not conclude the handover: %+v", repaired)
 	}
 
@@ -226,14 +226,22 @@ func TestADeletedBackupIsNotMistakenForAHandover(t *testing.T) {
 	if why != "" || err != nil {
 		t.Errorf("a deleted backup was acted on: why=%q err=%v", why, err)
 	}
-	if repaired.Handover == installstate.HandoverHandedBack {
+	if handoverOf(repaired, "configuration") == installstate.HandoverHandedBack {
 		t.Error("the record was marked as handed back with Chroma still installed")
 	}
 }
 
 // The plan is printed before anybody agrees to it, so it has to be built from
 // the reconciled record. Without that, a run interrupted between the restore
-// and the record offers to remove the configuration it has already given back.
+// and the record offers to move a configuration it has already given back.
+//
+// Two things changed when borrowing became plural, and both make this stricter.
+// A borrowed path is never on the removal list at all now — whatever its
+// handover says, it is not Chroma's to delete — so what an unreconciled record
+// would produce is not an offer to remove but an offer to hand back a directory
+// that has already gone home, from a backup that is no longer there. That is
+// the one this asserts, and the old assertion is kept as the invariant it has
+// become: neither plan names it.
 func TestThePlanAfterAnInterruptedHandoverDoesNotOfferTheUsersConfiguration(t *testing.T) {
 	fixed(t)
 
@@ -241,7 +249,7 @@ func TestThePlanAfterAnInterruptedHandoverDoesNotOfferTheUsersConfiguration(t *t
 
 	// The state a kill in that window leaves: the intention recorded, the backup
 	// consumed by the rename, the completion not written.
-	current.Handover = installstate.HandoverPending
+	current = pendingHandover(current)
 	if err := os.RemoveAll(current.ConfigDir); err != nil {
 		t.Fatal(err)
 	}
@@ -250,14 +258,13 @@ func TestThePlanAfterAnInterruptedHandoverDoesNotOfferTheUsersConfiguration(t *t
 	}
 
 	naive := PlanUninstall(Paths{}, current)
-	offered := false
+	if len(naive.GiveBack) != 1 {
+		t.Fatalf("the unreconciled plan owes %d directories, so this proves nothing", len(naive.GiveBack))
+	}
 	for _, path := range naive.Remove {
 		if path == current.ConfigDir {
-			offered = true
+			t.Errorf("a borrowed path was offered for removal: %s", path)
 		}
-	}
-	if !offered {
-		t.Fatal("the unreconciled plan does not offer the directory, so this proves nothing")
 	}
 
 	repaired, why, err := ReconcileHandover(current)
@@ -267,7 +274,12 @@ func TestThePlanAfterAnInterruptedHandoverDoesNotOfferTheUsersConfiguration(t *t
 	if why == "" {
 		t.Fatal("the interrupted handover was not recognised")
 	}
-	for _, path := range PlanUninstall(Paths{}, repaired).Remove {
+
+	reconciled := PlanUninstall(Paths{}, repaired)
+	if len(reconciled.GiveBack) != 0 {
+		t.Errorf("the reconciled plan still offers to hand back %+v", reconciled.GiveBack)
+	}
+	for _, path := range reconciled.Remove {
 		if path == current.ConfigDir {
 			t.Errorf("the reconciled plan still offers to remove %s", current.ConfigDir)
 		}

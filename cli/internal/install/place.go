@@ -56,8 +56,17 @@ var now = func() time.Time { return time.Now().UTC() }
 // directory sitting under our own appname that we did not put there is a
 // surprise, and surprises are not something to overwrite.
 func CheckTarget(paths Paths) (needsBackup bool, err error) {
+	// The default installation is Neovim's own, so every one of Neovim's
+	// directories is somebody else's until proved otherwise — and the answer
+	// does not depend on whether there is a configuration in the first of them.
+	//
+	// It used to. `~/.config/nvim` missing returned "nothing to back up", and
+	// somebody who had deleted their init.lua but still had years of plugins in
+	// `~/.local/share/nvim` got them bootstrapped into and then removed as
+	// Chroma's own. Which directories are actually there is Borrow's question,
+	// and it skips the ones that are not.
 	if _, err := os.Stat(paths.ConfigDir); errors.Is(err, os.ErrNotExist) {
-		return false, nil
+		return paths.AppName == "", nil
 	} else if err != nil {
 		return false, fmt.Errorf("looking at %s: %w", paths.ConfigDir, err)
 	}
@@ -68,8 +77,6 @@ func CheckTarget(paths Paths) (needsBackup bool, err error) {
 		return false, fmt.Errorf("looking at %s: %w", paths.InstallState, err)
 	}
 
-	// The default installation is Neovim's own directory. Something being there
-	// is the normal case, and backing it up is the whole point of --default.
 	if paths.AppName == "" {
 		return true, nil
 	}
@@ -159,11 +166,15 @@ func RefuseSubstituted(path string) error {
 // leave two of them with one record between them. The target has to be out of
 // the way already, the same precondition Place has, because both of them are
 // the same move onto the same path.
-func (tx *Transaction) RestoreGeneration(from string, paths Paths) error {
+func (tx *Transaction) RestoreGeneration(from string, want Identity, paths Paths) error {
 	if from == "" {
 		return errors.New("no generation was named to restore")
 	}
-	if err := RefuseSubstituted(from); err != nil {
+	// Shape, then identity. Both are needed and neither substitutes for the
+	// other: the shape check says this is a directory rather than a link, and
+	// the identity says it is the directory Chroma kept rather than one that
+	// merely looks like it.
+	if err := ProveIdentity(from, want, "generation"); err != nil {
 		return err
 	}
 	if _, err := os.Stat(filepath.Join(from, "init.lua")); err != nil {
@@ -264,6 +275,16 @@ func (tx *Transaction) BackupTarget(paths Paths) error {
 	tx.Target = paths.ConfigDir
 	tx.Backup = backup
 	tx.BackupCreated = true
+
+	// Read after the rename, from the path it now has: a rename keeps the
+	// inode, so this is the identity of the very directory that was moved, and
+	// reading it here rather than before means there is no window in which the
+	// two could be of different things.
+	identity, err := Identify(backup)
+	if err != nil {
+		return err
+	}
+	tx.BackupIdentity = identity
 	return nil
 }
 

@@ -69,8 +69,10 @@ func DetectInterruption(paths Paths, current installstate.State) (*Interruption,
 	if current.Previous != nil && current.Previous.Path != "" {
 		referenced[current.Previous.Path] = true
 	}
-	if current.UserBackup != "" {
-		referenced[current.UserBackup] = true
+	for _, borrowed := range current.Borrowed {
+		if borrowed.Backup != "" {
+			referenced[borrowed.Backup] = true
+		}
 	}
 
 	var orphans []string

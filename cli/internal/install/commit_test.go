@@ -4,12 +4,13 @@ import (
 	"context"
 	"errors"
 	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/ultherego/chroma-nvim/cli/internal/atomicfile"
+	"github.com/ultherego/chroma-nvim/cli/internal/component"
 	"github.com/ultherego/chroma-nvim/cli/internal/installstate"
+	"github.com/ultherego/chroma-nvim/cli/internal/state"
 )
 
 // stopAfterRename makes the next atomic replacement fail after it has already
@@ -18,13 +19,35 @@ func stopAfterRename(t *testing.T, forFile string) error {
 	t.Helper()
 
 	stopped := errors.New("the directory could not be flushed")
-	atomicfile.AfterRename = func(path string) error {
-		if filepath.Base(path) == forFile {
-			return stopped
+
+	switch forFile {
+	case "install.json":
+		real := writeRecord
+		writeRecord = func(path string, record installstate.State) (atomicfile.Result, error) {
+			result, err := real(path, record)
+			if err != nil {
+				return result, err
+			}
+			// Replaced, and not confirmed durable: the rename committed and the
+			// caller is about to be told the write failed.
+			return atomicfile.Result{Replaced: true}, stopped
 		}
-		return nil
+		t.Cleanup(func() { writeRecord = real })
+
+	case "components.json":
+		real := writeSelection
+		writeSelection = func(path string, chosen state.State, set component.Set) (atomicfile.Result, error) {
+			result, err := real(path, chosen, set)
+			if err != nil {
+				return result, err
+			}
+			return atomicfile.Result{Replaced: true}, stopped
+		}
+		t.Cleanup(func() { writeSelection = real })
+
+	default:
+		t.Fatalf("no seam for %s", forFile)
 	}
-	t.Cleanup(func() { atomicfile.AfterRename = nil })
 
 	return stopped
 }
@@ -103,5 +126,48 @@ func TestAFailedSelectionWriteThatAlreadyHappenedStaysInForce(t *testing.T) {
 	}
 	if strings.Contains(string(after), "kubernetes") {
 		t.Error("the selection that was reported as not written is the one on disk")
+	}
+}
+
+// The same rule, at the other place it is written down. `Rollback` has its own
+// record write and its own decision about whether a failed one undoes the move,
+// and the test above never reached it — a mutant that made rollback undo a
+// commit it had already made survived the entire suite.
+//
+// It matters more here than in an update: what would be rolled back is a
+// generation that was moved, not a tree that was placed, so getting it wrong
+// means the version on disk and the version in the record disagree about which
+// way round the two generations are.
+func TestARollbackWhoseRecordCommittedKeepsTheGenerationItRestored(t *testing.T) {
+	fixed(t)
+
+	paths, current := twoGenerations(t, nil)
+	mark(t, paths.ConfigDir, "v2")
+	mark(t, current.Previous.Path, "v1")
+
+	stopAfterRename(t, "install.json")
+
+	installer := &Installer{Runner: &failAt{}}
+	result, err := installer.Rollback(context.Background(), paths, shipped(t), nil, current)
+	if err != nil {
+		t.Fatalf("the rollback was undone although its record had already committed: %v", err)
+	}
+	if result.RolledBack {
+		t.Error("the transaction rolled back past a commit that had happened")
+	}
+
+	if onDisk := held(t, paths.ConfigDir); onDisk != "v1" {
+		t.Errorf("the tree holds %q, want the generation the record now describes", onDisk)
+	}
+
+	record, found, loadErr := installstate.Load(paths.InstallState)
+	if loadErr != nil || !found {
+		t.Fatalf("Load: %v found=%v", loadErr, found)
+	}
+	if record.Previous == nil {
+		t.Fatal("the record kept no way back after the swap")
+	}
+	if got := held(t, record.Previous.Path); got != "v2" {
+		t.Errorf("the recorded previous generation holds %q, want v2", got)
 	}
 }

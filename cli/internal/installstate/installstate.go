@@ -26,6 +26,22 @@ import (
 
 // Schema is the version of this document.
 //
+// 6 made borrowing plural, and gave each borrowed directory an identity.
+//
+// Taking over `~/.config/nvim` takes over four directories, not one: Neovim
+// without NVIM_APPNAME reads `~/.local/share/nvim`, `~/.local/state/nvim` and
+// `~/.cache/nvim` as well, so a bootstrap writes plugins, packages and parsers
+// into whatever was already there. Schema 5 recorded one borrowed path, and an
+// uninstall removed the other three as Chroma's — measured, on a machine whose
+// plugins and undo history had been there for years.
+//
+// Each borrowed directory now carries the device and inode it had when it was
+// moved aside. A rename keeps both, so they are what proves the directory being
+// handed back is the one that was taken — a path says where, an identity says
+// what. And each carries its own handover state, because a process can stop
+// after giving two of three back, and one flag for four directories cannot say
+// which.
+//
 // 5 replaced `handed_back` with `handover`, a state rather than a flag. H4
 // forged the old inference: with Chroma still installed, deleting the backup and
 // one file out of the tree was enough to make it conclude the user's
@@ -60,7 +76,7 @@ import (
 // told what they are on and what they were on. Schema 1 could say what was
 // moved aside but not what it was, which is enough to restore a directory and
 // not enough to name a version.
-const Schema = 5
+const Schema = 6
 
 // Source is where an installation came from.
 type Source struct {
@@ -108,6 +124,32 @@ const (
 	HandoverHandedBack Handover = "handed_back"
 )
 
+// Borrowed is one directory Chroma took over and owes back.
+type Borrowed struct {
+	// Kind is which of Neovim's directories this is: config, data, state or
+	// cache. Recorded so a report can name it in words somebody recognises.
+	Kind string `json:"kind"`
+
+	// Original is where it belongs, and Backup is where Chroma moved it.
+	Original string `json:"original"`
+	Backup   string `json:"backup"`
+
+	// Device and Inode are what it was when it was moved. A rename keeps both,
+	// so together they are the proof that what is at Backup now is what was
+	// taken — which a path alone cannot be. Somebody who deletes the backup and
+	// puts an ordinary directory of the same shape in its place gets a refusal
+	// rather than their directory handed back as somebody else's.
+	//
+	// Not a defence against the owner of the account rewriting this file. That
+	// is a different threat model, and one this does not claim to be in.
+	Device uint64 `json:"device"`
+	Inode  uint64 `json:"inode"`
+
+	// Handover is how far giving this one back has got. Per directory, because
+	// a process can stop after returning two of three.
+	Handover Handover `json:"handover"`
+}
+
 // Generation is an installation that was replaced, and what it was.
 //
 // Deliberately not a whole State. What rollback needs is where the directory
@@ -124,6 +166,14 @@ type Generation struct {
 
 	// Path is where it was moved to. This is what rollback restores.
 	Path string `json:"path"`
+
+	// Device and Inode are what that directory was when it was moved aside. A
+	// path says where to look; these say whether what is there is the
+	// generation Chroma kept. Measured before they existed: deleting a kept
+	// generation and putting an ordinary Chroma-shaped directory at its path
+	// made rollback restore that directory as the release it was not.
+	Device uint64 `json:"device,omitempty"`
+	Inode  uint64 `json:"inode,omitempty"`
 
 	// InstalledAt is when that generation was itself recorded.
 	InstalledAt string `json:"installed_at,omitempty"`
@@ -166,19 +216,16 @@ type State struct {
 	// first installation. Rollback reads it; nothing else may write it.
 	Previous *Generation `json:"previous,omitempty"`
 
-	// UserBackup is the configuration that was here before Chroma, moved aside
-	// by `--default` and never touched since. Empty when Chroma was installed
-	// beside an existing configuration rather than over one.
+	// Borrowed are the directories that existed before Chroma and were moved
+	// aside to make room for it. Empty when Chroma was installed beside an
+	// existing setup rather than over one.
 	//
-	// It is not a generation and must never be treated as one. A generation is
-	// something Chroma made and may remove; this is somebody else's work that
-	// Chroma borrowed a directory from, and `uninstall` gives it back. Every
-	// operation after the first carries this forward unchanged, because losing
-	// it would mean losing the only record of what to restore.
-	UserBackup string `json:"user_backup,omitempty"`
-
-	// Handover is how far giving that configuration back has got.
-	Handover Handover `json:"handover,omitempty"`
+	// None of them is a generation and none may be treated as one. A generation
+	// is something Chroma made and may remove; these are somebody else's work,
+	// and `uninstall` gives them back. Every operation after the first carries
+	// the list forward unchanged, because losing it would mean losing the only
+	// record of what to restore.
+	Borrowed []Borrowed `json:"borrowed,omitempty"`
 
 	// InstalledAt is when this was recorded, which is after it was verified.
 	InstalledAt string `json:"installed_at"`
@@ -259,19 +306,43 @@ func (s State) validate() error {
 
 	// The two are different things and must not name one directory. If they
 	// did, removing the generation would take the user's configuration with it.
-	// A path to hold and a state that says nothing is held are two halves of
-	// different records.
-	switch s.Handover {
-	case HandoverNone, HandoverHandedBack:
-		if s.UserBackup != "" {
-			return fmt.Errorf("records handover %q and a configuration at %s to restore", s.Handover, s.UserBackup)
+	// Each borrowed directory has to say all of what it is, or none of it can
+	// be acted on.
+	kinds := map[string]bool{}
+	for _, borrowed := range s.Borrowed {
+		switch borrowed.Handover {
+		case HandoverHeld, HandoverPending, HandoverHandedBack:
+		default:
+			return fmt.Errorf("records an unknown handover state %q for %s", borrowed.Handover, borrowed.Kind)
 		}
-	case HandoverHeld, HandoverPending:
-		if s.UserBackup == "" {
-			return fmt.Errorf("records handover %q and no configuration to restore", s.Handover)
+		if borrowed.Kind == "" || borrowed.Original == "" || borrowed.Backup == "" {
+			return fmt.Errorf("records a borrowed directory that does not say what it is: %+v", borrowed)
 		}
-	default:
-		return fmt.Errorf("records an unknown handover state %q", s.Handover)
+		if borrowed.Handover != HandoverHandedBack && (borrowed.Device == 0 && borrowed.Inode == 0) {
+			return fmt.Errorf("records %s at %s with no identity, so it could not be shown to be the one taken", borrowed.Kind, borrowed.Backup)
+		}
+		if kinds[borrowed.Kind] {
+			return fmt.Errorf("records %s as borrowed twice", borrowed.Kind)
+		}
+		kinds[borrowed.Kind] = true
+
+		// Two directories cannot be in one place, so two entries cannot name
+		// one. Whichever of them was acted on second would move whatever the
+		// first had just put there.
+		for _, other := range s.Borrowed {
+			if other.Kind == borrowed.Kind {
+				continue
+			}
+			if other.Backup == borrowed.Backup {
+				return fmt.Errorf("records your %s and your %s as both held at %s", borrowed.Kind, other.Kind, borrowed.Backup)
+			}
+			if other.Original == borrowed.Original {
+				return fmt.Errorf("records your %s and your %s as both belonging at %s", borrowed.Kind, other.Kind, borrowed.Original)
+			}
+		}
+		if borrowed.Original == borrowed.Backup {
+			return fmt.Errorf("records %s as borrowed from and to the same path %s", borrowed.Kind, borrowed.Original)
+		}
 	}
 
 	// No two of these may name one directory, and neither may name the
@@ -279,13 +350,19 @@ func (s State) validate() error {
 	// object: removing the generation would take the user's configuration with
 	// it, and restoring either over the target would be Chroma moving a
 	// directory onto itself.
-	for _, pair := range []struct {
+	pairs := []struct {
 		first, second, names string
 	}{
-		{s.UserBackup, previousPath(s), "the user's own configuration and a Chroma generation"},
-		{s.UserBackup, s.ConfigDir, "the user's own configuration and the installation"},
 		{previousPath(s), s.ConfigDir, "a Chroma generation and the installation"},
-	} {
+	}
+	for _, borrowed := range s.Borrowed {
+		pairs = append(pairs,
+			struct{ first, second, names string }{borrowed.Backup, previousPath(s), "your " + borrowed.Kind + " and a Chroma generation"},
+			struct{ first, second, names string }{borrowed.Backup, s.ConfigDir, "your " + borrowed.Kind + " and the installation"},
+			struct{ first, second, names string }{borrowed.Backup, borrowed.Original, "your " + borrowed.Kind + " and where it belongs"},
+		)
+	}
+	for _, pair := range pairs {
 		if pair.first != "" && pair.first == pair.second {
 			return fmt.Errorf("records %s at the same path %s", pair.names, pair.first)
 		}

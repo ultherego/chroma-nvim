@@ -312,7 +312,7 @@ func TestAHandoverCannotBeForgedByDeletingAMarker(t *testing.T) {
 
 	repaired, why, err := ReconcileHandover(current)
 
-	if why != "" || err != nil || repaired.Handover == installstate.HandoverHandedBack {
+	if why != "" || err != nil || handoverOf(repaired, "configuration") == installstate.HandoverHandedBack {
 		t.Errorf("a handover was inferred from a deleted marker, with Chroma still installed:\n  %s", why)
 	}
 }
@@ -324,7 +324,7 @@ func TestAPendingHandoverWithChromaStillInPlaceIsRefused(t *testing.T) {
 	fixed(t)
 
 	_, current, userBackup := takenOver(t)
-	current.Handover = installstate.HandoverPending
+	current = pendingHandover(current)
 	if err := os.RemoveAll(userBackup); err != nil {
 		t.Fatal(err)
 	}
@@ -333,8 +333,8 @@ func TestAPendingHandoverWithChromaStillInPlaceIsRefused(t *testing.T) {
 	if err == nil {
 		t.Error("a contradictory pending handover was reconciled anyway")
 	}
-	if why != "" || repaired.Handover == installstate.HandoverHandedBack {
-		t.Errorf("the record was moved forward on a contradiction: why=%q handover=%q", why, repaired.Handover)
+	if why != "" || handoverOf(repaired, "configuration") == installstate.HandoverHandedBack {
+		t.Errorf("the record was moved forward on a contradiction: why=%q handover=%q", why, handoverOf(repaired, "configuration"))
 	}
 }
 
@@ -343,7 +343,7 @@ func TestAPendingHandoverWithNothingLeftIsRefused(t *testing.T) {
 	fixed(t)
 
 	_, current, userBackup := takenOver(t)
-	current.Handover = installstate.HandoverPending
+	current = pendingHandover(current)
 	for _, path := range []string{userBackup, current.ConfigDir} {
 		if err := os.RemoveAll(path); err != nil {
 			t.Fatal(err)

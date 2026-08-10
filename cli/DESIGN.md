@@ -1071,6 +1071,108 @@ environment variable or build tag to arm it.
 
 ---
 
+## What Chroma borrows, and how it proves it
+
+Taking over `~/.config/nvim` is not taking over one directory. Neovim without
+`NVIM_APPNAME` also reads `~/.local/share/nvim`, `~/.local/state/nvim` and
+`~/.cache/nvim`, and a bootstrap writes plugins, packages and parsers into all
+three. Until this was measured, `--default` moved the first aside and the
+uninstall removed the other three as Chroma's own:
+
+```
+.config/nvim         survived
+.local/share/nvim    GONE   ← years of plugins
+.local/state/nvim    GONE   ← undo history and shada
+.cache/nvim          GONE
+```
+
+The rule the whole design rests on has not changed — **what Chroma made for its
+own operation it may remove; what Chroma only moved aside, because it belonged
+to somebody already, it gives back** — but there are up to four of the second
+kind, and each is tracked on its own.
+
+### Identity, not shape and not path
+
+Two answers to "is this the directory I left here?" were measured and both were
+wrong.
+
+The path was the first. An uninstall handed back whatever stood at the recorded
+backup, so an ordinary nvim-shaped directory put there afterwards was returned to
+somebody as their own configuration; and a rollback restored an ordinary
+directory left at a kept generation's path as that generation.
+
+The shape was the second. `Lstat` proves a thing is a directory and not a link,
+which is worth having and is not identity. Anybody can make a directory with an
+`init.lua` in it.
+
+What is recorded instead is the **device and inode the directory had at the
+moment it was taken**. `rename` preserves both, which is exactly the property
+needed: every move Chroma makes carries the identity along, and a directory
+somebody else created has a different inode however carefully it is shaped. It
+is deliberately not a marker file inside the directory — `cp -a` copies a
+marker, and a copy is not the original.
+
+Every move across an ownership boundary is now preceded by a proof, and a proof
+that fails is not repairable: if what is at the path is not what Chroma
+recorded, Chroma does not know where the real one went, and the two available
+actions — hand this back as somebody's work, or delete it as Chroma's — are both
+destructive and both wrong.
+
+This is not, and does not claim to be, a defence against the owner of the
+account editing `install.json`. That boundary is stated in "Where each operation
+commits" and has not moved.
+
+### One handover state per directory
+
+`install.json` schema 6 replaces the single `user_backup` + `handover` pair with
+a list. Each entry says what kind it is, where it belongs, where it is being
+held, the identity it had, and how far giving it back has got — `held`,
+`pending`, `handed_back`. Per directory, because a process can stop after
+returning two of three, and one flag for four directories cannot say which.
+
+They are returned in a fixed order: configuration, data, cache, **state last**.
+`install.json` lives under the state directory, so once that has gone home there
+is no record left to write the next step into.
+
+The configuration is still the commit point. Up to the moment somebody's own
+`init.lua` is back at `~/.config/nvim` the operation is reversible and a failure
+reinstates Chroma; past it, ownership has changed hands, and a failure to hand
+back the data directory is reported and resumed rather than undone. Undoing it
+would mean taking back something already given.
+
+### Reconciliation asks which, not what
+
+The rule that the filesystem wins over the record is unchanged, and the evidence
+it rests on is now the identity. With `pending` recorded, the backup gone, and
+the original path holding the very inode that was taken, the rename ran and
+nothing else could have produced that. The earlier version asked whether the
+directory still looked like a Chroma tree, which is a question somebody could
+answer by deleting one file.
+
+### Borrowing is decided by which installation this is
+
+`CheckTarget` used to answer "nothing to back up" when `~/.config/nvim` was
+absent. Somebody who had deleted their `init.lua` years ago but still had
+everything in `~/.local/share/nvim` therefore had it bootstrapped into and then
+removed. A default installation now always borrows; which directories are
+actually there is the borrowing step's own question, and it skips the ones that
+are not.
+
+### A test seam belongs to the behaviour under test
+
+The window between "the rename committed" and "the caller was told" cannot be
+produced by permissions or a full disk, and it is the one where a transaction
+either keeps a commit or rolls back past it. It used to be reachable through an
+exported hook in `internal/atomicfile`, which put a way to make a primitive fail
+into every binary that links it. The hook is now unexported and proves
+atomicfile's own half of the boundary in atomicfile's own tests; the installer
+holds its two durable writes in package variables and builds the same window
+from those.
+
+Doing that turned up a gap the old arrangement had hidden: the rule is written
+down at two places, and only the update's was tested. A mutant that made
+`rollback` undo a record it had already committed survived the whole suite.
+
 ## Implementation order
 
 Done, in this order. Kept because the reasoning for each step is in the commits

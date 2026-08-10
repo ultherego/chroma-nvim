@@ -248,11 +248,11 @@ func TestOnePathCannotBeBothAUserBackupAndAGeneration(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "install.json")
 
 	record := whole()
-	record.UserBackup = "/home/somebody/.config/nvim.chroma-backup-20260810T000000Z"
-	record.Handover = HandoverHeld
+	shared := "/home/somebody/.config/nvim.chroma-backup-20260810T000000Z"
+	record.Borrowed = []Borrowed{borrowed("configuration", record.ConfigDir, shared)}
 	record.Previous = &Generation{
 		Version: "v1.0.0",
-		Path:    record.UserBackup,
+		Path:    shared,
 		Source:  Source{Type: FromRelease},
 	}
 
@@ -266,8 +266,7 @@ func TestAUserBackupAndAGenerationCoexist(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "install.json")
 
 	record := whole()
-	record.UserBackup = "/home/somebody/.config/nvim.chroma-original"
-	record.Handover = HandoverHeld
+	record.Borrowed = []Borrowed{borrowed("configuration", record.ConfigDir, "/home/somebody/.config/nvim.chroma-original")}
 	record.Previous = &Generation{
 		Version: "v1.0.0",
 		Path:    "/home/somebody/.config/nvim.chroma-backup-20260810T000000Z",
@@ -282,10 +281,10 @@ func TestAUserBackupAndAGenerationCoexist(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if read.UserBackup != record.UserBackup {
-		t.Errorf("user_backup = %q, want %q", read.UserBackup, record.UserBackup)
+	if len(read.Borrowed) != 1 || read.Borrowed[0] != record.Borrowed[0] {
+		t.Errorf("borrowed = %+v, want %+v", read.Borrowed, record.Borrowed)
 	}
-	if read.Previous == nil || read.Previous.Path == read.UserBackup {
+	if read.Previous == nil || read.Previous.Path == read.Borrowed[0].Backup {
 		t.Errorf("the two came back as one: %+v", read.Previous)
 	}
 }
@@ -297,11 +296,13 @@ func TestAHandedBackStateCannotAlsoNameSomethingToRestore(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "install.json")
 
 	record := whole()
-	record.UserBackup = "/home/somebody/.config/nvim.chroma-original"
-	record.Handover = HandoverHandedBack
+	handed := borrowed("configuration", record.ConfigDir, "/home/somebody/.config/nvim.chroma-original")
+	handed.Handover = HandoverHandedBack
+	handed.Device, handed.Inode = 0, 0
+	record.Borrowed = []Borrowed{handed, borrowed("data", "/home/somebody/.local/share/nvim", "/home/somebody/.config/nvim.chroma-original")}
 
 	if _, err := Write(path, record); err == nil {
-		t.Error("a record claiming both was accepted")
+		t.Error("a record whose handed-back path is still owed to somebody else was accepted")
 	}
 }
 
@@ -309,7 +310,9 @@ func TestTheHandoverStateSurvivesARoundTrip(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "install.json")
 
 	record := whole()
-	record.Handover = HandoverHandedBack
+	handed := borrowed("configuration", record.ConfigDir, "/home/somebody/.config/nvim.chroma-original")
+	handed.Handover = HandoverHandedBack
+	record.Borrowed = []Borrowed{handed}
 	if _, err := Write(path, record); err != nil {
 		t.Fatalf("Write: %v", err)
 	}
@@ -318,35 +321,99 @@ func TestTheHandoverStateSurvivesARoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if read.Handover != HandoverHandedBack {
-		t.Errorf("handover = %q, so a retry would move the user's configuration", read.Handover)
+	if len(read.Borrowed) != 1 || read.Borrowed[0].Handover != HandoverHandedBack {
+		t.Errorf("borrowed = %+v, so a retry would move the user's configuration", read.Borrowed)
 	}
 }
 
-// Every handover state has to agree with whether there is a path to hold.
-func TestTheHandoverStateAndTheBackupPathMustAgree(t *testing.T) {
+// A borrowed directory has to say all of what it is, or none of it can be
+// acted on. Every one of these would send a destructive step somewhere it
+// cannot justify going.
+func TestABorrowedDirectoryMustBeFullyDescribed(t *testing.T) {
+	sound := borrowed("configuration", "/home/somebody/.config/nvim", "/home/somebody/.config/nvim.chroma-original")
+
 	for _, tc := range []struct {
-		name     string
-		handover Handover
-		backup   string
+		name   string
+		break_ func(*Borrowed)
 	}{
-		{"held with nothing to hold", HandoverHeld, ""},
-		{"pending with nothing to transfer", HandoverPending, ""},
-		{"none but a path to restore", HandoverNone, "/somewhere"},
-		{"handed back but a path to restore", HandoverHandedBack, "/somewhere"},
-		{"a state nobody defined", Handover("half"), "/somewhere"},
+		{"nothing to hold", func(b *Borrowed) { b.Backup = "" }},
+		{"nowhere to put it back", func(b *Borrowed) { b.Original = "" }},
+		{"nothing to call it", func(b *Borrowed) { b.Kind = "" }},
+		{"no identity to prove it by", func(b *Borrowed) { b.Device, b.Inode = 0, 0 }},
+		{"a state nobody defined", func(b *Borrowed) { b.Handover = Handover("half") }},
+		{"no state at all", func(b *Borrowed) { b.Handover = HandoverNone }},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			path := filepath.Join(t.TempDir(), "install.json")
 
+			one := sound
+			tc.break_(&one)
+
 			record := whole()
-			record.Handover = tc.handover
-			record.UserBackup = tc.backup
+			record.Borrowed = []Borrowed{one}
 
 			if _, err := Write(path, record); err == nil {
-				t.Errorf("handover %q with backup %q was accepted", tc.handover, tc.backup)
+				t.Errorf("%+v was accepted", one)
 			}
 		})
+	}
+}
+
+// The same directory cannot be borrowed twice. Handing it back twice would move
+// whatever the first pass put there.
+func TestOneKindCannotBeBorrowedTwice(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "install.json")
+
+	record := whole()
+	record.Borrowed = []Borrowed{
+		borrowed("configuration", "/home/somebody/.config/nvim", "/home/somebody/.config/nvim.a"),
+		borrowed("configuration", "/home/somebody/.config/nvim", "/home/somebody/.config/nvim.b"),
+	}
+
+	if _, err := Write(path, record); err == nil {
+		t.Error("a record borrowing one kind twice was accepted")
+	}
+}
+
+// All four, which is what a takeover actually borrows.
+func TestFourBorrowedDirectoriesSurviveARoundTrip(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "install.json")
+
+	record := whole()
+	record.Borrowed = []Borrowed{
+		borrowed("configuration", "/home/somebody/.config/nvim", "/home/somebody/.config/nvim.kept"),
+		borrowed("data", "/home/somebody/.local/share/nvim", "/home/somebody/.local/share/nvim.kept"),
+		borrowed("state", "/home/somebody/.local/state/nvim", "/home/somebody/.local/state/nvim.kept"),
+		borrowed("cache", "/home/somebody/.cache/nvim", "/home/somebody/.cache/nvim.kept"),
+	}
+
+	if _, err := Write(path, record); err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+	read, _, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if len(read.Borrowed) != 4 {
+		t.Fatalf("borrowed %d directories, want 4: %+v", len(read.Borrowed), read.Borrowed)
+	}
+	for index, one := range read.Borrowed {
+		if one != record.Borrowed[index] {
+			t.Errorf("borrowed[%d] = %+v, want %+v", index, one, record.Borrowed[index])
+		}
+	}
+}
+
+// borrowed is one sound entry: everything filled in, and an identity that is
+// not zero so the record is legal.
+func borrowed(kind, original, backup string) Borrowed {
+	return Borrowed{
+		Kind:     kind,
+		Original: original,
+		Backup:   backup,
+		Device:   66306,
+		Inode:    1 + uint64(len(kind)),
+		Handover: HandoverHeld,
 	}
 }
 
@@ -373,16 +440,17 @@ func TestAliasedPathsAreRefused(t *testing.T) {
 		build func(*State)
 	}{
 		{"the backup is the installation", func(s *State) {
-			s.UserBackup = s.ConfigDir
-			s.Handover = HandoverHeld
+			s.Borrowed = []Borrowed{borrowed("configuration", "/home/somebody/.config/nvim.gone", s.ConfigDir)}
 		}},
 		{"the generation is the installation", func(s *State) {
 			s.Previous = &Generation{Path: s.ConfigDir, Source: Source{Type: FromRelease}}
 		}},
 		{"the backup is the generation", func(s *State) {
-			s.UserBackup = "/home/somebody/.config/nvim.kept"
-			s.Handover = HandoverHeld
-			s.Previous = &Generation{Path: s.UserBackup, Source: Source{Type: FromRelease}}
+			s.Borrowed = []Borrowed{borrowed("configuration", s.ConfigDir, "/home/somebody/.config/nvim.kept")}
+			s.Previous = &Generation{Path: "/home/somebody/.config/nvim.kept", Source: Source{Type: FromRelease}}
+		}},
+		{"the backup is where it belongs", func(s *State) {
+			s.Borrowed = []Borrowed{borrowed("data", "/home/somebody/.local/share/nvim", "/home/somebody/.local/share/nvim")}
 		}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

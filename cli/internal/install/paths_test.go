@@ -15,6 +15,14 @@ func xdg(t *testing.T, root string) {
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(root, "config"))
 	t.Setenv("XDG_DATA_HOME", filepath.Join(root, "data"))
 	t.Setenv("XDG_STATE_HOME", filepath.Join(root, "state"))
+
+	// The fourth, and it was missing. Without it every test in this package
+	// resolved CacheDir to the real `~/.cache/nvim` of whoever ran them — and
+	// an uninstall removes the cache directory, so the suite was quietly
+	// deleting the Neovim cache of its own author. Found by a takeover test
+	// that moves the directory aside instead of removing it, which is the only
+	// reason it was visible at all.
+	t.Setenv("XDG_CACHE_HOME", filepath.Join(root, "cache"))
 }
 
 func TestIsolatedInstallationIsBesideTheRest(t *testing.T) {

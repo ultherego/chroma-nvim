@@ -123,8 +123,8 @@ func TestAnUninstallRefusesASubstitutedUserBackup(t *testing.T) {
 	if err != nil || !found {
 		t.Fatalf("Load: %v found=%v", err, found)
 	}
-	if record.Handover != installstate.HandoverHeld {
-		t.Errorf("handover = %q, want it still held: the transfer must not have begun", record.Handover)
+	if got := handoverOf(record, "configuration"); got != installstate.HandoverHeld {
+		t.Errorf("handover = %q, want it still held: the transfer must not have begun", got)
 	}
 	if !isChromaTree(paths.ConfigDir) {
 		t.Error("the installation was moved despite the refusal")
@@ -174,5 +174,52 @@ func TestTheRefusalNamesWhatItFound(t *testing.T) {
 	err = RefuseSubstituted(file)
 	if err == nil || !strings.Contains(err.Error(), "not a directory") {
 		t.Errorf("a regular file was not reported as one: %v", err)
+	}
+}
+
+// Audit finding 5: the guard proves the type of the object at a path, not that
+// it is the object Chroma put there. An ordinary directory passes.
+func TestARollbackRefusesADifferentDirectoryAtTheRecordedPath(t *testing.T) {
+	fixed(t)
+
+	paths, current := twoGenerations(t, nil)
+	keptAt := current.Previous.Path
+	mark(t, paths.ConfigDir, "v2")
+
+	// The generation Chroma kept is gone; something else of the same shape is
+	// at its path.
+	if err := os.RemoveAll(keptAt); err != nil {
+		t.Fatal(err)
+	}
+	precious(t, keptAt)
+	mark(t, keptAt, "not-the-generation")
+
+	installer := &Installer{Runner: &failAt{}}
+	if _, err := installer.Rollback(context.Background(), paths, shipped(t), nil, current); err == nil {
+		t.Error("a directory that was never the recorded generation was restored as it")
+	}
+	if got := held(t, paths.ConfigDir); got != "v2" {
+		t.Errorf("the installed generation was replaced by %q", got)
+	}
+}
+
+// The same for the configuration Chroma is holding for somebody.
+func TestAnUninstallRefusesADifferentDirectoryAsTheUserBackup(t *testing.T) {
+	fixed(t)
+
+	paths, current, userBackup := takenOver(t)
+
+	if err := os.RemoveAll(userBackup); err != nil {
+		t.Fatal(err)
+	}
+	precious(t, userBackup)
+	write(t, filepath.Join(userBackup, "init.lua"), "-- somebody else's\n")
+
+	installer := &Installer{}
+	if _, err := installer.Uninstall(paths, current); err == nil {
+		t.Error("a directory that was never the user's backup was handed back as it")
+	}
+	if !isChromaTree(paths.ConfigDir) {
+		t.Error("the installation was moved despite the substitution")
 	}
 }

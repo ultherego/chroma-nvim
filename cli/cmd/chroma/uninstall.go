@@ -79,11 +79,13 @@ func cmdUninstall(args []string, out, errOut *os.File) int {
 		fmt.Fprintf(out, "  %s\n", path)
 	}
 
-	if plan.Restore != "" {
-		fmt.Fprint(out, "\nRestore:\n")
-		fmt.Fprintf(out, "  %s\n", plan.Restore)
-		fmt.Fprintf(out, "    back to %s — this is the configuration you had before Chroma,\n", plan.RestoreTo)
-		fmt.Fprint(out, "    and it is given back rather than removed.\n")
+	if len(plan.GiveBack) > 0 {
+		fmt.Fprint(out, "\nGive back:\n")
+		for _, one := range plan.GiveBack {
+			fmt.Fprintf(out, "  %s\n", one.Backup)
+			fmt.Fprintf(out, "    back to %s — this is the %s you had before Chroma,\n", one.Original, one.Kind)
+			fmt.Fprint(out, "    and it is given back rather than removed.\n")
+		}
 	}
 
 	fmt.Fprint(out, "\nExternal tools will not be removed. Neither will Neovim.\n")

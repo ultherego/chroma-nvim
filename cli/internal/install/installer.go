@@ -74,7 +74,7 @@ func (i *Installer) Apply(
 		return Result{Paths: paths}, err
 	}
 
-	return i.carryOut(ctx, paths, prepared, set, selected, needsBackup, nil, "", installstate.HandoverNone)
+	return i.carryOut(ctx, paths, prepared, set, selected, needsBackup, nil, nil)
 }
 
 // Update replaces a managed installation with another release, keeping the
@@ -101,7 +101,12 @@ func (i *Installer) Update(
 		Source:      current.Source,
 	}
 
-	return i.carryOut(ctx, paths, prepared, set, selected, true, previous, current.UserBackup, current.Handover)
+	// false, not true: an update moves Chroma's own tree aside, which is what
+	// `previous` says. Borrowing is what a takeover does to directories that
+	// were never Chroma's, and it happens once — at the installation that took
+	// them. One boolean used to mean both, and that is how an update came to
+	// look like a first takeover to everything downstream of it.
+	return i.carryOut(ctx, paths, prepared, set, selected, false, previous, current.Borrowed)
 }
 
 // Reconfigure changes which components are enabled, and nothing else.
@@ -224,7 +229,8 @@ func (i *Installer) Rollback(
 	sink.Emit(Event{Step: "backup", Status: StatusDone, Message: tx.Backup})
 
 	sink.Emit(Event{Step: "restore", Status: StatusStart})
-	if err := tx.RestoreGeneration(target.Path, paths); err != nil {
+	want := Identity{Device: target.Device, Inode: target.Inode}
+	if err := tx.RestoreGeneration(target.Path, want, paths); err != nil {
 		return fail("restore", err)
 	}
 	sink.Emit(Event{Step: "restore", Status: StatusDone, Message: target.Path})
@@ -258,21 +264,22 @@ func (i *Installer) Rollback(
 		CacheDir:      paths.CacheDir,
 		SelectionFile: paths.SelectionFile,
 		Backup:        tx.Backup,
-		UserBackup:    current.UserBackup,
-		Handover:      current.Handover,
+		Borrowed:      current.Borrowed,
 		InstalledAt:   now().Format(time.RFC3339),
 		Source:        target.Source,
 		Previous: &installstate.Generation{
 			Version:     current.Version,
 			Contract:    current.Contract,
 			Path:        tx.Backup,
+			Device:      tx.BackupIdentity.Device,
+			Inode:       tx.BackupIdentity.Inode,
 			InstalledAt: current.InstalledAt,
 			Source:      current.Source,
 		},
 	}
 
 	sink.Emit(Event{Step: "record", Status: StatusStart})
-	written, err := installstate.Write(paths.InstallState, record)
+	written, err := writeRecord(paths.InstallState, record)
 	if err != nil && !written.Replaced {
 		return fail("record", err)
 	}
@@ -294,10 +301,9 @@ func (i *Installer) carryOut(
 	prepared PreparedSource,
 	set component.Set,
 	selected []string,
-	needsBackup bool,
+	borrow bool,
 	previous *installstate.Generation,
-	carriedUserBackup string,
-	carriedHandover installstate.Handover,
+	carriedBorrowed []installstate.Borrowed,
 ) (Result, error) {
 	sink := i.Sink
 	if sink == nil {
@@ -332,7 +338,28 @@ func (i *Installer) carryOut(
 		return fail("stage", err)
 	}
 
-	if needsBackup {
+	switch {
+	case borrow:
+		// Every one of Neovim's directories that exists, not just the
+		// configuration: the bootstrap that follows writes plugins, packages
+		// and parsers into the other three, and an uninstall that only knew
+		// about the first removed the rest as Chroma's own.
+		sink.Emit(Event{Step: "backup", Status: StatusStart})
+		if err := tx.Borrow(paths); err != nil {
+			return fail("backup", err)
+		}
+		for _, borrowed := range tx.Borrowed {
+			sink.Emit(Event{Step: "backup", Status: StatusDone, Message: borrowed.Kind + ": " + borrowed.Backup})
+		}
+		if err := hit(faultAfterBackup); err != nil {
+			return fail("backup", err)
+		}
+
+	case previous != nil:
+		// Chroma's own tree, moved aside to become the generation to come back
+		// to. Nothing is borrowed here, because whatever was borrowed was
+		// borrowed by the installation this is replacing, and is carried
+		// forward untouched.
 		sink.Emit(Event{Step: "backup", Status: StatusStart})
 		if err := tx.BackupTarget(paths); err != nil {
 			return fail("backup", err)
@@ -348,6 +375,8 @@ func (i *Installer) carryOut(
 	// to somewhere nothing is.
 	if previous != nil {
 		previous.Path = tx.Backup
+		previous.Device = tx.BackupIdentity.Device
+		previous.Inode = tx.BackupIdentity.Inode
 	}
 
 	sink.Emit(Event{Step: "place", Status: StatusStart})
@@ -374,12 +403,11 @@ func (i *Installer) carryOut(
 		return fail("verify", err)
 	}
 
-	// A backup made by an installation is the configuration somebody already
-	// had; one made by an update is a generation. Which of the two this is was
-	// decided by the caller, and carried in.
-	userBackup := carriedUserBackup
-	if previous == nil && tx.Backup != "" {
-		userBackup = tx.Backup
+	// What was borrowed by this run, or what an earlier run borrowed and this
+	// one is only carrying. Never both: the switch above takes one branch.
+	borrowed := carriedBorrowed
+	if borrow {
+		borrowed = tx.Borrowed
 	}
 
 	record := installstate.State{
@@ -392,15 +420,14 @@ func (i *Installer) carryOut(
 		CacheDir:      paths.CacheDir,
 		SelectionFile: paths.SelectionFile,
 		Backup:        tx.Backup,
-		UserBackup:    userBackup,
-		Handover:      handoverFor(userBackup, carriedHandover),
+		Borrowed:      borrowed,
 		Previous:      previous,
 		InstalledAt:   now().Format(time.RFC3339),
 		Source:        sourceOf(prepared),
 	}
 
 	sink.Emit(Event{Step: "record", Status: StatusStart})
-	written, err := installstate.Write(paths.InstallState, record)
+	written, err := writeRecord(paths.InstallState, record)
 	if err != nil && !written.Replaced {
 		// Rolled back rather than left alone. An installation nothing recorded
 		// is an unmanaged directory, and every command already knows how to
