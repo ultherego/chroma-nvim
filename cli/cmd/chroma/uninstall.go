@@ -59,7 +59,13 @@ func cmdUninstall(args []string, out, errOut *os.File) int {
 	// offers to remove somebody's own configuration is the lie this whole
 	// milestone is about. A run killed between the restore and the record
 	// leaves exactly that disagreement behind.
-	if repaired, why := install.ReconcileHandover(current); why != "" {
+	repaired, why, err := install.ReconcileHandover(current)
+	if err != nil {
+		fmt.Fprintln(errOut, err)
+		fmt.Fprint(errOut, "Nothing was changed.\n")
+		return exitFailed
+	}
+	if why != "" {
 		fmt.Fprintf(out, "%s\n\n", why)
 		current = repaired
 	}

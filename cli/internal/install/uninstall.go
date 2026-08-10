@@ -57,41 +57,58 @@ func undo(tx *Transaction, cause error) error {
 // filesystem wins — a record is a description, and a description that disagrees
 // with the thing it describes is wrong about it.
 //
-// The conclusion is drawn only when it can be shown, not guessed:
+// The inference is allowed only where the record says a handover had begun.
+// That is the whole difference from the version H4 forged: with Chroma still
+// installed, deleting the backup and one file out of the tree was enough to make
+// the old rule conclude the configuration had been given back — because it asked
+// what the directory looked like. "This no longer looks like a complete Chroma
+// tree" is not "this is exactly what we were holding for you".
+//
+// `pending` is written before the first move, so its presence is Chroma's own
+// record of having entered the transfer. Only then is the topology worth
+// reading, and only these three together mean the rename ran:
 //
 //   - the recorded backup is gone, and
 //   - the configuration directory is there, and
 //   - it does not hold a Chroma tree.
 //
-// The only ordinary way all three are true at once is that the rename ran. If
-// Chroma is still in the directory then the backup was deleted by somebody
-// else, which is a different situation with a different answer — this returns
-// the record untouched and the uninstall refuses, naming what is missing.
+// Anything else with `pending` set is a contradiction — the backup gone and the
+// target gone too, or the target still holding Chroma — and produces a refusal
+// rather than a story.
 //
-// Returns the record to act on, and a sentence for whoever is watching.
-func ReconcileHandover(current installstate.State) (installstate.State, string) {
-	if current.HandedBack || current.UserBackup == "" {
-		return current, ""
+// Returns the record to act on, a sentence for whoever is watching, and an
+// error when nothing can be concluded safely.
+func ReconcileHandover(current installstate.State) (installstate.State, string, error) {
+	if current.Handover != installstate.HandoverPending {
+		// Not in a transfer, so the state of the backup proves nothing about
+		// ownership. A missing one is somebody else's doing and is refused
+		// later, by name.
+		return current, "", nil
 	}
+
 	if _, err := os.Lstat(current.UserBackup); err == nil {
-		// Still there: nothing was handed back.
-		return current, ""
+		// Still there: the rename had not run, so the transfer simply resumes.
+		return current, "", nil
 	}
 
 	if _, err := os.Stat(current.ConfigDir); err != nil {
-		return current, ""
+		return current, "", fmt.Errorf(
+			"a handover of %s was interrupted: it is no longer there and %s is empty, so this cannot tell where the configuration went",
+			current.UserBackup, current.ConfigDir)
 	}
 	if isChromaTree(current.ConfigDir) {
-		return current, ""
+		return current, "", fmt.Errorf(
+			"a handover of %s was interrupted: it is no longer there and %s still holds a Chroma installation, so the two do not add up",
+			current.UserBackup, current.ConfigDir)
 	}
 
 	repaired := current
 	repaired.UserBackup = ""
-	repaired.HandedBack = true
+	repaired.Handover = installstate.HandoverHandedBack
 
 	return repaired, fmt.Sprintf(
-		"%s is gone and %s no longer holds a Chroma installation, so the configuration you had before Chroma has already been given back. An earlier run was interrupted before it could record that.",
-		current.UserBackup, current.ConfigDir)
+		"An interrupted handover was found: %s is gone and %s no longer holds a Chroma installation, so the configuration you had before Chroma has already been given back.",
+		current.UserBackup, current.ConfigDir), nil
 }
 
 // isChromaTree reports whether a directory holds a Chroma configuration.
@@ -152,7 +169,7 @@ func PlanUninstall(paths Paths, current installstate.State) RemovalPlan {
 	//
 	// Unless it has already been handed back, in which case the directory holds
 	// somebody else's configuration and is not on any list of Chroma's.
-	if !current.HandedBack {
+	if current.Handover != installstate.HandoverHandedBack {
 		plan.Remove = append(plan.Remove, current.ConfigDir)
 	}
 
@@ -197,7 +214,11 @@ func (i *Installer) Uninstall(paths Paths, current installstate.State) (Removal,
 	}
 
 	// The filesystem is consulted before the record is believed.
-	if repaired, why := ReconcileHandover(current); why != "" {
+	repaired, why, err := ReconcileHandover(current)
+	if err != nil {
+		return Removal{}, err
+	}
+	if why != "" {
 		sink.Emit(Event{Step: "reconcile", Status: StatusWarning, Message: why})
 		if err := installstate.Write(paths.InstallState, repaired); err != nil {
 			return Removal{}, fmt.Errorf("recording what an interrupted run had already done: %w", err)
@@ -208,13 +229,25 @@ func (i *Installer) Uninstall(paths Paths, current installstate.State) (Removal,
 	plan := PlanUninstall(paths, current)
 	removal := Removal{}
 
+	// Nothing about giving somebody's data back begins before the intention to
+	// do it is on disk. If this write fails the filesystem is untouched, which
+	// is the whole point of putting it first.
+	if current.Handover == installstate.HandoverHeld {
+		beginning := current
+		beginning.Handover = installstate.HandoverPending
+		if err := installstate.Write(paths.InstallState, beginning); err != nil {
+			return removal, fmt.Errorf("recording that the handover is starting: %w", err)
+		}
+		current = beginning
+	}
+
 	tx := NewTransaction(paths)
 
 	// Held rather than removed. Until the restore below has succeeded this is
 	// the only copy of anything at ConfigDir.
 	// A configuration already handed back is not touched at all — not held, not
 	// moved, not looked at for permission to move. It is somebody else's.
-	if !current.HandedBack {
+	if current.Handover != installstate.HandoverHandedBack {
 		sink.Emit(Event{Step: "hold", Status: StatusStart})
 		if _, err := os.Stat(current.ConfigDir); err == nil {
 			if err := tx.BackupTarget(paths); err != nil {
@@ -274,7 +307,7 @@ func (i *Installer) Uninstall(paths Paths, current installstate.State) (Removal,
 	if plan.Restore != "" {
 		handed := current
 		handed.UserBackup = ""
-		handed.HandedBack = true
+		handed.Handover = installstate.HandoverHandedBack
 		if err := installstate.Write(paths.InstallState, handed); err != nil {
 			removal.Problems = append(removal.Problems,
 				fmt.Errorf("recording that %s has been given back: %w", plan.Restore, err))

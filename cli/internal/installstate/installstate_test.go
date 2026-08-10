@@ -249,6 +249,7 @@ func TestOnePathCannotBeBothAUserBackupAndAGeneration(t *testing.T) {
 
 	record := whole()
 	record.UserBackup = "/home/somebody/.config/nvim.chroma-backup-20260810T000000Z"
+	record.Handover = HandoverHeld
 	record.Previous = &Generation{
 		Version: "v1.0.0",
 		Path:    record.UserBackup,
@@ -266,6 +267,7 @@ func TestAUserBackupAndAGenerationCoexist(t *testing.T) {
 
 	record := whole()
 	record.UserBackup = "/home/somebody/.config/nvim.chroma-original"
+	record.Handover = HandoverHeld
 	record.Previous = &Generation{
 		Version: "v1.0.0",
 		Path:    "/home/somebody/.config/nvim.chroma-backup-20260810T000000Z",
@@ -291,23 +293,23 @@ func TestAUserBackupAndAGenerationCoexist(t *testing.T) {
 // A configuration cannot be both given back and still waiting to be given
 // back. The two together would make the next uninstall move a directory it has
 // already handed over.
-func TestHandedBackAndUserBackupCannotBothBeSet(t *testing.T) {
+func TestAHandedBackStateCannotAlsoNameSomethingToRestore(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "install.json")
 
 	record := whole()
 	record.UserBackup = "/home/somebody/.config/nvim.chroma-original"
-	record.HandedBack = true
+	record.Handover = HandoverHandedBack
 
 	if err := Write(path, record); err == nil {
 		t.Error("a record claiming both was accepted")
 	}
 }
 
-func TestHandedBackSurvivesARoundTrip(t *testing.T) {
+func TestTheHandoverStateSurvivesARoundTrip(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "install.json")
 
 	record := whole()
-	record.HandedBack = true
+	record.Handover = HandoverHandedBack
 	if err := Write(path, record); err != nil {
 		t.Fatalf("Write: %v", err)
 	}
@@ -316,8 +318,35 @@ func TestHandedBackSurvivesARoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if !read.HandedBack {
-		t.Error("handed_back did not survive, so a retry would move the user's configuration")
+	if read.Handover != HandoverHandedBack {
+		t.Errorf("handover = %q, so a retry would move the user's configuration", read.Handover)
+	}
+}
+
+// Every handover state has to agree with whether there is a path to hold.
+func TestTheHandoverStateAndTheBackupPathMustAgree(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		handover Handover
+		backup   string
+	}{
+		{"held with nothing to hold", HandoverHeld, ""},
+		{"pending with nothing to transfer", HandoverPending, ""},
+		{"none but a path to restore", HandoverNone, "/somewhere"},
+		{"handed back but a path to restore", HandoverHandedBack, "/somewhere"},
+		{"a state nobody defined", Handover("half"), "/somewhere"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "install.json")
+
+			record := whole()
+			record.Handover = tc.handover
+			record.UserBackup = tc.backup
+
+			if err := Write(path, record); err == nil {
+				t.Errorf("handover %q with backup %q was accepted", tc.handover, tc.backup)
+			}
+		})
 	}
 }
 

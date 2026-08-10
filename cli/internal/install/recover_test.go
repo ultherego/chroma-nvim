@@ -269,3 +269,74 @@ func TestARecoveryThatCannotFinishGivesTheTargetBack(t *testing.T) {
 		t.Error("the committed generation is no longer there to restore")
 	}
 }
+
+// H4: can the evidence for a handover be produced without one?
+//
+// `ReconcileHandover` concludes that the user's configuration was given back
+// when the recorded backup is gone, the target is there, and the target does not
+// look like a Chroma tree. The third of those is the weak one, and this tries to
+// forge it: Chroma is still installed and running, somebody deletes the backup
+// and one file out of the tree.
+//
+// The two statements are not the same. "This no longer looks like a complete
+// Chroma tree" is not "this is exactly the configuration we were holding for
+// you", and a false positive here ends in Chroma treating its own directory as
+// somebody else's.
+func TestAHandoverCannotBeForgedByDeletingAMarker(t *testing.T) {
+	fixed(t)
+
+	_, current, userBackup := takenOver(t)
+
+	// Chroma is installed and untouched at the target. The backup goes, and so
+	// does the one file the inference looks for.
+	if err := os.RemoveAll(userBackup); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(filepath.Join(current.ConfigDir, "lua", "chroma", "bootstrap.lua")); err != nil {
+		t.Fatal(err)
+	}
+
+	repaired, why, err := ReconcileHandover(current)
+
+	if why != "" || err != nil || repaired.Handover == installstate.HandoverHandedBack {
+		t.Errorf("a handover was inferred from a deleted marker, with Chroma still installed:\n  %s", why)
+	}
+}
+
+// Pending says a transfer began; it does not say it finished. With the backup
+// gone and Chroma still in the target, the two do not add up and nothing is
+// concluded.
+func TestAPendingHandoverWithChromaStillInPlaceIsRefused(t *testing.T) {
+	fixed(t)
+
+	_, current, userBackup := takenOver(t)
+	current.Handover = installstate.HandoverPending
+	if err := os.RemoveAll(userBackup); err != nil {
+		t.Fatal(err)
+	}
+
+	repaired, why, err := ReconcileHandover(current)
+	if err == nil {
+		t.Error("a contradictory pending handover was reconciled anyway")
+	}
+	if why != "" || repaired.Handover == installstate.HandoverHandedBack {
+		t.Errorf("the record was moved forward on a contradiction: why=%q handover=%q", why, repaired.Handover)
+	}
+}
+
+// And with both gone there is nothing to reason from at all.
+func TestAPendingHandoverWithNothingLeftIsRefused(t *testing.T) {
+	fixed(t)
+
+	_, current, userBackup := takenOver(t)
+	current.Handover = installstate.HandoverPending
+	for _, path := range []string{userBackup, current.ConfigDir} {
+		if err := os.RemoveAll(path); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if _, _, err := ReconcileHandover(current); err == nil {
+		t.Error("a handover was concluded with neither directory present")
+	}
+}

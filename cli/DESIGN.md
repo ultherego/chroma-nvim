@@ -946,6 +946,42 @@ Chroma tree, a recorded previous that is missing with nothing to explain it —
 each returns an error and moves nothing. The alternative is a recovery that
 shuffles directories on a hunch.
 
+**Giving the user's configuration back is a protocol, not an inference.**
+
+```
+held         Chroma is holding it at user_backup
+pending      an uninstall has begun giving it back
+handed_back  ownership has returned
+```
+
+`pending` is written **before the first move**, so nothing about somebody's data
+begins until the intention to do it is on disk — and a write that fails leaves
+the filesystem untouched.
+
+That ordering exists because the earlier version could be forged. It concluded a
+handover from the shape of the directory: the backup gone, the target there, the
+target not looking like a Chroma tree. With Chroma still installed, deleting the
+backup and one file out of the tree was enough to produce all three. "This no
+longer looks like a complete Chroma tree" is not "this is exactly what we were
+holding for you", and treating the first as the second ends with Chroma calling
+its own directory somebody else's.
+
+Now the topology is only read when the record says a transfer had begun, and
+only these mean the rename ran: the backup gone, the target present, and the
+target not a Chroma tree. Anything else with `pending` set is a contradiction —
+both gone, or the target still holding Chroma — and produces a refusal rather
+than a story.
+
+A state rather than two flags, for the reason contract 5 gave: `pending` and
+`handed_back` as booleans leave a combination that means nothing, and a schema
+should not be able to express what the product will not do.
+
+**What this does not defend against.** Somebody who owns the account can edit
+`install.json` and write any state they like. Resisting that would need
+authenticated state with a secret outside their control, which is a different
+threat model from the one here: corruption, stale topology, substituted paths
+and contradictory-but-legal-looking records.
+
 **Uninstall is the exception, and deliberately.** There the stronger fact is
 ownership, not the record: once the user's configuration has been given back it
 stays given, even if `handed_back` never reached the disk. Generation operations

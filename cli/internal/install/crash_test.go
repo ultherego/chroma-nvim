@@ -166,8 +166,8 @@ func TestUninstallKilledBetweenRestoreAndRecord(t *testing.T) {
 	if err != nil || !found {
 		t.Fatalf("the record is unreadable: %v found=%v", err, found)
 	}
-	if record.HandedBack {
-		t.Fatal("the record says the handover completed, but the kill was before it was written")
+	if record.Handover != installstate.HandoverPending {
+		t.Fatalf("handover = %q, want pending: the kill was inside the transfer", record.Handover)
 	}
 	if record.UserBackup == "" {
 		t.Fatal("the record names nothing to restore, so this is not the window under test")
@@ -179,11 +179,14 @@ func TestUninstallKilledBetweenRestoreAndRecord(t *testing.T) {
 	// The two disagree, and the filesystem wins. A second run works out that the
 	// handover already happened — the backup is gone, the directory is there and
 	// it is not a Chroma tree — repairs the record and finishes the cleanup.
-	repaired, why := ReconcileHandover(record)
+	repaired, why, err := ReconcileHandover(record)
+	if err != nil {
+		t.Fatalf("ReconcileHandover: %v", err)
+	}
 	if why == "" {
 		t.Fatal("the disagreement was not noticed at all")
 	}
-	if !repaired.HandedBack || repaired.UserBackup != "" {
+	if repaired.Handover != installstate.HandoverHandedBack || repaired.UserBackup != "" {
 		t.Errorf("the repair did not conclude the handover: %+v", repaired)
 	}
 
@@ -219,11 +222,11 @@ func TestADeletedBackupIsNotMistakenForAHandover(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	repaired, why := ReconcileHandover(current)
-	if why != "" {
-		t.Errorf("a deleted backup was read as a completed handover: %s", why)
+	repaired, why, err := ReconcileHandover(current)
+	if why != "" || err != nil {
+		t.Errorf("a deleted backup was acted on: why=%q err=%v", why, err)
 	}
-	if repaired.HandedBack {
+	if repaired.Handover == installstate.HandoverHandedBack {
 		t.Error("the record was marked as handed back with Chroma still installed")
 	}
 }
@@ -236,8 +239,9 @@ func TestThePlanAfterAnInterruptedHandoverDoesNotOfferTheUsersConfiguration(t *t
 
 	_, current, userBackup := takenOver(t)
 
-	// The state a kill in that window leaves: the backup consumed by the
-	// rename, the record still offering it.
+	// The state a kill in that window leaves: the intention recorded, the backup
+	// consumed by the rename, the completion not written.
+	current.Handover = installstate.HandoverPending
 	if err := os.RemoveAll(current.ConfigDir); err != nil {
 		t.Fatal(err)
 	}
@@ -256,7 +260,10 @@ func TestThePlanAfterAnInterruptedHandoverDoesNotOfferTheUsersConfiguration(t *t
 		t.Fatal("the unreconciled plan does not offer the directory, so this proves nothing")
 	}
 
-	repaired, why := ReconcileHandover(current)
+	repaired, why, err := ReconcileHandover(current)
+	if err != nil {
+		t.Fatalf("ReconcileHandover: %v", err)
+	}
 	if why == "" {
 		t.Fatal("the interrupted handover was not recognised")
 	}

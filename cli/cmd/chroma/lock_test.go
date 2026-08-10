@@ -161,7 +161,10 @@ func TestTheUninstallPlanDoesNotOfferAHandedBackConfiguration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// The state a kill inside the transfer leaves: the intention recorded, the
+	// rename done, the completion not written.
 	record.UserBackup = userBackup
+	record.Handover = installstate.HandoverPending
 	if err := installstate.Write(paths.InstallState, record); err != nil {
 		t.Fatal(err)
 	}

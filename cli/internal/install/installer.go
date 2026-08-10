@@ -74,7 +74,7 @@ func (i *Installer) Apply(
 		return Result{Paths: paths}, err
 	}
 
-	return i.carryOut(ctx, paths, prepared, set, selected, needsBackup, nil, "")
+	return i.carryOut(ctx, paths, prepared, set, selected, needsBackup, nil, "", installstate.HandoverNone)
 }
 
 // Update replaces a managed installation with another release, keeping the
@@ -101,7 +101,7 @@ func (i *Installer) Update(
 		Source:      current.Source,
 	}
 
-	return i.carryOut(ctx, paths, prepared, set, selected, true, previous, current.UserBackup)
+	return i.carryOut(ctx, paths, prepared, set, selected, true, previous, current.UserBackup, current.Handover)
 }
 
 // Reconfigure changes which components are enabled, and nothing else.
@@ -259,6 +259,7 @@ func (i *Installer) Rollback(
 		SelectionFile: paths.SelectionFile,
 		Backup:        tx.Backup,
 		UserBackup:    current.UserBackup,
+		Handover:      current.Handover,
 		InstalledAt:   now().Format(time.RFC3339),
 		Source:        target.Source,
 		Previous: &installstate.Generation{
@@ -292,6 +293,7 @@ func (i *Installer) carryOut(
 	needsBackup bool,
 	previous *installstate.Generation,
 	carriedUserBackup string,
+	carriedHandover installstate.Handover,
 ) (Result, error) {
 	sink := i.Sink
 	if sink == nil {
@@ -387,6 +389,7 @@ func (i *Installer) carryOut(
 		SelectionFile: paths.SelectionFile,
 		Backup:        tx.Backup,
 		UserBackup:    userBackup,
+		Handover:      handoverFor(userBackup, carriedHandover),
 		Previous:      previous,
 		InstalledAt:   now().Format(time.RFC3339),
 		Source:        sourceOf(prepared),
@@ -442,4 +445,19 @@ func (r Result) Describe() string {
 	default:
 		return "The installation did not start, and nothing was changed."
 	}
+}
+
+// handoverFor keeps the record's two halves in step: a path to hold means the
+// configuration is held, and no path means there is nothing to give back.
+func handoverFor(userBackup string, carried installstate.Handover) installstate.Handover {
+	if userBackup == "" {
+		if carried == installstate.HandoverHandedBack {
+			return carried
+		}
+		return installstate.HandoverNone
+	}
+	if carried == installstate.HandoverPending {
+		return carried
+	}
+	return installstate.HandoverHeld
 }

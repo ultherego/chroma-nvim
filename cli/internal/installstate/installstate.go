@@ -26,6 +26,19 @@ import (
 
 // Schema is the version of this document.
 //
+// 5 replaced `handed_back` with `handover`, a state rather than a flag. H4
+// forged the old inference: with Chroma still installed, deleting the backup and
+// one file out of the tree was enough to make it conclude the user's
+// configuration had been given back. The weakness was that the conclusion came
+// from what the directory looked like, and "this no longer looks like a complete
+// Chroma tree" is not "this is exactly what we were holding for you".
+//
+// So the handover is a protocol now, and `pending` is written before the first
+// move rather than inferred after it. Nothing about giving somebody's data back
+// begins until the intention to do it is on disk. A flag pair would have left
+// `pending && handed_back` expressible and meaningless; a state cannot say two
+// things at once.
+//
 // 4 added `handed_back`, and it exists because clearing `user_backup` was not
 // enough. An uninstall that restored somebody's configuration and then stopped
 // left a record saying nothing was pending — and the next run treated the
@@ -47,7 +60,7 @@ import (
 // told what they are on and what they were on. Schema 1 could say what was
 // moved aside but not what it was, which is enough to restore a directory and
 // not enough to name a version.
-const Schema = 4
+const Schema = 5
 
 // Source is where an installation came from.
 type Source struct {
@@ -67,6 +80,32 @@ type Source struct {
 const (
 	FromRelease = "release"
 	FromTree    = "tree"
+)
+
+// Handover is where the configuration that was here before Chroma stands.
+//
+// Only an installation that took a directory over has one. The order is the
+// order it happens in, and each step is written down before the move it
+// describes rather than after it.
+type Handover string
+
+const (
+	// HandoverNone: nothing was borrowed. Chroma was installed beside whatever
+	// else is on the machine.
+	HandoverNone Handover = ""
+
+	// HandoverHeld: Chroma is holding the configuration at UserBackup.
+	HandoverHeld Handover = "held"
+
+	// HandoverPending: an uninstall has begun giving it back. Written before
+	// anything moves, so that a process which stops existing mid-transfer can be
+	// recognised as one — rather than guessed at from what the directories look
+	// like afterwards.
+	HandoverPending Handover = "pending"
+
+	// HandoverHandedBack: ownership has returned. The directory is not Chroma's
+	// to move or remove, now or on any later run.
+	HandoverHandedBack Handover = "handed_back"
 )
 
 // Generation is an installation that was replaced, and what it was.
@@ -138,13 +177,8 @@ type State struct {
 	// it would mean losing the only record of what to restore.
 	UserBackup string `json:"user_backup,omitempty"`
 
-	// HandedBack says the configuration directory now holds what its owner had
-	// before Chroma, so it is no longer Chroma's to move or remove.
-	//
-	// Set once, at the moment an uninstall completes the restore, and never
-	// unset. Everything after that point is deletion of Chroma's own paths, and
-	// this is what keeps the directory out of that list on a second attempt.
-	HandedBack bool `json:"handed_back,omitempty"`
+	// Handover is how far giving that configuration back has got.
+	Handover Handover `json:"handover,omitempty"`
 
 	// InstalledAt is when this was recorded, which is after it was verified.
 	InstalledAt string `json:"installed_at"`
@@ -225,10 +259,19 @@ func (s State) validate() error {
 
 	// The two are different things and must not name one directory. If they
 	// did, removing the generation would take the user's configuration with it.
-	// Both at once would mean a configuration that has been given back and is
-	// also still waiting to be.
-	if s.HandedBack && s.UserBackup != "" {
-		return errors.New("records a configuration as both handed back and still to be restored")
+	// A path to hold and a state that says nothing is held are two halves of
+	// different records.
+	switch s.Handover {
+	case HandoverNone, HandoverHandedBack:
+		if s.UserBackup != "" {
+			return fmt.Errorf("records handover %q and a configuration at %s to restore", s.Handover, s.UserBackup)
+		}
+	case HandoverHeld, HandoverPending:
+		if s.UserBackup == "" {
+			return fmt.Errorf("records handover %q and no configuration to restore", s.Handover)
+		}
+	default:
+		return fmt.Errorf("records an unknown handover state %q", s.Handover)
 	}
 
 	if s.UserBackup != "" && s.Previous != nil && s.UserBackup == s.Previous.Path {
