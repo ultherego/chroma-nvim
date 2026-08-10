@@ -10,6 +10,7 @@ import (
 
 	"github.com/ultherego/chroma-nvim/cli/internal/component"
 	"github.com/ultherego/chroma-nvim/cli/internal/install"
+	"github.com/ultherego/chroma-nvim/cli/internal/installstate"
 	"github.com/ultherego/chroma-nvim/cli/internal/lock"
 )
 
@@ -83,4 +84,27 @@ func locked(paths install.Paths, errOut *os.File) (*lock.Lock, int) {
 		return nil, exitFailed
 	}
 	return held, exitOK
+}
+
+// recovered puts back the committed arrangement if a previous run was
+// interrupted between moving a directory and writing the record.
+//
+// After the lock, so two processes cannot recover at once, and before the
+// command reads anything else — every one of them acts on the record, and an
+// interrupted transaction is precisely the state in which the record and the
+// filesystem disagree.
+//
+// The record is not rewritten. It already describes the last committed
+// arrangement; what was wrong was the filesystem, and that is what moves.
+func recovered(paths install.Paths, current installstate.State, out, errOut *os.File) int {
+	why, err := install.Recover(paths, current)
+	if err != nil {
+		fmt.Fprintln(errOut, err)
+		fmt.Fprint(errOut, "Nothing was changed. An earlier Chroma operation did not finish and this cannot tell what to put back.\n")
+		return exitFailed
+	}
+	if why != "" {
+		fmt.Fprintf(out, "%s\n\n", why)
+	}
+	return exitOK
 }

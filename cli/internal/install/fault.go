@@ -41,6 +41,11 @@ const (
 	// statements are adjacent — but a process that stops existing between them
 	// is not, and that is what this names.
 	faultRestoredNotRecorded faultPoint = "restored-not-recorded"
+
+	// Inside recovery itself, between moving the uncommitted tree aside and
+	// putting the committed one back. Recovery has to survive being interrupted
+	// too, and this is the only window in it where the target is empty.
+	faultDuringRepair faultPoint = "during-repair"
 )
 
 // faults is nil everywhere except in a test that set it. There is no flag, no

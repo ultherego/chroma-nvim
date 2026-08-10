@@ -907,6 +907,51 @@ missing. The reconciliation happens before the plan is built, because the plan
 is printed, and a plan offering to remove somebody's own configuration is the
 lie this whole area exists to prevent.
 
+### Recovering an interrupted transaction
+
+Two of the three kills leave the record describing something other than what is
+at the target, and the evidence needed to notice is already durable — no journal
+required. **A `*.chroma-backup-*` directory the record does not reference cannot
+exist in any committed state.** An installation records what it moved aside as
+`user_backup`; an update and a rollback record it as `previous.path`. One that
+nothing points at is proof that a process died between its backup step and its
+commit.
+
+**The committed record wins, and the direction is rollback rather than
+roll-forward.** Until a new `install.json` has been written atomically, the
+generation change does not exist as a state of the product: the tree at the
+target may not have been bootstrapped, may not have been verified, and was never
+announced to anybody. It is a re-fetchable artefact, not somebody's work.
+
+Nobody is asked to choose between the two trees. Whether the half-placed one got
+as far as `verify` is not something a person outside the process can know, and
+offering it as an option would be a way of promoting an uncommitted transaction.
+Either the committed arrangement can be shown and is restored, or it cannot and
+nothing is touched.
+
+```
+update killed after the backup     orphan → target
+update killed after the place      target → aside, orphan → target, aside removed
+rollback killed after the swap     target → previous.path, orphan → target
+```
+
+**Renames first, deletion last, and the uncommitted tree is moved rather than
+removed.** That ordering costs one rename and buys the difference between "the
+machine still has a configuration, and it is not the recorded one" and "the
+machine has none at all": if the committed generation cannot be moved back, what
+was at the target is put back where it was.
+
+**Ambiguity is refused.** Two unreferenced backups, an orphan that is not a
+Chroma tree, a recorded previous that is missing with nothing to explain it —
+each returns an error and moves nothing. The alternative is a recovery that
+shuffles directories on a hunch.
+
+**Uninstall is the exception, and deliberately.** There the stronger fact is
+ownership, not the record: once the user's configuration has been given back it
+stays given, even if `handed_back` never reached the disk. Generation operations
+roll the filesystem back to the record; a proven hand-back rolls the record
+forward to the filesystem.
+
 ### Fault points
 
 The boundaries above are tested by stopping between two steps that both
