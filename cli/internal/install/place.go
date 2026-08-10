@@ -225,6 +225,18 @@ Cause: %w`, to, from, err)
 // stops here — before anything has been placed, which is the only point at
 // which stopping costs nothing.
 func (tx *Transaction) BackupTarget(paths Paths) error {
+	// A link is not moved aside, whatever it points at.
+	//
+	// Renaming one moves the link, so what would be recorded as the
+	// configuration Chroma is holding — or as a generation — is a pointer to
+	// somebody else's directory. Taking over a linked ~/.config/nvim produced
+	// exactly that: an installation whose own uninstall then refused to hand a
+	// link back, and so could never finish. Chroma cannot give back what it
+	// cannot show it holds, so it does not take it in the first place.
+	if err := RefuseSubstituted(paths.ConfigDir); err != nil {
+		return fmt.Errorf("%w.\nMove or remove the link yourself if you want Chroma installed here", err)
+	}
+
 	stamp := now().Format("20060102T150405Z")
 	backup := filepath.Join(paths.BackupDir, fmt.Sprintf("%s.chroma-backup-%s", filepath.Base(paths.ConfigDir), stamp))
 

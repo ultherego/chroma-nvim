@@ -108,6 +108,13 @@ func DetectInterruption(paths Paths, current installstate.State) (*Interruption,
 	}
 
 	orphan := orphans[0]
+	// The same check every other use of a recorded path gets. `isChromaTree`
+	// follows links, so without this a link pointing at anything
+	// configuration-shaped would have been renamed into the target and recorded
+	// as the committed generation.
+	if err := RefuseSubstituted(orphan); err != nil {
+		return nil, err
+	}
 	if !isChromaTree(orphan) {
 		return nil, fmt.Errorf("%s is not a Chroma configuration, so it cannot be the generation to restore", orphan)
 	}
