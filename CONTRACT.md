@@ -248,6 +248,19 @@ out. It is Ubuntu rather than the maintainer's distribution on purpose: a
 configuration that only installs on the machine it was written on is not
 installable.
 
+**Every finished command needs one test through the built binary and the public
+dispatch.** Testing the implementation of a subcommand is not testing that
+anybody can reach it: `rollback` was written, built, vetted and unit tested
+while `chroma rollback` answered "not implemented yet", because the line that
+dispatches it had never been added. Nothing below the entry point could see the
+gap.
+
+The cheap version of this is a smoke run — `chroma <command> --dry-run` or
+`--help` against the compiled binary — and it catches the whole class of "the
+code exists and the user has no way to it". `cmd/chroma` now also holds the
+structural half: dispatch is a table, and two tests keep it and the usage text
+in step in both directions.
+
 **`actionlint` needs `shellcheck` on PATH, or it checks strictly less than CI
 does.** Without it the shellcheck integration is skipped silently and every
 `run:` block goes unread — a local pass then means nothing. CI's runner has
