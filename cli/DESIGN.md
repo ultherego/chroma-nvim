@@ -847,6 +847,53 @@ the same name — which is how a lock file stops being a lock.
 
 ---
 
+## Where each operation commits
+
+Every mutating command has a line before which it can be undone and after which
+it cannot. Naming it is not documentation: `uninstall` had one, nobody had said
+where, and a stop just past it made the next run delete the user's own
+configuration.
+
+**install, update, components, rollback** commit when `install.json` is written,
+which is why that write is last. Everything before it — staging, the backup, the
+placement, the bootstrap, the verify — is undone by the transaction, and the
+record still describes the installation that is actually there.
+
+**uninstall commits when the user's configuration has been given back.** Before
+that line the operation is reversible: nothing is deleted and the pre-Chroma
+configuration is still where Chroma put it, so a failure restores Chroma and
+asks to be run again. After it, ownership has changed hands, and moving that
+directory a second time to reinstate an installation somebody has just asked to
+remove would be Chroma taking back what it has already given.
+
+So the handover is written down, as `handed_back` in schema 4. Clearing
+`user_backup` was not enough: the record then said nothing was pending, and the
+next run treated the directory as Chroma's, moved it aside and deleted it —
+measured, on a fault point, on somebody's own files. A record has to say not
+just "there is nothing to give back" but "it has already been given".
+
+Everything after the commit point is deletion of Chroma's own paths, and every
+one of those is safe to attempt again. The record goes last precisely so that a
+second run still knows what is left to finish.
+
+### Fault points
+
+The boundaries above are tested by stopping between two steps that both
+succeeded — `internal/install/fault.go`. A real operating system cannot be
+aimed: permissions, ENOSPC, EXDEV and symlinks all gave genuine answers when the
+campaign put them in the way, but none of them can be made to happen *after* a
+rename worked and *before* the next write started.
+
+A fault point is not a simulated error in a step. `after-verify` means verify
+really ran and really succeeded, and then the process stopped; simulating a
+failing verify tests what the runner-based tests already cover. Deliberately not
+a filesystem interface: "fail on the third rename" quietly changes meaning the
+moment a refactor splits one rename into two, while "after the generation was
+restored" does not. The hook is nil in production and there is no flag,
+environment variable or build tag to arm it.
+
+---
+
 ## Implementation order
 
 The audit series is closed. Two of them ran back to back over the component

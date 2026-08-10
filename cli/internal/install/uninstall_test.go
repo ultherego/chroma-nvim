@@ -253,3 +253,29 @@ func TestUninstallRefusesASymlinkedConfiguration(t *testing.T) {
 		t.Error("the data directory was removed although the uninstall refused")
 	}
 }
+
+// The plan is printed before anybody agrees to it, so what it lists has to be
+// true even where a second guard would stop the deletion anyway. A
+// configuration already handed back is not Chroma's to offer.
+func TestThePlanDoesNotOfferToRemoveAConfigurationAlreadyHandedBack(t *testing.T) {
+	fixed(t)
+
+	paths, current, _ := takenOver(t)
+	current.UserBackup = ""
+	current.HandedBack = true
+
+	plan := PlanUninstall(paths, current)
+
+	for _, path := range plan.Remove {
+		if path == current.ConfigDir {
+			t.Errorf("the plan offers to remove %s, which has been given back", current.ConfigDir)
+		}
+	}
+	if plan.Restore != "" {
+		t.Errorf("the plan offers to restore %q again", plan.Restore)
+	}
+	// And the rest of Chroma is still on it, or the retry would do nothing.
+	if len(plan.Remove) == 0 {
+		t.Error("the plan removes nothing at all")
+	}
+}

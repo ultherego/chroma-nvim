@@ -39,6 +39,15 @@ type RemovalPlan struct {
 	RestoreTo string
 }
 
+// undo puts a half-done uninstall back, and reports both problems if the
+// putting back is what failed.
+func undo(tx *Transaction, cause error) error {
+	if problem := tx.Rollback(); problem != nil {
+		return errors.Join(cause, problem)
+	}
+	return cause
+}
+
 // RefuseSymlinkedConfiguration reports why a symlinked configuration cannot be
 // uninstalled.
 //
@@ -84,7 +93,12 @@ func PlanUninstall(paths Paths, current installstate.State) RemovalPlan {
 
 	// The order is the order they go in: the configuration first, then what it
 	// left beside itself, and the record of all of it last.
-	plan.Remove = append(plan.Remove, current.ConfigDir)
+	//
+	// Unless it has already been handed back, in which case the directory holds
+	// somebody else's configuration and is not on any list of Chroma's.
+	if !current.HandedBack {
+		plan.Remove = append(plan.Remove, current.ConfigDir)
+	}
 
 	if current.Previous != nil && current.Previous.Path != "" && current.Previous.Path != current.UserBackup {
 		plan.Remove = append(plan.Remove, current.Previous.Path)
@@ -133,13 +147,23 @@ func (i *Installer) Uninstall(paths Paths, current installstate.State) (Removal,
 
 	// Held rather than removed. Until the restore below has succeeded this is
 	// the only copy of anything at ConfigDir.
-	sink.Emit(Event{Step: "hold", Status: StatusStart})
-	if _, err := os.Stat(current.ConfigDir); err == nil {
-		if err := tx.BackupTarget(paths); err != nil {
-			return removal, fmt.Errorf("moving %s aside: %w", current.ConfigDir, err)
+	// A configuration already handed back is not touched at all — not held, not
+	// moved, not looked at for permission to move. It is somebody else's.
+	if !current.HandedBack {
+		sink.Emit(Event{Step: "hold", Status: StatusStart})
+		if _, err := os.Stat(current.ConfigDir); err == nil {
+			if err := tx.BackupTarget(paths); err != nil {
+				return removal, fmt.Errorf("moving %s aside: %w", current.ConfigDir, err)
+			}
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return removal, fmt.Errorf("looking at %s: %w", current.ConfigDir, err)
 		}
-	} else if !errors.Is(err, os.ErrNotExist) {
-		return removal, fmt.Errorf("looking at %s: %w", current.ConfigDir, err)
+	}
+
+	// Everything up to the restore is undoable, so a failure here puts Chroma
+	// back exactly as it was.
+	if err := hit(faultAfterCurrentMoved); err != nil {
+		return removal, undo(tx, err)
 	}
 
 	if plan.Restore != "" {
@@ -147,20 +171,50 @@ func (i *Installer) Uninstall(paths Paths, current installstate.State) (Removal,
 		if err := tx.RestoreGeneration(plan.Restore, paths); err != nil {
 			// Put the Chroma configuration back and stop. Nothing has been
 			// deleted, so this is recoverable by running the command again.
-			if problem := tx.Rollback(); problem != nil {
-				return removal, errors.Join(err, problem)
-			}
-			return removal, fmt.Errorf("restoring the configuration that was here before Chroma: %w", err)
+			return removal, undo(tx, fmt.Errorf("restoring the configuration that was here before Chroma: %w", err))
 		}
 		removal.Restored = plan.Restore
 		sink.Emit(Event{Step: "restore", Status: StatusDone, Message: plan.Restore})
 	}
 
-	// Past here nothing is put back, so the transaction is closed before the
-	// first delete rather than after the last: a Rollback() from this point
-	// would restore a Chroma that is half removed.
+	// **The commit point.**
+	//
+	// Before this line the operation is reversible: nothing has been deleted
+	// and the user's own configuration is still where Chroma put it, so a
+	// failure restores Chroma and asks to be run again.
+	//
+	// After it, ownership has changed hands. The directory now holds the
+	// configuration its owner had before Chroma ever ran, and moving it a
+	// second time to reinstate an installation somebody has just asked to
+	// remove would be Chroma taking back something it has already given. So
+	// from here nothing is undone — what is left is deletion of Chroma's own
+	// paths, and every one of those is safe to attempt again. The record is
+	// removed last precisely so that a second run still knows what to finish.
 	held := tx.Backup
 	tx.Commit()
+
+	// Written down, not merely reasoned about. Until this line the record says
+	// there is a configuration to give back; past it there is not, because it
+	// has been given. A stop here without this write leaves a record pointing
+	// at a directory whose contents have moved, and a second attempt then fails
+	// trying to restore from somewhere empty — measured, by the fault point
+	// below, before this line existed.
+	//
+	// A failure to write it is reported and does not stop the removals: they
+	// are what was asked for, and the record is on its way out anyway.
+	if plan.Restore != "" {
+		handed := current
+		handed.UserBackup = ""
+		handed.HandedBack = true
+		if err := installstate.Write(paths.InstallState, handed); err != nil {
+			removal.Problems = append(removal.Problems,
+				fmt.Errorf("recording that %s has been given back: %w", plan.Restore, err))
+		}
+	}
+
+	if err := hit(faultAfterUserRestore); err != nil {
+		return removal, err
+	}
 
 	sink.Emit(Event{Step: "remove", Status: StatusStart})
 	for _, path := range plan.Remove {

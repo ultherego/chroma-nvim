@@ -288,6 +288,39 @@ func TestAUserBackupAndAGenerationCoexist(t *testing.T) {
 	}
 }
 
+// A configuration cannot be both given back and still waiting to be given
+// back. The two together would make the next uninstall move a directory it has
+// already handed over.
+func TestHandedBackAndUserBackupCannotBothBeSet(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "install.json")
+
+	record := whole()
+	record.UserBackup = "/home/somebody/.config/nvim.chroma-original"
+	record.HandedBack = true
+
+	if err := Write(path, record); err == nil {
+		t.Error("a record claiming both was accepted")
+	}
+}
+
+func TestHandedBackSurvivesARoundTrip(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "install.json")
+
+	record := whole()
+	record.HandedBack = true
+	if err := Write(path, record); err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+
+	read, _, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if !read.HandedBack {
+		t.Error("handed_back did not survive, so a retry would move the user's configuration")
+	}
+}
+
 func TestRemoveIsIdempotent(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "install.json")
 	if err := Write(path, whole()); err != nil {

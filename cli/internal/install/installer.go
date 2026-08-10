@@ -153,8 +153,16 @@ func (i *Installer) Reconfigure(
 	if err := tx.Bootstrap(ctx, paths, i.Runner, sink); err != nil {
 		return fail("bootstrap", err)
 	}
+	if err := hit(faultAfterBootstrap); err != nil {
+		return fail("bootstrap", err)
+	}
 
 	if err := tx.Verify(ctx, paths, result.Enabled, i.Runner, sink); err != nil {
+		return fail("verify", err)
+	}
+	// The selection is written but not yet kept: a stop here has to leave the
+	// one that was in force before.
+	if err := hit(faultAfterVerify); err != nil {
 		return fail("verify", err)
 	}
 
@@ -221,6 +229,12 @@ func (i *Installer) Rollback(
 	}
 	sink.Emit(Event{Step: "restore", Status: StatusDone, Message: target.Path})
 
+	// Both directories have moved and neither is written down yet. Undoing
+	// this means moving both back, which is the case `Restored` exists for.
+	if err := hit(faultAfterRestore); err != nil {
+		return fail("restore", err)
+	}
+
 	// Brought to the selection in force, not to the one that generation was
 	// installed with. A rollback moves the version; it does not undo a choice.
 	if err := tx.Bootstrap(ctx, paths, i.Runner, sink); err != nil {
@@ -228,6 +242,9 @@ func (i *Installer) Rollback(
 	}
 
 	if err := tx.Verify(ctx, paths, result.Enabled, i.Runner, sink); err != nil {
+		return fail("verify", err)
+	}
+	if err := hit(faultAfterVerify); err != nil {
 		return fail("verify", err)
 	}
 
@@ -328,12 +345,23 @@ func (i *Installer) carryOut(
 	if err := tx.Place(paths); err != nil {
 		return fail("place", err)
 	}
+	if err := hit(faultAfterPlace); err != nil {
+		return fail("place", err)
+	}
 
 	if err := tx.Bootstrap(ctx, paths, i.Runner, sink); err != nil {
 		return fail("bootstrap", err)
 	}
+	if err := hit(faultAfterBootstrap); err != nil {
+		return fail("bootstrap", err)
+	}
 
 	if err := tx.Verify(ctx, paths, result.Enabled, i.Runner, sink); err != nil {
+		return fail("verify", err)
+	}
+	// The boundary the record exists on: the tree is placed, the editor is
+	// happy, and nothing has been written down yet.
+	if err := hit(faultAfterVerify); err != nil {
 		return fail("verify", err)
 	}
 

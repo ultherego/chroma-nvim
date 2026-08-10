@@ -26,6 +26,13 @@ import (
 
 // Schema is the version of this document.
 //
+// 4 added `handed_back`, and it exists because clearing `user_backup` was not
+// enough. An uninstall that restored somebody's configuration and then stopped
+// left a record saying nothing was pending — and the next run treated the
+// directory as Chroma's, moved it aside and deleted it. Measured, by a fault
+// point, on somebody's own files. The record has to say not just "there is
+// nothing to give back" but "it has already been given".
+//
 // 3 added `user_backup` and `cache_dir`, and the first of those closes a hole
 // this document had from the start. `backup` means "what was moved aside", and
 // that was two different things wearing one name: the configuration somebody
@@ -40,7 +47,7 @@ import (
 // told what they are on and what they were on. Schema 1 could say what was
 // moved aside but not what it was, which is enough to restore a directory and
 // not enough to name a version.
-const Schema = 3
+const Schema = 4
 
 // Source is where an installation came from.
 type Source struct {
@@ -131,6 +138,14 @@ type State struct {
 	// it would mean losing the only record of what to restore.
 	UserBackup string `json:"user_backup,omitempty"`
 
+	// HandedBack says the configuration directory now holds what its owner had
+	// before Chroma, so it is no longer Chroma's to move or remove.
+	//
+	// Set once, at the moment an uninstall completes the restore, and never
+	// unset. Everything after that point is deletion of Chroma's own paths, and
+	// this is what keeps the directory out of that list on a second attempt.
+	HandedBack bool `json:"handed_back,omitempty"`
+
 	// InstalledAt is when this was recorded, which is after it was verified.
 	InstalledAt string `json:"installed_at"`
 
@@ -210,6 +225,12 @@ func (s State) validate() error {
 
 	// The two are different things and must not name one directory. If they
 	// did, removing the generation would take the user's configuration with it.
+	// Both at once would mean a configuration that has been given back and is
+	// also still waiting to be.
+	if s.HandedBack && s.UserBackup != "" {
+		return errors.New("records a configuration as both handed back and still to be restored")
+	}
+
 	if s.UserBackup != "" && s.Previous != nil && s.UserBackup == s.Previous.Path {
 		return errors.New("records the user's own configuration and a Chroma generation at the same path")
 	}
