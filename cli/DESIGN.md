@@ -775,6 +775,49 @@ generation that is actually there — it is written last, as everywhere else.
 
 ---
 
+## Uninstalling
+
+**One rule, and everything follows from it:**
+
+> What Chroma made for its own operation, uninstall may remove. What Chroma only
+> moved aside, because it belonged to somebody already, uninstall gives back.
+
+So this goes: the configuration, every kept generation, the plugin and Mason
+data, the cache, the state, the selection document, and `install.json` last of
+all. And this does not: a configuration that was in Neovim's own directory
+before `--default` took it over. That one is restored.
+
+**A user backup and a Chroma generation are not the same thing**, and schema 3
+exists to keep them apart. `backup` meant "what was moved aside", which was two
+different things wearing one name — and after a single update the second
+overwrote the first, so the path to somebody's own configuration was no longer
+recorded anywhere. `user_backup` is written by the first installation that takes
+a directory over, and carried forward unchanged by every operation after it. The
+record refuses to name one path as both.
+
+**The selection goes too.** It describes how somebody configured Chroma, and
+after an uninstall there is nothing for that preference to be about. Keeping it
+"in case" would mean an installation six months later silently inheriting a
+choice made before, when a new installation should be a new decision.
+
+**One operation, no levels.** `--purge` beside a plain `uninstall` asks somebody
+to guess which of two destructive things they meant. The honest alternative is
+cheaper: print the exact list of paths and let them read it before agreeing.
+
+**Nothing is deleted until the restore has succeeded.** The configuration is
+moved aside and held; only once the pre-Chroma configuration is back does the
+first delete happen. Deleting first would mean a failed restore leaves the
+directory empty — no Chroma and no configuration either, which is worse than
+either outcome alone.
+
+One bug this uncovered, in a transaction that had shipped four milestones ago:
+`BackupTarget` moved a directory aside without recording where it came from, and
+`Rollback` put backups back at `Target` — which only `Place` ever set. Installing
+never noticed, because `Place` always followed. Uninstalling did, because the
+step after it is a restore that can fail.
+
+---
+
 ## Implementation order
 
 The audit series is closed. Two of them ran back to back over the component
@@ -816,7 +859,7 @@ Everything else is a backlog entry, and the work continues.
 14  update                                  generations: current and previous
 15  components                              a selection is not a generation
 16  rollback                                one slot, two directions
-17  uninstall
+17  uninstall                               made vs borrowed
 18  completions, packaging, signing
 ```
 

@@ -15,6 +15,7 @@ func whole() State {
 		ConfigDir:     "/home/somebody/.config/chroma-nvim",
 		DataDir:       "/home/somebody/.local/share/chroma-nvim",
 		StateDir:      "/home/somebody/.local/state/chroma-nvim",
+		CacheDir:      "/home/somebody/.cache/chroma-nvim",
 		SelectionFile: "/home/somebody/.config/chroma/components.json",
 		InstalledAt:   "2026-08-09T13:42:00Z",
 		Source:        Source{Type: FromRelease, Ref: "v1.0.0", SHA256: "abc123"},
@@ -105,18 +106,18 @@ func TestAReaderRefusesWhatItDoesNotUnderstand(t *testing.T) {
 			// controls is whether a record an older Chroma wrote is read or
 			// refused. Schema 1 could not say what a backup held, so a rollback
 			// against one would restore a directory it cannot name.
-			name: "a schema from before generations",
-			contents: `{"schema": 1, "version": "v1", "contract": 5, "appname": "chroma-nvim",` +
-				`"config_dir": "/a", "data_dir": "/b", "state_dir": "/c", "selection_file": "/d",` +
+			name: "a schema from before the user backup was recorded",
+			contents: `{"schema": 2, "version": "v1", "contract": 5, "appname": "chroma-nvim",` +
+				`"config_dir": "/a", "data_dir": "/b", "state_dir": "/c", "cache_dir": "/e", "selection_file": "/d",` +
 				`"installed_at": "now", "source": {"type": "release"}}`,
-			mention: "declares schema 1",
+			mention: "declares schema 2",
 		},
 		{"a field it does not know", `{"schema": 1, "colour": "peach"}`, "unknown field"},
 		{"not JSON at all", `{ not json`, "install.json"},
 		{
 			name: "two documents",
-			contents: `{"schema": 1, "version": "v1", "contract": 5, "appname": "chroma-nvim",` +
-				`"config_dir": "/a", "data_dir": "/b", "state_dir": "/c", "selection_file": "/d",` +
+			contents: `{"schema": 2, "version": "v1", "contract": 5, "appname": "chroma-nvim",` +
+				`"config_dir": "/a", "data_dir": "/b", "state_dir": "/c", "cache_dir": "/e", "selection_file": "/d",` +
 				`"installed_at": "now", "source": {"type": "tree"}}` + "\n" + `{"schema": 1}`,
 			mention: "more than one document",
 		},
@@ -237,6 +238,53 @@ func TestAFirstInstallationRecordsNoPreviousGeneration(t *testing.T) {
 	}
 	if read.Previous != nil {
 		t.Errorf("previous = %+v, want none", read.Previous)
+	}
+}
+
+// The user's own configuration and a Chroma generation are different things,
+// and one path cannot be both. If it were, uninstall would remove the
+// generation and take somebody's configuration with it.
+func TestOnePathCannotBeBothAUserBackupAndAGeneration(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "install.json")
+
+	record := whole()
+	record.UserBackup = "/home/somebody/.config/nvim.chroma-backup-20260810T000000Z"
+	record.Previous = &Generation{
+		Version: "v1.0.0",
+		Path:    record.UserBackup,
+		Source:  Source{Type: FromRelease},
+	}
+
+	if err := Write(path, record); err == nil {
+		t.Error("a record naming one directory as both was accepted")
+	}
+}
+
+// And the ordinary case still works: both set, to different places.
+func TestAUserBackupAndAGenerationCoexist(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "install.json")
+
+	record := whole()
+	record.UserBackup = "/home/somebody/.config/nvim.chroma-original"
+	record.Previous = &Generation{
+		Version: "v1.0.0",
+		Path:    "/home/somebody/.config/nvim.chroma-backup-20260810T000000Z",
+		Source:  Source{Type: FromRelease},
+	}
+
+	if err := Write(path, record); err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+
+	read, _, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if read.UserBackup != record.UserBackup {
+		t.Errorf("user_backup = %q, want %q", read.UserBackup, record.UserBackup)
+	}
+	if read.Previous == nil || read.Previous.Path == read.UserBackup {
+		t.Errorf("the two came back as one: %+v", read.Previous)
 	}
 }
 

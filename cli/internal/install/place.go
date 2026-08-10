@@ -174,6 +174,13 @@ func (tx *Transaction) BackupTarget(paths Paths) error {
 		return fmt.Errorf("moving %s aside to %s: %w", paths.ConfigDir, backup, err)
 	}
 
+	// Where it came from, recorded here rather than by whatever happens next.
+	// Rollback puts the backup back at Target, and until this line Target was
+	// set only by Place — so a transaction that moved something aside and then
+	// failed before placing anything had nowhere to put it back. Installing
+	// never noticed, because Place always followed; uninstalling does, because
+	// the step after this one is a restore that can fail.
+	tx.Target = paths.ConfigDir
 	tx.Backup = backup
 	tx.BackupCreated = true
 	return nil

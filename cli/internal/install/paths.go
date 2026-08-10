@@ -50,6 +50,11 @@ type Paths struct {
 	// is written only after it has been verified.
 	InstallState string
 
+	// CacheDir is Neovim's cache for this installation. Chroma's to remove:
+	// nothing in it predates the installation and nothing outside it depends on
+	// what is there.
+	CacheDir string
+
 	// BackupDir is the directory a backup is made *in*, not a directory of
 	// backups: the existing configuration is renamed to a sibling of itself, so
 	// that the move cannot cross a filesystem and cannot half-succeed. It is
@@ -85,6 +90,10 @@ func ResolvePaths(useDefault bool) (Paths, error) {
 	if err != nil {
 		return Paths{}, err
 	}
+	cache, err := baseDir("XDG_CACHE_HOME", ".cache")
+	if err != nil {
+		return Paths{}, err
+	}
 
 	selection, err := state.Path()
 	if err != nil {
@@ -95,6 +104,7 @@ func ResolvePaths(useDefault bool) (Paths, error) {
 		ConfigDir:     filepath.Join(config, appName),
 		DataDir:       filepath.Join(data, appName),
 		StateDir:      filepath.Join(stateBase, appName),
+		CacheDir:      filepath.Join(cache, appName),
 		SelectionFile: selection,
 	}
 	paths.InstallState = filepath.Join(paths.StateDir, "install.json")

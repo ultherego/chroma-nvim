@@ -26,13 +26,21 @@ import (
 
 // Schema is the version of this document.
 //
+// 3 added `user_backup` and `cache_dir`, and the first of those closes a hole
+// this document had from the start. `backup` means "what was moved aside", and
+// that was two different things wearing one name: the configuration somebody
+// already had, moved out of the way by `--default`, and a Chroma generation
+// moved aside by an update. After one update the second overwrote the first,
+// so the path to the user's own configuration was no longer recorded anywhere
+// — and `uninstall` could not give back the thing it had taken.
+//
 // 2 added `previous`. An installation is a generation rather than a state of
 // affairs: `update` moves the current one aside and records what it replaced,
 // so that `rollback` has something to go back to and so that a person can be
 // told what they are on and what they were on. Schema 1 could say what was
 // moved aside but not what it was, which is enough to restore a directory and
 // not enough to name a version.
-const Schema = 2
+const Schema = 3
 
 // Source is where an installation came from.
 type Source struct {
@@ -99,6 +107,7 @@ type State struct {
 	ConfigDir     string `json:"config_dir"`
 	DataDir       string `json:"data_dir"`
 	StateDir      string `json:"state_dir"`
+	CacheDir      string `json:"cache_dir"`
 	SelectionFile string `json:"selection_file"`
 
 	// Backup is what was moved aside, and is empty when there was nothing
@@ -110,6 +119,17 @@ type State struct {
 	// Previous is the Chroma generation this one replaced, and is nil for a
 	// first installation. Rollback reads it; nothing else may write it.
 	Previous *Generation `json:"previous,omitempty"`
+
+	// UserBackup is the configuration that was here before Chroma, moved aside
+	// by `--default` and never touched since. Empty when Chroma was installed
+	// beside an existing configuration rather than over one.
+	//
+	// It is not a generation and must never be treated as one. A generation is
+	// something Chroma made and may remove; this is somebody else's work that
+	// Chroma borrowed a directory from, and `uninstall` gives it back. Every
+	// operation after the first carries this forward unchanged, because losing
+	// it would mean losing the only record of what to restore.
+	UserBackup string `json:"user_backup,omitempty"`
 
 	// InstalledAt is when this was recorded, which is after it was verified.
 	InstalledAt string `json:"installed_at"`
@@ -173,6 +193,7 @@ func (s State) validate() error {
 		{"config_dir", s.ConfigDir},
 		{"data_dir", s.DataDir},
 		{"state_dir", s.StateDir},
+		{"cache_dir", s.CacheDir},
 		{"selection_file", s.SelectionFile},
 		{"installed_at", s.InstalledAt},
 	} {
@@ -185,6 +206,12 @@ func (s State) validate() error {
 	case FromRelease, FromTree:
 	default:
 		return fmt.Errorf("records an unknown source type %q", s.Source.Type)
+	}
+
+	// The two are different things and must not name one directory. If they
+	// did, removing the generation would take the user's configuration with it.
+	if s.UserBackup != "" && s.Previous != nil && s.UserBackup == s.Previous.Path {
+		return errors.New("records the user's own configuration and a Chroma generation at the same path")
 	}
 
 	if s.Previous != nil {

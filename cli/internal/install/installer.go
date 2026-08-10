@@ -74,7 +74,7 @@ func (i *Installer) Apply(
 		return Result{Paths: paths}, err
 	}
 
-	return i.carryOut(ctx, paths, prepared, set, selected, needsBackup, nil)
+	return i.carryOut(ctx, paths, prepared, set, selected, needsBackup, nil, "")
 }
 
 // Update replaces a managed installation with another release, keeping the
@@ -101,7 +101,7 @@ func (i *Installer) Update(
 		Source:      current.Source,
 	}
 
-	return i.carryOut(ctx, paths, prepared, set, selected, true, previous)
+	return i.carryOut(ctx, paths, prepared, set, selected, true, previous, current.UserBackup)
 }
 
 // Reconfigure changes which components are enabled, and nothing else.
@@ -238,8 +238,10 @@ func (i *Installer) Rollback(
 		ConfigDir:     paths.ConfigDir,
 		DataDir:       paths.DataDir,
 		StateDir:      paths.StateDir,
+		CacheDir:      paths.CacheDir,
 		SelectionFile: paths.SelectionFile,
 		Backup:        tx.Backup,
+		UserBackup:    current.UserBackup,
 		InstalledAt:   now().Format(time.RFC3339),
 		Source:        target.Source,
 		Previous: &installstate.Generation{
@@ -272,6 +274,7 @@ func (i *Installer) carryOut(
 	selected []string,
 	needsBackup bool,
 	previous *installstate.Generation,
+	carriedUserBackup string,
 ) (Result, error) {
 	sink := i.Sink
 	if sink == nil {
@@ -334,6 +337,14 @@ func (i *Installer) carryOut(
 		return fail("verify", err)
 	}
 
+	// A backup made by an installation is the configuration somebody already
+	// had; one made by an update is a generation. Which of the two this is was
+	// decided by the caller, and carried in.
+	userBackup := carriedUserBackup
+	if previous == nil && tx.Backup != "" {
+		userBackup = tx.Backup
+	}
+
 	record := installstate.State{
 		Version:       prepared.Version,
 		Contract:      prepared.Contract,
@@ -341,8 +352,10 @@ func (i *Installer) carryOut(
 		ConfigDir:     paths.ConfigDir,
 		DataDir:       paths.DataDir,
 		StateDir:      paths.StateDir,
+		CacheDir:      paths.CacheDir,
 		SelectionFile: paths.SelectionFile,
 		Backup:        tx.Backup,
+		UserBackup:    userBackup,
 		Previous:      previous,
 		InstalledAt:   now().Format(time.RFC3339),
 		Source:        sourceOf(prepared),

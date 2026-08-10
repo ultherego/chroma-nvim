@@ -69,15 +69,14 @@ var commands = map[string]func(args []string, out, errOut *os.File) int{
 	"install":    cmdInstall,
 	"package":    cmdPackage,
 	"rollback":   cmdRollback,
+	"uninstall":  cmdUninstall,
 	"update":     cmdUpdate,
 	"version":    func(_ []string, out, _ *os.File) int { return cmdVersion(out) },
 }
 
 // unfinished are named in the usage text and do not exist yet. Listed so that
 // "not implemented" is a deliberate answer rather than a missing case.
-var unfinished = map[string]bool{
-	"uninstall": true,
-}
+var unfinished = map[string]bool{}
 
 func usage(w *os.File) {
 	fmt.Fprint(w, `chroma — install and maintain Chroma Neovim
@@ -87,11 +86,10 @@ func usage(w *os.File) {
   install      install a release, or a checkout with --source-tree
   update       replace a managed installation with another release
   rollback     put the previous generation back, keeping your components
+  uninstall    remove everything Chroma made, and give back what it borrowed
   version      this CLI, and the contract it understands
 
   package      build a release archive and its checksums (developer-only)
-
-  uninstall   not implemented yet
 
 Both reading commands take --tree to point at a configuration; the default is
 the directory this is run from.
