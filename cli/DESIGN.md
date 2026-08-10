@@ -818,6 +818,35 @@ step after it is a restore that can fail.
 
 ---
 
+## One operation at a time
+
+**Every command that moves a directory or rewrites the record takes an exclusive
+lock on the installation.** `install`, `update`, `components`, `rollback` and
+`uninstall`. `doctor` does not: it reads.
+
+Two of them at once is not a race that ends in a slow answer — it is one process
+renaming a tree that the other is about to write a state file about, and no
+amount of care inside either transaction helps when the ground moves underneath.
+
+**`flock`, not a file holding a pid.** The difference is the case that matters
+most: a process that dies without running any cleanup. The kernel drops an
+`flock` when the descriptor closes, which happens on exit however the exit
+happened, `SIGKILL` included. A pid file would still be there, and the next run
+would have to decide whether the pid it names is the same program or a number
+the system has since reused — a guess, made at the moment somebody is already
+having a bad day.
+
+**Refused, not queued.** A CLI that blocks is indistinguishable from a CLI that
+has hung. `Another Chroma operation is already in progress` is the useful
+answer, and it names the log directory.
+
+The lock file lives at `<state>/lock` and is not removed on release. Unlinking
+it would open the window where one process has opened it, another unlinks it, a
+third creates a new one, and two of them hold locks on two different inodes with
+the same name — which is how a lock file stops being a lock.
+
+---
+
 ## Implementation order
 
 The audit series is closed. Two of them ran back to back over the component

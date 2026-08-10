@@ -47,6 +47,12 @@ func cmdRollback(args []string, out, errOut *os.File) int {
 		return code
 	}
 
+	held, code := locked(paths, errOut)
+	if code != exitOK {
+		return code
+	}
+	defer held.Release()
+
 	if current.Previous == nil {
 		fmt.Fprintf(errOut, "%s has no previous generation to go back to.\nOnly an update leaves one behind.\n", current.ConfigDir)
 		return exitMisuse

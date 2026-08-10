@@ -72,6 +72,12 @@ func cmdComponents(args []string, out, errOut *os.File) int {
 		return code
 	}
 
+	held, code := locked(paths, errOut)
+	if code != exitOK {
+		return code
+	}
+	defer held.Release()
+
 	// The contract of the release that is installed, not of some tree on this
 	// machine. A component only exists if what is on disk can run it.
 	loaded, code := load(filepath.Join(current.ConfigDir, "components"), errOut)

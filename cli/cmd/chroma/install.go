@@ -97,6 +97,12 @@ func cmdInstall(args []string, out, errOut *os.File) int {
 		return exitMisuse
 	}
 
+	held, code := locked(paths, errOut)
+	if code != exitOK {
+		return code
+	}
+	defer held.Release()
+
 	loaded, code := load(filepath.Join(prepared.Root, "components"), errOut)
 	if code != exitOK {
 		return code

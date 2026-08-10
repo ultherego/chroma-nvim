@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -8,6 +9,8 @@ import (
 	"path/filepath"
 
 	"github.com/ultherego/chroma-nvim/cli/internal/component"
+	"github.com/ultherego/chroma-nvim/cli/internal/install"
+	"github.com/ultherego/chroma-nvim/cli/internal/lock"
 )
 
 // tree resolves --tree, defaulting to the working directory, and returns the
@@ -61,4 +64,23 @@ func load(dir string, errOut *os.File) (component.Set, int) {
 func onPath(name string) bool {
 	_, err := exec.LookPath(name)
 	return err == nil
+}
+
+// locked takes the exclusive lock for one installation.
+//
+// Every command that moves a directory or rewrites the record takes it;
+// `doctor` does not, because it reads. Refused rather than queued: a CLI that
+// blocks is indistinguishable from a CLI that has hung, and the useful thing to
+// say is that something else is running.
+func locked(paths install.Paths, errOut *os.File) (*lock.Lock, int) {
+	held, err := lock.Acquire(filepath.Join(paths.StateDir, "lock"))
+	switch {
+	case errors.Is(err, lock.ErrBusy):
+		fmt.Fprintf(errOut, "%v.\nWait for it to finish, or check %s.\n", err, paths.LogDir)
+		return nil, exitMisuse
+	case err != nil:
+		fmt.Fprintln(errOut, err)
+		return nil, exitFailed
+	}
+	return held, exitOK
 }

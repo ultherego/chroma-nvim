@@ -38,6 +38,12 @@ func cmdUninstall(args []string, out, errOut *os.File) int {
 		return code
 	}
 
+	held, code := locked(paths, errOut)
+	if code != exitOK {
+		return code
+	}
+	defer held.Release()
+
 	plan := install.PlanUninstall(paths, current)
 
 	fmt.Fprint(out, "Uninstall Chroma Neovim\n\n")

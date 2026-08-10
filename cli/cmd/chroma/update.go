@@ -48,6 +48,12 @@ func cmdUpdate(args []string, out, errOut *os.File) int {
 		return code
 	}
 
+	held, code := locked(paths, errOut)
+	if code != exitOK {
+		return code
+	}
+	defer held.Release()
+
 	// A developer installation came from a checkout, and there is no release to
 	// move it forward to. Refusing is the honest answer; guessing a version for
 	// a tree would produce an install state that is not true.
