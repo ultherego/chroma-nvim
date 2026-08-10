@@ -2,9 +2,11 @@ package install
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -392,4 +394,63 @@ func TestTargetPolicy(t *testing.T) {
 			t.Error("taking over an existing Neovim configuration without a backup")
 		}
 	})
+}
+
+// The real cross-device failure was verified against two filesystems in a
+// container; what a unit test can hold is the message, because that is the part
+// somebody reads at two in the morning.
+func TestACrossDeviceRestoreSaysWhatIsWrongAndWhy(t *testing.T) {
+	err := describeRestoreFailure("/tmp/kept-generation", "/home/somebody/.config/chroma-nvim",
+		&os.LinkError{Op: "rename", Old: "/tmp/kept-generation", New: "/home/somebody/.config/chroma-nvim", Err: syscall.EXDEV})
+
+	message := err.Error()
+	for _, want := range []string{
+		"different filesystem",      // what
+		"atomic rename",             // why
+		"invalid cross-device link", // the raw cause, kept for diagnosis
+	} {
+		if !strings.Contains(message, want) {
+			t.Errorf("the message does not mention %q:\n%s", want, message)
+		}
+	}
+
+	// Under the right labels, not merely present. A diagnostic that files the
+	// kept generation under "Current" is worse than one naming neither path:
+	// somebody reads it and goes looking in the wrong place.
+	for _, pair := range []struct{ label, path string }{
+		{"Current:", "/home/somebody/.config/chroma-nvim"},
+		{"Previous:", "/tmp/kept-generation"},
+	} {
+		at := strings.Index(message, pair.label)
+		if at < 0 {
+			t.Errorf("the message has no %q section:\n%s", pair.label, message)
+			continue
+		}
+		line, _, _ := strings.Cut(strings.TrimLeft(message[at+len(pair.label):], "\n "), "\n")
+		if strings.TrimSpace(line) != pair.path {
+			t.Errorf("%s names %q, want %q", pair.label, strings.TrimSpace(line), pair.path)
+		}
+	}
+
+	// No advice to move it by hand: install.json records where the generation
+	// is, and a directory moved behind Chroma's back leaves a record pointing
+	// at nothing.
+	for _, unwanted := range []string{"move it", "mv ", "manually"} {
+		if strings.Contains(strings.ToLower(message), unwanted) {
+			t.Errorf("the message tells somebody to move it themselves: %q", message)
+		}
+	}
+}
+
+// Anything that is not EXDEV keeps the plain wrapping; the long explanation
+// would be wrong about the cause.
+func TestAnOrdinaryRestoreFailureIsNotDressedUp(t *testing.T) {
+	err := describeRestoreFailure("/a", "/b", os.ErrPermission)
+
+	if strings.Contains(err.Error(), "different filesystem") {
+		t.Errorf("a permission failure was reported as a cross-device one: %v", err)
+	}
+	if !errors.Is(err, os.ErrPermission) {
+		t.Errorf("the cause was lost: %v", err)
+	}
 }

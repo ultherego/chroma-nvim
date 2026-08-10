@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"syscall"
 	"time"
 )
 
@@ -139,13 +140,44 @@ func (tx *Transaction) RestoreGeneration(from string, paths Paths) error {
 	}
 
 	if err := os.Rename(from, paths.ConfigDir); err != nil {
-		return fmt.Errorf("restoring %s as %s: %w", from, paths.ConfigDir, err)
+		return describeRestoreFailure(from, paths.ConfigDir, err)
 	}
 
 	tx.Target = paths.ConfigDir
 	tx.RestoredFrom = from
 	tx.Restored = true
 	return nil
+}
+
+// describeRestoreFailure turns a failed generation move into something worth
+// reading.
+//
+// `invalid cross-device link` is true at the level of rename(2) and says almost
+// nothing about what happened or what to do. It stays, as the last line, because
+// it is the fact a diagnosis starts from — but above it goes what failed, why,
+// and which two paths are on opposite sides of the problem.
+//
+// No instruction to move the directory by hand. `install.json` records where the
+// generation is, so a directory moved behind Chroma's back produces a record
+// that describes somewhere nothing is — which is a worse state than the refusal.
+func describeRestoreFailure(from, to string, err error) error {
+	if !errors.Is(err, syscall.EXDEV) {
+		return fmt.Errorf("restoring %s as %s: %w", from, to, err)
+	}
+
+	return fmt.Errorf(`cannot restore the previous Chroma generation because it is on a different filesystem
+
+Current:
+  %s
+
+Previous:
+  %s
+
+Chroma changes generations with an atomic rename and does not copy them across
+filesystems: a copy has failure modes a rename does not, and a generation half
+copied is worse than one not restored.
+
+Cause: %w`, to, from, err)
 }
 
 // BackupTarget renames the existing configuration aside.
