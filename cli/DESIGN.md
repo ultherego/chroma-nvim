@@ -1023,6 +1023,36 @@ stays given, even if `handed_back` never reached the disk. Generation operations
 roll the filesystem back to the record; a proven hand-back rolls the record
 forward to the filesystem.
 
+### Failures from the release source
+
+Everything a release brings is untrusted until it has been verified, and the
+whole of that verification happens before the transaction starts: resolve, read
+the checksums, download, hash, compare, unpack into a temporary directory, and
+read the contract that was unpacked. Only then does an installer receive a
+`PreparedSource`. A failure anywhere in that sequence cannot touch a committed
+state, because none has been opened.
+
+The cases are produced on purpose, against a controlled HTTP server rather than
+a public one: a body cut in half, a 500, an asset the release does not publish,
+an archive that does not match its digest, checksums that do not list the
+archive, checksums that are malformed, and a broken archive whose digest is
+honest — that last one deliberately, so the failure comes from the extractor
+rather than from the checksum a second time. The client, the download, the
+parsing, the hashing and the extractor are all real; only the host is a stand-in,
+because no public host can be asked to truncate a body on cue.
+
+**`SHA256SUMS` may not list an asset twice.** Found here: with two contradictory
+digests for the archive, the honest one first was refused and the honest one last
+was accepted, because the map took the last entry. A file that says a thing twice
+does not describe one release, and its meaning must not depend on the order the
+lines happen to be in.
+
+The extractor's own rules — no absolute paths, nothing climbing out of the
+prefix, files and directories only, everything under the prefix the archive
+claims — are tested directly elsewhere. They are also exercised through the
+release path, on an archive somebody could actually publish, because a guard that
+is correct and unreachable protects nothing.
+
 ### Fault points
 
 The boundaries above are tested by stopping between two steps that both

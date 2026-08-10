@@ -290,7 +290,17 @@ func ReadSums(contents []byte) (map[string]string, error) {
 			return nil, fmt.Errorf("line %d of %s does not start with a sha256 digest", number+1, SumsName)
 		}
 
-		sums[strings.TrimSpace(name)] = digest
+		clean := strings.TrimSpace(name)
+
+		// One line per name. A file that lists an asset twice does not describe
+		// one release unambiguously, and taking either entry would make its
+		// meaning depend on the order the lines happen to be in — measured: with
+		// two contradictory digests for the archive, the honest one first was
+		// refused and the honest one last was accepted.
+		if _, twice := sums[clean]; twice {
+			return nil, fmt.Errorf("%s lists %s more than once", SumsName, clean)
+		}
+		sums[clean] = digest
 	}
 
 	if len(sums) == 0 {
