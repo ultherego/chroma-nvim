@@ -45,6 +45,17 @@ type Transaction struct {
 	Placed        bool
 	BackupCreated bool
 
+	// RestoredFrom is where a generation was moved *from* when it was put back
+	// into place, and Restored says it happened.
+	//
+	// Kept apart from Placed on purpose, and the difference is destructive: a
+	// placed tree is one this transaction assembled, so undoing it means
+	// deleting it. A restored generation is one that already existed and was
+	// only moved, so undoing it means moving it back. Deleting it would destroy
+	// the very thing a rollback exists to preserve.
+	RestoredFrom string
+	Restored     bool
+
 	selectionWritten bool
 	committed        bool
 }
@@ -103,6 +114,17 @@ func (tx *Transaction) Rollback() error {
 
 	var problems []error
 
+	// A restored generation goes back where it came from, before anything else
+	// wants the target. Moved, never removed: it is a directory this
+	// transaction did not create.
+	if tx.Restored {
+		if err := os.Rename(tx.Target, tx.RestoredFrom); err != nil {
+			problems = append(problems, fmt.Errorf("putting %s back as %s: %w", tx.Target, tx.RestoredFrom, err))
+		} else {
+			tx.Restored = false
+		}
+	}
+
 	// The configuration first, because the selection is meaningless beside a
 	// tree that is not there.
 	if tx.Placed {
@@ -115,7 +137,7 @@ func (tx *Transaction) Rollback() error {
 
 	// Only once the target is out of the way, and only if this transaction is
 	// the one that moved it.
-	if tx.BackupCreated && !tx.Placed {
+	if tx.BackupCreated && !tx.Placed && !tx.Restored {
 		if err := os.Rename(tx.Backup, tx.Target); err != nil {
 			problems = append(problems, fmt.Errorf("putting %s back as %s: %w", tx.Backup, tx.Target, err))
 		} else {

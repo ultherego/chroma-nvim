@@ -118,6 +118,36 @@ func (tx *Transaction) StageSource(prepared PreparedSource, paths Paths) error {
 	return nil
 }
 
+// RestoreGeneration puts a kept generation back where a configuration lives.
+//
+// A rename, not a copy: the directory is the generation, and copying it would
+// leave two of them with one record between them. The target has to be out of
+// the way already, the same precondition Place has, because both of them are
+// the same move onto the same path.
+func (tx *Transaction) RestoreGeneration(from string, paths Paths) error {
+	if from == "" {
+		return errors.New("no generation was named to restore")
+	}
+	if _, err := os.Stat(filepath.Join(from, "init.lua")); err != nil {
+		return fmt.Errorf("%s is not a configuration that can be restored: %w", from, err)
+	}
+
+	if _, err := os.Lstat(paths.ConfigDir); err == nil {
+		return fmt.Errorf("%s is still there; it has to be moved aside before a generation is restored", paths.ConfigDir)
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("looking at %s: %w", paths.ConfigDir, err)
+	}
+
+	if err := os.Rename(from, paths.ConfigDir); err != nil {
+		return fmt.Errorf("restoring %s as %s: %w", from, paths.ConfigDir, err)
+	}
+
+	tx.Target = paths.ConfigDir
+	tx.RestoredFrom = from
+	tx.Restored = true
+	return nil
+}
+
 // BackupTarget renames the existing configuration aside.
 //
 // A rename, not a copy: it is atomic, it cannot half-succeed, and it cannot run

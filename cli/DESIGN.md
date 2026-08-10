@@ -729,6 +729,52 @@ only thing that ran the editor, and stopped being one here.
 
 ---
 
+## Rolling back
+
+**One target and no `--version`.** Rollback goes to the generation the last
+update moved aside, and nowhere else. It is a local operation on a directory
+that was kept — if that directory is gone it refuses, because fetching the tag
+again would be `install --version` wearing the wrong name.
+
+**It swaps.** What was current becomes the generation to come back to, so a
+second rollback returns:
+
+```
+v1 ⇄ v2
+```
+
+One slot, two directions. Not a history: nobody asked for a stack, and a stack
+would need a policy for how deep it goes and when it is pruned.
+
+**It moves the version and keeps the selection.** A component chosen after the
+update is still chosen after the rollback. The two are different facts with
+different lifetimes, and undoing one when the user asked to undo the other is
+the kind of surprise a lifecycle command cannot afford.
+
+**Which is why the selection is checked first.** If the generation being
+restored has no component the current selection names, the command refuses —
+before a rename, a backup, a bootstrap or a write:
+
+```
+Cannot roll back to v1.0.0.
+
+The current component selection is not supported by that generation:
+
+  aws
+
+Change the component selection first, with `chroma components`.
+```
+
+**Undoing a rollback moves; it does not delete.** The transaction tracks
+`Restored` apart from `Placed`, and the difference is destructive: a placed tree
+is one the transaction assembled, so undoing it means removing it, while a
+restored generation already existed and was only moved. Deleting it would
+destroy the very thing a rollback exists to preserve. A failure at bootstrap or
+verify puts both directories back and leaves `install.json` describing the
+generation that is actually there — it is written last, as everywhere else.
+
+---
+
 ## Implementation order
 
 The audit series is closed. Two of them ran back to back over the component
@@ -769,7 +815,7 @@ Everything else is a backlog entry, and the work continues.
     ----------------------------------------- installer V1 ends here
 14  update                                  generations: current and previous
 15  components                              a selection is not a generation
-16  rollback
+16  rollback                                one slot, two directions
 17  uninstall
 18  completions, packaging, signing
 ```

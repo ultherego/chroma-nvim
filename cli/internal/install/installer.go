@@ -2,6 +2,7 @@ package install
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -159,6 +160,106 @@ func (i *Installer) Reconfigure(
 
 	tx.Commit()
 	sink.Emit(Event{Step: "components", Status: StatusDone})
+	return result, nil
+}
+
+// Rollback puts the previous generation back, and keeps the current selection.
+//
+// The two are different facts and stay different: what somebody wants is not
+// undone by moving the version. The caller has already checked that the
+// selection is legal in the generation being restored — that refusal belongs
+// before anything moves, and this function is past that point.
+//
+// It swaps rather than pops. What was current becomes the previous generation,
+// so a second rollback returns, and the model stays one slot deep rather than
+// becoming a history nobody asked for.
+func (i *Installer) Rollback(
+	ctx context.Context,
+	paths Paths,
+	set component.Set,
+	selected []string,
+	current installstate.State,
+) (Result, error) {
+	sink := i.Sink
+	if sink == nil {
+		sink = Discard{}
+	}
+
+	result := Result{Paths: paths}
+	result.Selected = selected
+	result.Enabled = state.State{Schema: state.Schema, Selected: selected}.Enabled(set)
+
+	if current.Previous == nil {
+		return result, errors.New("there is no previous generation to go back to")
+	}
+	target := *current.Previous
+
+	tx := NewTransaction(paths)
+
+	fail := func(step string, cause error) (Result, error) {
+		sink.Emit(Event{Step: step, Status: StatusFailed, Message: cause.Error()})
+
+		result.RolledBack = true
+		if problem := tx.Rollback(); problem != nil {
+			result.RollbackProblem = problem
+		}
+		return result, cause
+	}
+
+	// The generation being left becomes the one to come back to, so it is moved
+	// aside rather than removed — and it is moved first, because the target
+	// path has to be free before the kept generation can take it.
+	sink.Emit(Event{Step: "backup", Status: StatusStart})
+	if err := tx.BackupTarget(paths); err != nil {
+		return fail("backup", err)
+	}
+	sink.Emit(Event{Step: "backup", Status: StatusDone, Message: tx.Backup})
+
+	sink.Emit(Event{Step: "restore", Status: StatusStart})
+	if err := tx.RestoreGeneration(target.Path, paths); err != nil {
+		return fail("restore", err)
+	}
+	sink.Emit(Event{Step: "restore", Status: StatusDone, Message: target.Path})
+
+	// Brought to the selection in force, not to the one that generation was
+	// installed with. A rollback moves the version; it does not undo a choice.
+	if err := tx.Bootstrap(ctx, paths, i.Runner, sink); err != nil {
+		return fail("bootstrap", err)
+	}
+
+	if err := tx.Verify(ctx, paths, result.Enabled, i.Runner, sink); err != nil {
+		return fail("verify", err)
+	}
+
+	record := installstate.State{
+		Version:       target.Version,
+		Contract:      target.Contract,
+		AppName:       paths.AppName,
+		ConfigDir:     paths.ConfigDir,
+		DataDir:       paths.DataDir,
+		StateDir:      paths.StateDir,
+		SelectionFile: paths.SelectionFile,
+		Backup:        tx.Backup,
+		InstalledAt:   now().Format(time.RFC3339),
+		Source:        target.Source,
+		Previous: &installstate.Generation{
+			Version:     current.Version,
+			Contract:    current.Contract,
+			Path:        tx.Backup,
+			InstalledAt: current.InstalledAt,
+			Source:      current.Source,
+		},
+	}
+
+	sink.Emit(Event{Step: "record", Status: StatusStart})
+	if err := installstate.Write(paths.InstallState, record); err != nil {
+		return fail("record", err)
+	}
+	result.State = record
+	result.Recorded = true
+
+	tx.Commit()
+	sink.Emit(Event{Step: "rollback", Status: StatusDone})
 	return result, nil
 }
 
