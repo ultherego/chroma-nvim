@@ -22,6 +22,7 @@ type faultPoint string
 
 const (
 	// Shared by the operations that place or move a tree.
+	faultAfterBackup  faultPoint = "after-backup"
 	faultAfterPlace   faultPoint = "after-place"
 	faultAfterRestore faultPoint = "after-restore"
 

@@ -1,6 +1,7 @@
 package install
 
 import (
+	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -27,16 +28,13 @@ import (
 //
 // The child re-executes this test binary, arms one fault point to kill itself,
 // and dies mid-transaction on a real temporary tree. The parent then looks.
-func killedAt(t *testing.T, point faultPoint, prepare func(t *testing.T) (Paths, installstate.State, string)) (Paths, string) {
+func killedAt(t *testing.T, scenario string, point faultPoint) Paths {
 	t.Helper()
 
-	if where := os.Getenv("CHROMA_CRASH_AT"); where != "" {
-		return Paths{}, ""
-	}
-
 	root := t.TempDir()
-	child := exec.Command(os.Args[0], "-test.run=TestUninstallKilledBetweenRestoreAndRecord")
+	child := exec.Command(os.Args[0], "-test.run=TestCrashChild")
 	child.Env = append(os.Environ(),
+		"CHROMA_CRASH_SCENARIO="+scenario,
 		"CHROMA_CRASH_AT="+string(point),
 		"CHROMA_CRASH_ROOT="+root,
 	)
@@ -51,7 +49,88 @@ func killedAt(t *testing.T, point faultPoint, prepare func(t *testing.T) (Paths,
 		t.Fatalf("the child exited %v, want death by SIGKILL", exit)
 	}
 
-	return pathsUnder(t, root), root
+	return pathsUnder(t, root)
+}
+
+// TestCrashChild is the far side of every crash test: it builds a real
+// installation in a directory the parent chose, arms one boundary to kill the
+// process, and runs a real operation into it. It does nothing when run
+// ordinarily, which is what keeps it out of the suite.
+func TestCrashChild(t *testing.T) {
+	scenario := os.Getenv("CHROMA_CRASH_SCENARIO")
+	if scenario == "" {
+		t.Skip("this is the child half of the crash tests")
+	}
+
+	point := faultPoint(os.Getenv("CHROMA_CRASH_AT"))
+	root := os.Getenv("CHROMA_CRASH_ROOT")
+	fixed(t)
+
+	// Armed only once the fixture is built. Setting it earlier kills the child
+	// during its own setup — the setup installs, and an install passes through
+	// the same boundaries the operation under test does. Measured: the record
+	// was simply absent afterwards, because the process died before writing it.
+	arm := func() {
+		faults = func(at faultPoint) error {
+			if at == point {
+				// Nothing after this line runs: no defer, no rollback, no commit.
+				syscall.Kill(os.Getpid(), syscall.SIGKILL)
+			}
+			return nil
+		}
+	}
+
+	installer := &Installer{Runner: &failAt{}}
+
+	switch scenario {
+	case "uninstall":
+		paths, current, _ := takenOverUnder(t, root)
+		arm()
+		_, _ = installer.Uninstall(paths, current)
+
+	case "update":
+		paths, current := installedUnder(t, root, []string{"terraform"})
+		mark(t, paths.ConfigDir, "v1")
+		current.Version = "v1.0.0"
+		current.Source = installstate.Source{Type: installstate.FromRelease, Ref: "v1.0.0", SHA256: "a"}
+		if err := installstate.Write(paths.InstallState, current); err != nil {
+			t.Fatal(err)
+		}
+		source := preparedMarked(t, "v2")
+		arm()
+		_, _ = installer.Update(context.Background(), paths, source, shipped(t), []string{"terraform"}, current)
+
+	case "rollback":
+		paths, current := twoGenerationsUnder(t, root, nil)
+		arm()
+		_, _ = installer.Rollback(context.Background(), paths, shipped(t), nil, current)
+
+	default:
+		t.Fatalf("unknown scenario %q", scenario)
+	}
+
+	t.Fatal("the child survived a SIGKILL it asked for")
+}
+
+// mark writes a generation marker into README.md rather than into a file of its
+// own, because a file of its own does not survive staging: the packager and the
+// installer copy RuntimeEntries and nothing else, so a stray name at the root is
+// dropped. That is the allowlist working, and the marker has to live inside it.
+func mark(t *testing.T, dir, generation string) {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(dir, "README.md"), []byte(generation), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// preparedMarked is a source tree carrying a generation marker, so that what
+// ends up at the target can be told from what was there before.
+func preparedMarked(t *testing.T, generation string) PreparedSource {
+	t.Helper()
+
+	source := prepared(t)
+	mark(t, source.Root, generation)
+	return source
 }
 
 // pathsUnder resolves the installation the child left behind.
@@ -71,12 +150,7 @@ func pathsUnder(t *testing.T, root string) Paths {
 // down. A record that still offers to restore it is a record that disagrees
 // with the disk.
 func TestUninstallKilledBetweenRestoreAndRecord(t *testing.T) {
-	if where := os.Getenv("CHROMA_CRASH_AT"); where != "" {
-		runChild(t, faultPoint(where), os.Getenv("CHROMA_CRASH_ROOT"))
-		return
-	}
-
-	paths, _ := killedAt(t, faultRestoredNotRecorded, nil)
+	paths := killedAt(t, "uninstall", faultRestoredNotRecorded)
 
 	// What the disk says.
 	back, err := os.ReadFile(filepath.Join(paths.ConfigDir, "init.lua"))
@@ -193,20 +267,110 @@ func TestThePlanAfterAnInterruptedHandoverDoesNotOfferTheUsersConfiguration(t *t
 	}
 }
 
-// runChild is the far side: a real uninstall on a real tree, killed at a point.
-func runChild(t *testing.T, point faultPoint, root string) {
-	fixed(t)
-	paths, current, _ := takenOverUnder(t, root)
+// observeCrash reports what the record says and what the disk says, which is
+// the only comparison that matters after a kill.
+func observeCrash(t *testing.T, paths Paths) (installstate.State, string, []string) {
+	t.Helper()
 
-	faults = func(at faultPoint) error {
-		if at == point {
-			// No defer runs after this, which is the condition being created.
-			syscall.Kill(os.Getpid(), syscall.SIGKILL)
-		}
-		return nil
+	record, found, err := installstate.Load(paths.InstallState)
+	if err != nil || !found {
+		t.Fatalf("the record is unreadable after the kill: %v found=%v", err, found)
 	}
 
-	installer := &Installer{}
-	_, _ = installer.Uninstall(paths, current)
-	t.Fatal("the child survived a SIGKILL it asked for")
+	onDisk := "<no target>"
+	if contents, err := os.ReadFile(filepath.Join(paths.ConfigDir, "README.md")); err == nil {
+		onDisk = string(contents)
+	} else if exists(paths.ConfigDir) {
+		onDisk = "<target, unmarked>"
+	}
+
+	var beside []string
+	entries, err := os.ReadDir(filepath.Dir(paths.ConfigDir))
+	if err != nil {
+		t.Fatal(err)
+	}
+	base := filepath.Base(paths.ConfigDir)
+	for _, entry := range entries {
+		if entry.Name() != base && strings.HasPrefix(entry.Name(), base) {
+			generation := "?"
+			if contents, err := os.ReadFile(filepath.Join(filepath.Dir(paths.ConfigDir), entry.Name(), "README.md")); err == nil {
+				generation = string(contents)
+			}
+			beside = append(beside, entry.Name()+"="+generation)
+		}
+	}
+	return record, onDisk, beside
+}
+
+// An update killed with the old generation moved aside and nothing put in its
+// place. The record still describes the last committed state, which is the
+// generation now sitting beside the target rather than in it.
+func TestUpdateKilledWithTheTargetEmpty(t *testing.T) {
+	paths := killedAt(t, "update", faultAfterBackup)
+	record, onDisk, beside := observeCrash(t, paths)
+
+	t.Logf("record says %q; target holds %q; beside: %v", record.Version, onDisk, beside)
+
+	if onDisk != "<no target>" {
+		t.Fatalf("the target is %q, so the kill did not land where this test needs it", onDisk)
+	}
+	if record.Version != "v1.0.0" {
+		t.Errorf("the record says %q, want the last committed v1.0.0", record.Version)
+	}
+
+	// The question: can the next run tell that the installation it describes is
+	// beside the target rather than missing?
+	if len(beside) == 0 {
+		t.Fatal("the generation the record describes is nowhere at all")
+	}
+}
+
+// An update killed with the new generation in place and the record still
+// naming the old one. This is the split-brain a rollback would have prevented
+// and a kill does not give it the chance to.
+func TestUpdateKilledWithTheNewGenerationInPlace(t *testing.T) {
+	paths := killedAt(t, "update", faultAfterPlace)
+	record, onDisk, beside := observeCrash(t, paths)
+
+	t.Logf("record says %q; target holds %q; beside: %v", record.Version, onDisk, beside)
+
+	if onDisk != "v2" {
+		t.Fatalf("the target holds %q, so the kill did not land where this test needs it", onDisk)
+	}
+	if record.Version != "v1.0.0" {
+		t.Fatalf("the record says %q, so this is not the disagreement under test", record.Version)
+	}
+
+	// What the next run makes of it. The record is the only thing `update`,
+	// `rollback` and `uninstall` consult, so if nothing notices the
+	// disagreement they all act on a map that is wrong.
+	orphans := 0
+	for _, name := range beside {
+		if strings.Contains(name, "chroma-backup") {
+			orphans++
+		}
+	}
+	if orphans == 0 {
+		t.Fatal("no backup directory beside the target, so there is no evidence to work from")
+	}
+	if record.Previous != nil {
+		t.Fatalf("the record already names a previous generation: %+v", record.Previous)
+	}
+
+	// This is the finding: a `chroma-backup-*` directory the record does not
+	// reference cannot exist in any committed state — an install records it as
+	// user_backup, an update and a rollback record it as previous.path. Its
+	// presence is durable proof that a transaction was interrupted between its
+	// backup step and its record write. Nothing acts on that proof yet.
+	t.Logf("orphaned backup: %v, record.previous=nil, target=%q, record=%q — nothing reconciles this",
+		beside, onDisk, record.Version)
+}
+
+// A rollback killed with both directories moved and nothing written down.
+func TestRollbackKilledAfterTheSwap(t *testing.T) {
+	paths := killedAt(t, "rollback", faultAfterRestore)
+	record, onDisk, beside := observeCrash(t, paths)
+
+	t.Logf("record says current=%q previous=%v; target holds %q; beside: %v",
+		record.Version, record.Previous != nil, onDisk, beside)
 }

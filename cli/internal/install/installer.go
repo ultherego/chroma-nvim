@@ -332,6 +332,9 @@ func (i *Installer) carryOut(
 			return fail("backup", err)
 		}
 		sink.Emit(Event{Step: "backup", Status: StatusDone, Message: tx.Backup})
+		if err := hit(faultAfterBackup); err != nil {
+			return fail("backup", err)
+		}
 	}
 
 	// The generation only becomes real once its directory has actually moved.
