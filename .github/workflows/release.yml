@@ -179,8 +179,13 @@ jobs:
             flags="$flags --prerelease --latest=false"
           fi
 
+          # --repo is not optional here, and it was measured rather than
+          # assumed: gh resolves the repository from the git remote, and this
+          # job has no checkout because it needs no source. Without it the run
+          # ends in `failed to run git: fatal: not a git repository`.
           # shellcheck disable=SC2086
           gh release create "$TAG" $flags \
+            --repo "$GITHUB_REPOSITORY" \
             --title "Chroma Neovim $TAG" \
             dist/chroma-nvim-"$TAG".tar.gz \
             dist/SHA256SUMS \
