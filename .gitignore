@@ -20,3 +20,7 @@ cli/chroma
 # Release artefacts, built by `chroma package`. They are published to a
 # GitHub Release, which is the only place they belong.
 dist/
+
+# Planning documents. The executive plan was swept into a commit by a careless
+# `git add -A`; it is the owner's working document, not part of the product.
+*.docx
