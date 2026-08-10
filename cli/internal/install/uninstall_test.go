@@ -35,7 +35,7 @@ func takenOverUnder(t *testing.T, root string) (Paths, installstate.State, strin
 
 	current.UserBackup = userBackup
 	current.Handover = installstate.HandoverHeld
-	if err := installstate.Write(paths.InstallState, current); err != nil {
+	if _, err := installstate.Write(paths.InstallState, current); err != nil {
 		t.Fatalf("Write: %v", err)
 	}
 

@@ -36,7 +36,7 @@ func twoGenerationsUnder(t *testing.T, root string, selected []string) (Paths, i
 	record := result.State
 	record.Version = "v2.0.0"
 	record.Source = installstate.Source{Type: installstate.FromRelease, Ref: "v2.0.0", SHA256: "new"}
-	if err := installstate.Write(paths.InstallState, record); err != nil {
+	if _, err := installstate.Write(paths.InstallState, record); err != nil {
 		t.Fatalf("Write: %v", err)
 	}
 

@@ -93,7 +93,7 @@ func TestCrashChild(t *testing.T) {
 		mark(t, paths.ConfigDir, "v1")
 		current.Version = "v1.0.0"
 		current.Source = installstate.Source{Type: installstate.FromRelease, Ref: "v1.0.0", SHA256: "a"}
-		if err := installstate.Write(paths.InstallState, current); err != nil {
+		if _, err := installstate.Write(paths.InstallState, current); err != nil {
 			t.Fatal(err)
 		}
 		source := preparedMarked(t, "v2")

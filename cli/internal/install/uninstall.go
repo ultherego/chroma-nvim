@@ -220,7 +220,7 @@ func (i *Installer) Uninstall(paths Paths, current installstate.State) (Removal,
 	}
 	if why != "" {
 		sink.Emit(Event{Step: "reconcile", Status: StatusWarning, Message: why})
-		if err := installstate.Write(paths.InstallState, repaired); err != nil {
+		if written, err := installstate.Write(paths.InstallState, repaired); err != nil && !written.Replaced {
 			return Removal{}, fmt.Errorf("recording what an interrupted run had already done: %w", err)
 		}
 		current = repaired
@@ -242,7 +242,11 @@ func (i *Installer) Uninstall(paths Paths, current installstate.State) (Removal,
 
 		beginning := current
 		beginning.Handover = installstate.HandoverPending
-		if err := installstate.Write(paths.InstallState, beginning); err != nil {
+		// Replaced is what matters: if the intention reached the disk, the
+		// protocol has begun whether or not the flush was confirmed. Refusing
+		// to continue then would leave `pending` recorded with nothing to
+		// resume from.
+		if written, err := installstate.Write(paths.InstallState, beginning); err != nil && !written.Replaced {
 			return removal, fmt.Errorf("recording that the handover is starting: %w", err)
 		}
 		current = beginning
@@ -315,7 +319,7 @@ func (i *Installer) Uninstall(paths Paths, current installstate.State) (Removal,
 		handed := current
 		handed.UserBackup = ""
 		handed.Handover = installstate.HandoverHandedBack
-		if err := installstate.Write(paths.InstallState, handed); err != nil {
+		if written, err := installstate.Write(paths.InstallState, handed); err != nil && !written.Replaced {
 			removal.Problems = append(removal.Problems,
 				fmt.Errorf("recording that %s has been given back: %w", plan.Restore, err))
 		}

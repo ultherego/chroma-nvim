@@ -40,7 +40,7 @@ func installedUnder(t *testing.T, root string, selected []string) (Paths, instal
 	record := result.State
 	record.Version = "v1.0.0"
 	record.Source = installstate.Source{Type: installstate.FromRelease, Ref: "v1.0.0", SHA256: "old"}
-	if err := installstate.Write(paths.InstallState, record); err != nil {
+	if _, err := installstate.Write(paths.InstallState, record); err != nil {
 		t.Fatalf("Write: %v", err)
 	}
 

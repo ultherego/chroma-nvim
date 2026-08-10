@@ -272,8 +272,12 @@ func (i *Installer) Rollback(
 	}
 
 	sink.Emit(Event{Step: "record", Status: StatusStart})
-	if err := installstate.Write(paths.InstallState, record); err != nil {
+	written, err := installstate.Write(paths.InstallState, record)
+	if err != nil && !written.Replaced {
 		return fail("record", err)
+	}
+	if err != nil {
+		sink.Emit(Event{Step: "record", Status: StatusWarning, Message: err.Error()})
 	}
 	result.State = record
 	result.Recorded = true
@@ -396,13 +400,22 @@ func (i *Installer) carryOut(
 	}
 
 	sink.Emit(Event{Step: "record", Status: StatusStart})
-	if err := installstate.Write(paths.InstallState, record); err != nil {
+	written, err := installstate.Write(paths.InstallState, record)
+	if err != nil && !written.Replaced {
 		// Rolled back rather than left alone. An installation nothing recorded
 		// is an unmanaged directory, and every command already knows how to
 		// refuse one of those — but it is a directory the user did not have
 		// before, and leaving it would be this CLI walking away from a mess it
 		// made.
 		return fail("record", err)
+	}
+	if err != nil {
+		// The record is already the new one. Rolling the tree back here would
+		// put the two on opposite sides of the same boundary, which is the one
+		// outcome worse than either. The commit stands and the problem is
+		// reported: what is in doubt is whether it survives a power cut, not
+		// what it says.
+		sink.Emit(Event{Step: "record", Status: StatusWarning, Message: err.Error()})
 	}
 	result.State = record
 	result.Recorded = true

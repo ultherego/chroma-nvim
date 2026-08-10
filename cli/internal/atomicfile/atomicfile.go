@@ -17,6 +17,27 @@ import (
 	"path/filepath"
 )
 
+// Result says how far a replacement got.
+//
+// The distinction exists because the two failures are not the same event, and a
+// caller that treats them alike gets one of them badly wrong. Before the rename,
+// a failure means the replacement did not happen and the old file is intact.
+// After it, the new contents are already at the path and only their durability
+// is in question — and a caller that "rolls back" from there undoes something
+// that was never done while leaving in place something that was.
+//
+// Measured, before this type existed: a record write that failed after its
+// rename was reported as not written, so the update rolled the tree back to the
+// generation the record no longer described.
+type Result struct {
+	// Replaced says the new contents are at the path.
+	Replaced bool
+
+	// Durable says the directory entry has been flushed. False with Replaced
+	// true means the change is visible and might not survive a power cut.
+	Durable bool
+}
+
 // Replace writes contents to path, atomically and durably.
 //
 // The steps are in this order for reasons that have each cost somebody
@@ -26,23 +47,33 @@ import (
 // without being on the disk — the entry it changed is not durable until the
 // directory holding it has been written.
 //
-// A failure at any point leaves the original file exactly as it was.
-func Replace(path string, contents []byte, mode fs.FileMode) error {
+// The directory is opened *before* the rename, so that the one failure which
+// can be moved out of the post-commit window is moved out of it. What remains
+// after the rename is the flush itself and the close.
+func Replace(path string, contents []byte, mode fs.FileMode) (Result, error) {
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return fmt.Errorf("creating %s: %w", dir, err)
+		return Result{}, fmt.Errorf("creating %s: %w", dir, err)
 	}
+
+	// Opened here rather than after the rename: an open that fails is then a
+	// failure of a replacement that has not happened.
+	handle, err := os.Open(dir)
+	if err != nil {
+		return Result{}, fmt.Errorf("opening %s to flush it: %w", dir, err)
+	}
+	defer handle.Close()
 
 	temporary, err := os.CreateTemp(dir, "."+filepath.Base(path)+".*")
 	if err != nil {
-		return fmt.Errorf("creating a temporary file in %s: %w", dir, err)
+		return Result{}, fmt.Errorf("creating a temporary file in %s: %w", dir, err)
 	}
 	name := temporary.Name()
 
-	abandon := func(cause error) error {
+	abandon := func(cause error) (Result, error) {
 		temporary.Close()
 		os.Remove(name)
-		return cause
+		return Result{}, cause
 	}
 
 	if _, err := temporary.Write(contents); err != nil {
@@ -58,21 +89,32 @@ func Replace(path string, contents []byte, mode fs.FileMode) error {
 	if err := os.Chmod(name, mode); err != nil {
 		return abandon(fmt.Errorf("setting the mode of %s: %w", name, err))
 	}
+
+	// Everything past this line has already happened as far as anybody reading
+	// the file is concerned.
 	if err := os.Rename(name, path); err != nil {
 		return abandon(fmt.Errorf("replacing %s: %w", path, err))
 	}
 
-	handle, err := os.Open(dir)
-	if err != nil {
-		return fmt.Errorf("opening %s to flush it: %w", dir, err)
+	if err := hit(path); err != nil {
+		return Result{Replaced: true}, fmt.Errorf("flushing %s: %w", dir, err)
 	}
 	if err := handle.Sync(); err != nil {
-		handle.Close()
-		return fmt.Errorf("flushing %s: %w", dir, err)
-	}
-	if err := handle.Close(); err != nil {
-		return fmt.Errorf("closing %s: %w", dir, err)
+		return Result{Replaced: true}, fmt.Errorf("flushing %s: %w", dir, err)
 	}
 
-	return nil
+	return Result{Replaced: true, Durable: true}, nil
+}
+
+// afterRename stops a replacement between the rename and the directory flush.
+// Nil everywhere except a test that set it: that window cannot be produced by
+// permissions or a full disk, and it is the one where the file has already been
+// replaced and the caller has not been told yet.
+var AfterRename func(path string) error
+
+func hit(path string) error {
+	if AfterRename == nil {
+		return nil
+	}
+	return AfterRename(path)
 }

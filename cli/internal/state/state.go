@@ -182,7 +182,7 @@ func EnabledLegacy(set component.Set) []string {
 // remembered. Writing `core`, a duplicate or a component that does not exist
 // produces a file the next startup drops into safe mode over, which is a
 // perfectly avoidable way to switch somebody's editor off.
-func Write(path string, state State, set component.Set) error {
+func Write(path string, state State, set component.Set) (atomicfile.Result, error) {
 	state.Schema = Schema
 	sort.Strings(state.Selected)
 	if state.Selected == nil {
@@ -190,12 +190,12 @@ func Write(path string, state State, set component.Set) error {
 	}
 
 	if err := state.validate(set); err != nil {
-		return fmt.Errorf("refusing to write %s: %w", path, err)
+		return atomicfile.Result{}, fmt.Errorf("refusing to write %s: %w", path, err)
 	}
 
 	contents, err := json.MarshalIndent(state, "", "  ")
 	if err != nil {
-		return fmt.Errorf("encoding the selection: %w", err)
+		return atomicfile.Result{}, fmt.Errorf("encoding the selection: %w", err)
 	}
 
 	return replace(path, append(contents, '\n'))
@@ -210,7 +210,7 @@ func Write(path string, state State, set component.Set) error {
 // that silently rewrites a document it never owned. Everything else about the
 // write — atomic, flushed, durable — is the same, which is why it shares the
 // same implementation rather than growing a second one.
-func Restore(path string, contents []byte) error {
+func Restore(path string, contents []byte) (atomicfile.Result, error) {
 	return replace(path, contents)
 }
 
@@ -221,6 +221,6 @@ func Restore(path string, contents []byte) error {
 // Chroma that comes up wrong. The mechanics live in internal/atomicfile, which
 // the install state uses as well: the same fifty lines in two packages is the
 // arrangement where one of them quietly loses its directory flush.
-func replace(path string, contents []byte) error {
+func replace(path string, contents []byte) (atomicfile.Result, error) {
 	return atomicfile.Replace(path, contents, 0o644)
 }

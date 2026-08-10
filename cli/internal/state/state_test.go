@@ -141,7 +141,7 @@ func TestWriteIsAtomicAndReadable(t *testing.T) {
 	set := shipped(t)
 	path := filepath.Join(t.TempDir(), "nested", "components.json")
 
-	if err := Write(path, State{Selected: []string{"terraform", "aws"}}, set); err != nil {
+	if _, err := Write(path, State{Selected: []string{"terraform", "aws"}}, set); err != nil {
 		t.Fatalf("Write: %v", err)
 	}
 
@@ -171,10 +171,10 @@ func TestWriteReplacesRatherThanAppends(t *testing.T) {
 	set := shipped(t)
 	path := filepath.Join(t.TempDir(), "components.json")
 
-	if err := Write(path, State{Selected: []string{"terraform", "aws", "docker"}}, set); err != nil {
+	if _, err := Write(path, State{Selected: []string{"terraform", "aws", "docker"}}, set); err != nil {
 		t.Fatalf("Write: %v", err)
 	}
-	if err := Write(path, State{Selected: []string{"vault"}}, set); err != nil {
+	if _, err := Write(path, State{Selected: []string{"vault"}}, set); err != nil {
 		t.Fatalf("Write: %v", err)
 	}
 
@@ -206,7 +206,7 @@ func TestWriteRefusesWhatLoadWouldRefuse(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			path := filepath.Join(t.TempDir(), "components.json")
 
-			err := Write(path, State{Selected: tc.selected}, set)
+			_, err := Write(path, State{Selected: tc.selected}, set)
 			if err == nil {
 				t.Fatal("Write accepted a selection Load would refuse")
 			}
@@ -242,7 +242,7 @@ func TestEveryValidFixtureSurvivesARoundTrip(t *testing.T) {
 			}
 
 			path := filepath.Join(t.TempDir(), "components.json")
-			if err := Write(path, original, set); err != nil {
+			if _, err := Write(path, original, set); err != nil {
 				t.Fatalf("Write: %v", err)
 			}
 

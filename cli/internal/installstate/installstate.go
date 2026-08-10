@@ -314,16 +314,16 @@ func (s State) validate() error {
 // that was never checked is worse than none at all: none at all is an
 // unmanaged directory, which every command already knows how to refuse, while a
 // false one is an unmanaged directory that update will happily replace.
-func Write(path string, state State) error {
+func Write(path string, state State) (atomicfile.Result, error) {
 	state.Schema = Schema
 
 	if err := state.validate(); err != nil {
-		return fmt.Errorf("refusing to record %s: %w", path, err)
+		return atomicfile.Result{}, fmt.Errorf("refusing to record %s: %w", path, err)
 	}
 
 	contents, err := json.MarshalIndent(state, "", "  ")
 	if err != nil {
-		return fmt.Errorf("encoding the install state: %w", err)
+		return atomicfile.Result{}, fmt.Errorf("encoding the install state: %w", err)
 	}
 
 	return atomicfile.Replace(path, append(contents, '\n'), 0o644)

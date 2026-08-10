@@ -165,7 +165,7 @@ func TestTheUninstallPlanDoesNotOfferAHandedBackConfiguration(t *testing.T) {
 	// rename done, the completion not written.
 	record.UserBackup = userBackup
 	record.Handover = installstate.HandoverPending
-	if err := installstate.Write(paths.InstallState, record); err != nil {
+	if _, err := installstate.Write(paths.InstallState, record); err != nil {
 		t.Fatal(err)
 	}
 

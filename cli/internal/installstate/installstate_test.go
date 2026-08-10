@@ -25,7 +25,7 @@ func whole() State {
 func TestARecordSurvivesARoundTrip(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "install.json")
 
-	if err := Write(path, whole()); err != nil {
+	if _, err := Write(path, whole()); err != nil {
 		t.Fatalf("Write: %v", err)
 	}
 
@@ -79,7 +79,7 @@ func TestARecordThatCannotBeActedOnIsRefused(t *testing.T) {
 			tc.break_(&state)
 
 			path := filepath.Join(t.TempDir(), "install.json")
-			err := Write(path, state)
+			_, err := Write(path, state)
 			if err == nil {
 				t.Fatal("recorded an installation that cannot be acted on")
 			}
@@ -149,7 +149,7 @@ func TestATreeInstallationIsRecordedAsOne(t *testing.T) {
 	state.Source = Source{Type: FromTree, Ref: "/home/somebody/Projects/chroma-nvim"}
 
 	path := filepath.Join(t.TempDir(), "install.json")
-	if err := Write(path, state); err != nil {
+	if _, err := Write(path, state); err != nil {
 		t.Fatalf("Write: %v", err)
 	}
 
@@ -177,7 +177,7 @@ func TestAPreviousGenerationSurvivesARoundTrip(t *testing.T) {
 		Source:      Source{Type: FromRelease, Ref: "v1.0.0", SHA256: "abc123"},
 	}
 
-	if err := Write(path, record); err != nil {
+	if _, err := Write(path, record); err != nil {
 		t.Fatalf("Write: %v", err)
 	}
 
@@ -204,7 +204,7 @@ func TestAPreviousGenerationWithoutAPathIsRefused(t *testing.T) {
 	record := whole()
 	record.Previous = &Generation{Version: "v1.0.0", Source: Source{Type: FromRelease}}
 
-	if err := Write(path, record); err == nil {
+	if _, err := Write(path, record); err == nil {
 		t.Error("a previous generation with no path was recorded")
 	}
 	if _, found, _ := Load(path); found {
@@ -218,7 +218,7 @@ func TestAPreviousGenerationWithAnUnknownSourceIsRefused(t *testing.T) {
 	record := whole()
 	record.Previous = &Generation{Path: "/somewhere", Source: Source{Type: "carrier pigeon"}}
 
-	if err := Write(path, record); err == nil {
+	if _, err := Write(path, record); err == nil {
 		t.Error("a previous generation with an unknown source type was recorded")
 	}
 }
@@ -228,7 +228,7 @@ func TestAPreviousGenerationWithAnUnknownSourceIsRefused(t *testing.T) {
 func TestAFirstInstallationRecordsNoPreviousGeneration(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "install.json")
 
-	if err := Write(path, whole()); err != nil {
+	if _, err := Write(path, whole()); err != nil {
 		t.Fatalf("Write: %v", err)
 	}
 
@@ -256,7 +256,7 @@ func TestOnePathCannotBeBothAUserBackupAndAGeneration(t *testing.T) {
 		Source:  Source{Type: FromRelease},
 	}
 
-	if err := Write(path, record); err == nil {
+	if _, err := Write(path, record); err == nil {
 		t.Error("a record naming one directory as both was accepted")
 	}
 }
@@ -274,7 +274,7 @@ func TestAUserBackupAndAGenerationCoexist(t *testing.T) {
 		Source:  Source{Type: FromRelease},
 	}
 
-	if err := Write(path, record); err != nil {
+	if _, err := Write(path, record); err != nil {
 		t.Fatalf("Write: %v", err)
 	}
 
@@ -300,7 +300,7 @@ func TestAHandedBackStateCannotAlsoNameSomethingToRestore(t *testing.T) {
 	record.UserBackup = "/home/somebody/.config/nvim.chroma-original"
 	record.Handover = HandoverHandedBack
 
-	if err := Write(path, record); err == nil {
+	if _, err := Write(path, record); err == nil {
 		t.Error("a record claiming both was accepted")
 	}
 }
@@ -310,7 +310,7 @@ func TestTheHandoverStateSurvivesARoundTrip(t *testing.T) {
 
 	record := whole()
 	record.Handover = HandoverHandedBack
-	if err := Write(path, record); err != nil {
+	if _, err := Write(path, record); err != nil {
 		t.Fatalf("Write: %v", err)
 	}
 
@@ -343,7 +343,7 @@ func TestTheHandoverStateAndTheBackupPathMustAgree(t *testing.T) {
 			record.Handover = tc.handover
 			record.UserBackup = tc.backup
 
-			if err := Write(path, record); err == nil {
+			if _, err := Write(path, record); err == nil {
 				t.Errorf("handover %q with backup %q was accepted", tc.handover, tc.backup)
 			}
 		})
@@ -352,7 +352,7 @@ func TestTheHandoverStateAndTheBackupPathMustAgree(t *testing.T) {
 
 func TestRemoveIsIdempotent(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "install.json")
-	if err := Write(path, whole()); err != nil {
+	if _, err := Write(path, whole()); err != nil {
 		t.Fatalf("Write: %v", err)
 	}
 	for i := 0; i < 2; i++ {
@@ -391,7 +391,7 @@ func TestAliasedPathsAreRefused(t *testing.T) {
 			record := whole()
 			tc.build(&record)
 
-			if err := Write(path, record); err == nil {
+			if _, err := Write(path, record); err == nil {
 				t.Error("a record naming one directory as two things was accepted")
 			}
 		})

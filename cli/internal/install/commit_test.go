@@ -1,0 +1,107 @@
+package install
+
+import (
+	"context"
+	"errors"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/ultherego/chroma-nvim/cli/internal/atomicfile"
+	"github.com/ultherego/chroma-nvim/cli/internal/installstate"
+)
+
+// stopAfterRename makes the next atomic replacement fail after it has already
+// happened — the window between the rename and the directory flush.
+func stopAfterRename(t *testing.T, forFile string) error {
+	t.Helper()
+
+	stopped := errors.New("the directory could not be flushed")
+	atomicfile.AfterRename = func(path string) error {
+		if filepath.Base(path) == forFile {
+			return stopped
+		}
+		return nil
+	}
+	t.Cleanup(func() { atomicfile.AfterRename = nil })
+
+	return stopped
+}
+
+// A record write that fails after its rename has committed. The tree and the
+// record have to end up on the same side of that boundary — which they did not
+// before this was measured: the write was reported as not having happened, the
+// transaction rolled the tree back to v1, and the record described v2.
+//
+// Rolling back from there undoes something that was never done and leaves in
+// place something that was. So the commit stands, and what is reported is the
+// durability, not the contents.
+func TestARecordWriteThatCommittedIsNotRolledBack(t *testing.T) {
+	fixed(t)
+
+	paths, current := installed(t, []string{"terraform"})
+	mark(t, paths.ConfigDir, "v1")
+	current.Version = "v1.0.0"
+	current.Source = installstate.Source{Type: installstate.FromRelease, Ref: "v1.0.0", SHA256: "a"}
+	if _, err := installstate.Write(paths.InstallState, current); err != nil {
+		t.Fatal(err)
+	}
+
+	source := prepared(t)
+	mark(t, source.Root, "v2")
+
+	stopAfterRename(t, "install.json")
+
+	installer := &Installer{Runner: &failAt{}}
+	result, err := installer.Update(context.Background(), paths, source, shipped(t), []string{"terraform"}, current)
+	if err != nil {
+		t.Fatalf("the update was rolled back although its record had already committed: %v", err)
+	}
+	if result.RolledBack {
+		t.Error("the transaction rolled back past a commit that had happened")
+	}
+
+	onDisk := held(t, paths.ConfigDir)
+	record, found, loadErr := installstate.Load(paths.InstallState)
+	if loadErr != nil || !found {
+		t.Fatalf("Load: %v found=%v", loadErr, found)
+	}
+
+	if onDisk != "v2" {
+		t.Errorf("the tree holds %q, want the generation the record now describes", onDisk)
+	}
+	if record.Previous == nil || record.Previous.Version != "v1.0.0" {
+		t.Errorf("the record does not describe the update it committed: %+v", record.Previous)
+	}
+}
+
+// The same primitive under components: the selection may be replaced and the
+// transaction told it was not, so the rollback leaves the new one in force.
+func TestAFailedSelectionWriteThatAlreadyHappenedStaysInForce(t *testing.T) {
+	fixed(t)
+
+	paths, _ := installed(t, []string{"terraform"})
+	before, err := os.ReadFile(paths.SelectionFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	stopAfterRename(t, "components.json")
+
+	installer := &Installer{Runner: &failAt{}}
+	if _, err := installer.Reconfigure(context.Background(), paths, shipped(t), []string{"kubernetes"}); err == nil {
+		t.Fatal("the change reported success")
+	}
+
+	after, err := os.ReadFile(paths.SelectionFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(after) != string(before) {
+		t.Errorf("the failed change is the one in force:\nbefore %s\nafter  %s", before, after)
+	}
+	if strings.Contains(string(after), "kubernetes") {
+		t.Error("the selection that was reported as not written is the one on disk")
+	}
+}

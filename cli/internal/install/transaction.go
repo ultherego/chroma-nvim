@@ -83,11 +83,17 @@ func (tx *Transaction) WriteSelection(selected []string, set component.Set) erro
 		return fmt.Errorf("reading the selection at %s before replacing it: %w", tx.SelectionPath, err)
 	}
 
-	if err := state.Write(tx.SelectionPath, state.State{Selected: selected}, set); err != nil {
+	// Marked from what actually happened, not from whether the call succeeded.
+	// A write that failed after its rename has replaced the document, and a
+	// transaction that believed otherwise would roll back without putting the
+	// old selection back — leaving the change it just reported as failed in
+	// force.
+	result, err := state.Write(tx.SelectionPath, state.State{Selected: selected}, set)
+	tx.selectionWritten = result.Replaced
+	if err != nil {
 		return err
 	}
 
-	tx.selectionWritten = true
 	return nil
 }
 
@@ -156,7 +162,7 @@ func (tx *Transaction) Rollback() error {
 	if tx.selectionWritten {
 		var err error
 		if tx.HadSelection {
-			err = state.Restore(tx.SelectionPath, tx.PreviousSelection)
+			_, err = state.Restore(tx.SelectionPath, tx.PreviousSelection)
 		} else {
 			// There was no file, so leaving one behind would be this installer
 			// inventing a selection the user never made.
