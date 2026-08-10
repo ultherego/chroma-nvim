@@ -55,8 +55,24 @@ cli/
     tui/                 the interactive layer, and nothing else
 ```
 
-`tui/` holds no decisions. Everything it displays comes from `resolve` and
-`detect`, so `--non-interactive` is not a second implementation.
+`tui/` holds no decisions. Everything it displays comes from the contract, and
+everything it produces is an `install.Options` — the same value the flags build.
+That is what makes `--non-interactive` one implementation rather than two: after
+the last question both paths run the identical code, and a question a flag has
+already answered is not asked.
+
+**It is line-oriented, and that is a decision rather than a stage.** It reads an
+`io.Reader` and writes an `io.Writer`, so every screen is tested without a
+terminal, over a pipe, in CI. There is no raw mode, no cursor addressing and no
+redraw — the Go standard library has none of those, so a full-screen interface
+means a third-party library and its transitive tree. This module still has zero
+dependencies, and acquiring the first one is a maintainer's decision, not
+something to arrive at by accident inside a milestone.
+
+One consequence worth stating: **an exhausted input is a refusal, not a
+default.** A pipe that has run out has not agreed to a location or to a set of
+components, so it produces an error naming `--non-interactive` rather than an
+installation built from answers nobody gave.
 
 ---
 
@@ -349,15 +365,23 @@ no answer.
 ```
 Chroma Neovim v2.1.0 will be installed.
 
-  Location      ~/.config/chroma-nvim        (NVIM_APPNAME=chroma-nvim)
-  Existing      none
-  Components    core, terraform, kubernetes, aws
-  Tools         install tflint (pacman)
-                terraform, kubectl, aws already present
-  After         bootstrap plugins, then verify with a headless start
+  Source        v2.1.0
+  Location      ~/.config/chroma-nvim
+  Run with      NVIM_APPNAME=chroma-nvim nvim
+  Selection     ~/.config/chroma/components.json
+
+  Components    core, kubernetes, terraform
+  Present       git, curl, tar, unzip, gzip, cc, tree-sitter, fzf
+  Missing       nothing
+  External      terraform/tofu not on PATH; Chroma does not install these,
+                and installing without them changes nothing here
 
 Proceed? [y/N]
 ```
+
+`Present` and `Missing` are Chroma's own tooling, and `Missing` is the line the
+exit code follows. `External` is named and not counted — see "It is not a
+package manager" above.
 
 Ordering matters and is fixed: **detect → resolve → plan → confirm → back up →
 place → bootstrap → verify → record**. Recording the state happens last, after
@@ -607,7 +631,7 @@ Everything else is a backlog entry, and the work continues.
  9  real `chroma install`                   the end of --dry-run only
 10  GitHub release source
 11  complete Neovim provisioning            Mason installs everything it is asked to
-12  TUI
+12  TUI                                     line-oriented; it produces Options
 13  release workflow
     ----------------------------------------- installer V1 ends here
 14  update

@@ -16,6 +16,7 @@ import (
 	"github.com/ultherego/chroma-nvim/cli/internal/install"
 	"github.com/ultherego/chroma-nvim/cli/internal/plan"
 	"github.com/ultherego/chroma-nvim/cli/internal/release"
+	"github.com/ultherego/chroma-nvim/cli/internal/tui"
 )
 
 // cmdInstall places a Chroma Neovim on this machine.
@@ -99,6 +100,31 @@ func cmdInstall(args []string, out, errOut *os.File) int {
 	loaded, code := load(filepath.Join(prepared.Root, "components"), errOut)
 	if code != exitOK {
 		return code
+	}
+
+	// The interactive flow, and only when there is something it has to ask.
+	// A run that names its components is being driven by flags, and asking it
+	// where to go would break every scripted install that answers the final
+	// question with --yes and nothing else.
+	if opts.Selected == nil && opts.Profile == "" && !opts.NonInteractive {
+		opts, err = tui.Ask(opts, loaded, os.Stdin, out)
+		if err != nil {
+			fmt.Fprintln(errOut, err)
+			return exitMisuse
+		}
+
+		// The placement question can change where this goes, so the paths and
+		// the refusal that depends on them are worked out again rather than
+		// carried over from before the answer.
+		paths, err = install.ResolvePaths(opts.UseDefault)
+		if err != nil {
+			fmt.Fprintln(errOut, err)
+			return exitFailed
+		}
+		if err := install.RefuseSourceInsideTarget(prepared.Root, paths); err != nil {
+			fmt.Fprintln(errOut, err)
+			return exitMisuse
+		}
 	}
 
 	selected, err := opts.Selection(loaded)
