@@ -51,6 +51,15 @@ func cmdUninstall(args []string, out, errOut *os.File) int {
 		return exitMisuse
 	}
 
+	// Before the plan is built, because the plan is printed and a plan that
+	// offers to remove somebody's own configuration is the lie this whole
+	// milestone is about. A run killed between the restore and the record
+	// leaves exactly that disagreement behind.
+	if repaired, why := install.ReconcileHandover(current); why != "" {
+		fmt.Fprintf(out, "%s\n\n", why)
+		current = repaired
+	}
+
 	plan := install.PlanUninstall(paths, current)
 
 	fmt.Fprint(out, "Uninstall Chroma Neovim\n\n")

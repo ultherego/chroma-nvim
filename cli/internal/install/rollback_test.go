@@ -14,8 +14,13 @@ import (
 // carrying a marker so the two can be told apart on disk.
 func twoGenerations(t *testing.T, selected []string) (Paths, installstate.State) {
 	t.Helper()
+	return twoGenerationsUnder(t, t.TempDir(), selected)
+}
 
-	paths, first := installed(t, selected)
+func twoGenerationsUnder(t *testing.T, root string, selected []string) (Paths, installstate.State) {
+	t.Helper()
+
+	paths, first := installedUnder(t, root, selected)
 	if err := os.WriteFile(filepath.Join(paths.ConfigDir, "generation"), []byte("v1"), 0o644); err != nil {
 		t.Fatal(err)
 	}

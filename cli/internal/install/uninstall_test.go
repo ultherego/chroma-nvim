@@ -15,8 +15,13 @@ import (
 // telling them apart is the whole of this milestone.
 func takenOver(t *testing.T) (Paths, installstate.State, string) {
 	t.Helper()
+	return takenOverUnder(t, t.TempDir())
+}
 
-	paths, current := twoGenerations(t, []string{"terraform"})
+func takenOverUnder(t *testing.T, root string) (Paths, installstate.State, string) {
+	t.Helper()
+
+	paths, current := twoGenerationsUnder(t, root, []string{"terraform"})
 
 	// The configuration that was there before Chroma. Real files, so that
 	// removing it instead of restoring it is visible.

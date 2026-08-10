@@ -48,6 +48,62 @@ func undo(tx *Transaction, cause error) error {
 	return cause
 }
 
+// ReconcileHandover repairs a record left behind by a process that stopped
+// existing between giving the user's configuration back and writing that down.
+//
+// A signal can land in that window; an error cannot, because the two statements
+// are adjacent. What is left is a record saying "there is a configuration to
+// restore" and a filesystem saying the opposite, and the rule is that the
+// filesystem wins — a record is a description, and a description that disagrees
+// with the thing it describes is wrong about it.
+//
+// The conclusion is drawn only when it can be shown, not guessed:
+//
+//   - the recorded backup is gone, and
+//   - the configuration directory is there, and
+//   - it does not hold a Chroma tree.
+//
+// The only ordinary way all three are true at once is that the rename ran. If
+// Chroma is still in the directory then the backup was deleted by somebody
+// else, which is a different situation with a different answer — this returns
+// the record untouched and the uninstall refuses, naming what is missing.
+//
+// Returns the record to act on, and a sentence for whoever is watching.
+func ReconcileHandover(current installstate.State) (installstate.State, string) {
+	if current.HandedBack || current.UserBackup == "" {
+		return current, ""
+	}
+	if _, err := os.Lstat(current.UserBackup); err == nil {
+		// Still there: nothing was handed back.
+		return current, ""
+	}
+
+	if _, err := os.Stat(current.ConfigDir); err != nil {
+		return current, ""
+	}
+	if isChromaTree(current.ConfigDir) {
+		return current, ""
+	}
+
+	repaired := current
+	repaired.UserBackup = ""
+	repaired.HandedBack = true
+
+	return repaired, fmt.Sprintf(
+		"%s is gone and %s no longer holds a Chroma installation, so the configuration you had before Chroma has already been given back. An earlier run was interrupted before it could record that.",
+		current.UserBackup, current.ConfigDir)
+}
+
+// isChromaTree reports whether a directory holds a Chroma configuration.
+//
+// The same file LocalSource insists on before it will install anything, for the
+// same reason: without it there is nothing here the installer could bootstrap,
+// so whatever it is, it is not this.
+func isChromaTree(dir string) bool {
+	_, err := os.Stat(filepath.Join(dir, "lua", "chroma", "bootstrap.lua"))
+	return err == nil
+}
+
 // RefuseSymlinkedConfiguration reports why a symlinked configuration cannot be
 // uninstalled.
 //
@@ -140,6 +196,15 @@ func (i *Installer) Uninstall(paths Paths, current installstate.State) (Removal,
 		return Removal{}, err
 	}
 
+	// The filesystem is consulted before the record is believed.
+	if repaired, why := ReconcileHandover(current); why != "" {
+		sink.Emit(Event{Step: "reconcile", Status: StatusWarning, Message: why})
+		if err := installstate.Write(paths.InstallState, repaired); err != nil {
+			return Removal{}, fmt.Errorf("recording what an interrupted run had already done: %w", err)
+		}
+		current = repaired
+	}
+
 	plan := PlanUninstall(paths, current)
 	removal := Removal{}
 
@@ -202,6 +267,10 @@ func (i *Installer) Uninstall(paths Paths, current installstate.State) (Removal,
 	//
 	// A failure to write it is reported and does not stop the removals: they
 	// are what was asked for, and the record is on its way out anyway.
+	if err := hit(faultRestoredNotRecorded); err != nil {
+		return removal, err
+	}
+
 	if plan.Restore != "" {
 		handed := current
 		handed.UserBackup = ""

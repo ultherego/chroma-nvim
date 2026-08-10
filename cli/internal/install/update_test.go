@@ -14,8 +14,16 @@ import (
 // recorded, so an update has something real to replace.
 func installed(t *testing.T, selected []string) (Paths, installstate.State) {
 	t.Helper()
+	return installedUnder(t, t.TempDir(), selected)
+}
 
-	xdg(t, t.TempDir())
+// installedUnder is the same, in a directory the caller chose — which a crash
+// test needs, because the child process has to leave its tree somewhere the
+// parent can look at afterwards.
+func installedUnder(t *testing.T, root string, selected []string) (Paths, installstate.State) {
+	t.Helper()
+
+	xdg(t, root)
 	paths, err := ResolvePaths(false)
 	if err != nil {
 		t.Fatalf("ResolvePaths: %v", err)

@@ -33,6 +33,13 @@ const (
 	// user's own configuration has been given back; the second is after.
 	faultAfterCurrentMoved faultPoint = "after-current-moved"
 	faultAfterUserRestore  faultPoint = "after-user-restore"
+
+	// The window a signal can land in that no ordinary error can: the user's
+	// configuration is back where it belongs and nothing has written that down
+	// yet. A returned error here is unreachable in production — the two
+	// statements are adjacent — but a process that stops existing between them
+	// is not, and that is what this names.
+	faultRestoredNotRecorded faultPoint = "restored-not-recorded"
 )
 
 // faults is nil everywhere except in a test that set it. There is no flag, no

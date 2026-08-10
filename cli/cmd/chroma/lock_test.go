@@ -141,3 +141,52 @@ func TestDoctorDoesNotTakeTheLock(t *testing.T) {
 		t.Error("doctor waited for a lock it does not need; it only reads")
 	}
 }
+
+// A run killed between giving the user's configuration back and recording that
+// leaves a record which disagrees with the disk. The plan is printed before
+// anybody agrees to it, so it has to be built from the reconciled record —
+// otherwise `uninstall` offers to remove the configuration it has just handed
+// over, which is the one thing this command must never say.
+func TestTheUninstallPlanDoesNotOfferAHandedBackConfiguration(t *testing.T) {
+	paths := machine(t)
+
+	// The state that window leaves: the backup consumed by the rename, the
+	// record still naming it, and the directory holding somebody else's work.
+	userBackup := paths.ConfigDir + ".their-own-config"
+	if err := os.WriteFile(filepath.Join(paths.ConfigDir, "init.lua"), []byte("-- mine\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	record, _, err := installstate.Load(paths.InstallState)
+	if err != nil {
+		t.Fatal(err)
+	}
+	record.UserBackup = userBackup
+	if err := installstate.Write(paths.InstallState, record); err != nil {
+		t.Fatal(err)
+	}
+
+	printed, err := os.CreateTemp(t.TempDir(), "out")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer printed.Close()
+
+	if code := cmdUninstall([]string{"--dry-run"}, printed, os.Stderr); code != exitOK {
+		t.Fatalf("the dry run exited %d", code)
+	}
+
+	contents, err := os.ReadFile(printed.Name())
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan := string(contents)
+
+	remove, _, _ := strings.Cut(plan, "External tools will not be removed")
+	if strings.Contains(remove, paths.ConfigDir+"\n") {
+		t.Errorf("the plan offers to remove the configuration already handed back:\n%s", plan)
+	}
+	if !strings.Contains(plan, "already been given back") {
+		t.Errorf("the plan does not say what it worked out:\n%s", plan)
+	}
+}

@@ -876,6 +876,37 @@ Everything after the commit point is deletion of Chroma's own paths, and every
 one of those is safe to attempt again. The record goes last precisely so that a
 second run still knows what is left to finish.
 
+### After a process stops existing
+
+`SIGINT` and `SIGTERM` leave a program able to answer, so the guarantees are the
+ones above: defers run, the transaction rolls back. `SIGKILL` does not. Nothing
+runs, and the only thing the kernel does on the way out is drop the flock.
+
+The question is therefore not whether an operation undoes itself, because it
+cannot. It is whether the next run can tell what happened and get out of it
+without destroying anything. Two answers are acceptable — Chroma proves what the
+state is and repairs it, or it cannot and refuses, touching nothing and saying
+what it found. **Believing the record over the filesystem when the two disagree
+is not one of them.**
+
+One window needed the second kind of answer. A kill between restoring the user's
+configuration and writing `handed_back` leaves a record offering to restore
+something that is already back. `ReconcileHandover` reads that as a completed
+handover only when all three of these hold:
+
+```
+the recorded backup is gone
+the configuration directory is there
+it does not hold a Chroma tree      (no lua/chroma/bootstrap.lua)
+```
+
+The only ordinary way all three are true at once is that the rename ran. If
+Chroma is still in the directory, the backup was deleted by somebody else —
+a different situation, and the uninstall refuses instead, naming what is
+missing. The reconciliation happens before the plan is built, because the plan
+is printed, and a plan offering to remove somebody's own configuration is the
+lie this whole area exists to prevent.
+
 ### Fault points
 
 The boundaries above are tested by stopping between two steps that both
