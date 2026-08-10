@@ -36,15 +36,90 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # What commit is this release, decided once and before anything else runs.
+  #
+  # This job exists because the gate and the build used to answer that question
+  # separately. A `workflow_dispatch` run takes its workflow definition and its
+  # default checkout from the ref it was started on, and only the build job read
+  # the tag that was asked for — so a release dispatched from main with an older
+  # tag ran every quality gate against main and built the assets from the tag.
+  # Measured, not reasoned about: dispatched from main with a tag that does not
+  # exist at all, eight gates reported success and only the build failed.
+  #
+  # Everything downstream is given a SHA, never a tag. A tag is a pointer its
+  # owner can move, and a build that resolves it a second time can resolve it to
+  # something else than the gate did — a window of exactly the length of a CI
+  # run.
+  resolve:
+    name: Resolve what is being released
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      sha: ${{ steps.target.outputs.sha }}
+      tag: ${{ steps.target.outputs.tag }}
+    steps:
+      - name: Resolve the tag to one commit
+        id: target
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT: ${{ github.event_name }}
+          PUSHED_TAG: ${{ github.ref_name }}
+          PUSHED_SHA: ${{ github.sha }}
+          REQUESTED_TAG: ${{ github.event.inputs.tag }}
+        run: |
+          set -euo pipefail
+
+          if [ "$EVENT" = "push" ]; then
+            # A tag push already carries both: the ref is the tag and the sha is
+            # the commit it points at. Nothing to look up, and nothing that
+            # could move between looking it up and using it.
+            tag="$PUSHED_TAG"
+            sha="$PUSHED_SHA"
+          else
+            tag="$REQUESTED_TAG"
+            if [ -z "$tag" ]; then
+              echo "no tag was given, and this workflow publishes tags"
+              exit 1
+            fi
+
+            # Refused rather than guessed. A tag nobody created is not a release
+            # to build, and the old behaviour was to run the whole gate anyway
+            # and fail at the build.
+            if ! object=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$tag" --jq '.object.type + " " + .object.sha' 2>/dev/null); then
+              echo "there is no tag $tag in $GITHUB_REPOSITORY"
+              exit 1
+            fi
+
+            kind="${object%% *}"
+            sha="${object##* }"
+            if [ "$kind" = "tag" ]; then
+              # An annotated tag points at a tag object, which points at the
+              # commit. A lightweight one points straight at the commit.
+              sha=$(gh api "repos/$GITHUB_REPOSITORY/git/tags/$sha" --jq '.object.sha')
+            fi
+          fi
+
+          echo "releasing $tag as $sha"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+
   # The same gates every commit on main gets, called rather than copied. A copy
   # would be a second definition of "good enough to ship" and one of them would
   # fall behind.
+  #
+  # The definition comes from the ref this run was started on, which is what
+  # makes "re-run a tag after a fixed workflow, without moving it" work: the
+  # gate can be new while the thing it is a gate about stays exactly the commit
+  # the tag names. That is only true because the commit is passed in.
   quality:
+    needs: resolve
     uses: ./.github/workflows/ci.yml
+    with:
+      ref: ${{ needs.resolve.outputs.sha }}
 
   build:
     name: Build and package
-    needs: quality
+    needs: [resolve, quality]
     runs-on: ubuntu-latest
     timeout-minutes: 20
     outputs:
@@ -54,9 +129,15 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          # Explicit rather than implied. This is the whole invariant: the
-          # binaries, the archive and the checksums all come from one commit.
-          ref: ${{ github.event.inputs.tag || github.sha }}
+          # The commit resolve decided on, not the tag this run was asked for.
+          # This is the whole invariant: the gate, the binaries, the archive and
+          # the checksums all come from one commit, and none of them looks a tag
+          # up a second time.
+          ref: ${{ needs.resolve.outputs.sha }}
+
+      - name: Which commit this build is from
+        run: |
+          echo "build commit: $(git rev-parse HEAD)"
 
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
@@ -66,7 +147,7 @@ jobs:
       - name: Name the release
         id: release
         env:
-          TAG: ${{ github.event.inputs.tag || github.ref_name }}
+          TAG: ${{ needs.resolve.outputs.tag }}
         run: |
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           # Semver says a hyphen in the version is a pre-release, and that is
@@ -152,7 +233,7 @@ jobs:
 
   publish:
     name: Publish
-    needs: build
+    needs: [resolve, build]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     # The only job that can write, and it can only write here. Everything that
@@ -168,7 +249,7 @@ jobs:
       - name: Create the release
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ github.event.inputs.tag || github.ref_name }}
+          TAG: ${{ needs.resolve.outputs.tag }}
           PRERELEASE: ${{ needs.build.outputs.prerelease }}
         run: |
           # One call with every asset: a release either exists complete or does

@@ -23,6 +23,15 @@ on:
   # rather than to a copy of them that drifts. A tag push does not match the
   # branch filter above, so this adds a caller and not a second run.
   workflow_call:
+    inputs:
+      ref:
+        description: >
+          the commit to test, as a SHA. The release workflow resolves the tag
+          once and passes the result here, so that the gate and the build are
+          about the same commit. Empty on push and pull_request, where the
+          commit that triggered the run is the one to test.
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -75,6 +84,12 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Empty on push and pull_request, which is what checkout wants for
+          # "the commit that triggered this". Set when the release workflow
+          # calls in, and then every job here reads the same commit as the one
+          # the binaries are built from.
+          ref: ${{ inputs.ref }}
 
       - name: stylua
         uses: JohnnyMorganz/stylua-action@76fd70c03e6340ceaf673366712db9b20560b402 # v5.0.0
@@ -120,6 +135,12 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Empty on push and pull_request, which is what checkout wants for
+          # "the commit that triggered this". Set when the release workflow
+          # calls in, and then every job here reads the same commit as the one
+          # the binaries are built from.
+          ref: ${{ inputs.ref }}
 
       - name: Install Neovim
         uses: rhysd/action-setup-vim@febef33995d6649302e9d88dda81e071b68f16a7 # v1.6.1
@@ -216,6 +237,12 @@ jobs:
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Empty on push and pull_request, which is what checkout wants for
+          # "the commit that triggered this". Set when the release workflow
+          # calls in, and then every job here reads the same commit as the one
+          # the binaries are built from.
+          ref: ${{ inputs.ref }}
 
       - name: Install Neovim
         uses: rhysd/action-setup-vim@febef33995d6649302e9d88dda81e071b68f16a7 # v1.6.1
@@ -459,6 +486,12 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Empty on push and pull_request, which is what checkout wants for
+          # "the commit that triggered this". Set when the release workflow
+          # calls in, and then every job here reads the same commit as the one
+          # the binaries are built from.
+          ref: ${{ inputs.ref }}
 
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
@@ -490,6 +523,21 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Empty on push and pull_request, which is what checkout wants for
+          # "the commit that triggered this". Set when the release workflow
+          # calls in, and then every job here reads the same commit as the one
+          # the binaries are built from.
+          ref: ${{ inputs.ref }}
+
+      # Printed so that "the gate was green" can be checked against "the gate
+      # was about this commit". The two used to be different questions with no
+      # way to compare their answers: a release dispatched from main with an
+      # older tag ran every gate here against main and built the tag, and the
+      # only visible evidence was that both said success.
+      - name: Which commit this gate is about
+        run: |
+          echo "gate commit: $(git rev-parse HEAD)"
 
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
@@ -520,6 +568,12 @@ jobs:
             goarch: arm64
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Empty on push and pull_request, which is what checkout wants for
+          # "the commit that triggered this". Set when the release workflow
+          # calls in, and then every job here reads the same commit as the one
+          # the binaries are built from.
+          ref: ${{ inputs.ref }}
 
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
