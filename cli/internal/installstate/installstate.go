@@ -274,8 +274,21 @@ func (s State) validate() error {
 		return fmt.Errorf("records an unknown handover state %q", s.Handover)
 	}
 
-	if s.UserBackup != "" && s.Previous != nil && s.UserBackup == s.Previous.Path {
-		return errors.New("records the user's own configuration and a Chroma generation at the same path")
+	// No two of these may name one directory, and neither may name the
+	// installation itself. Every alias sends a destructive step at the wrong
+	// object: removing the generation would take the user's configuration with
+	// it, and restoring either over the target would be Chroma moving a
+	// directory onto itself.
+	for _, pair := range []struct {
+		first, second, names string
+	}{
+		{s.UserBackup, previousPath(s), "the user's own configuration and a Chroma generation"},
+		{s.UserBackup, s.ConfigDir, "the user's own configuration and the installation"},
+		{previousPath(s), s.ConfigDir, "a Chroma generation and the installation"},
+	} {
+		if pair.first != "" && pair.first == pair.second {
+			return fmt.Errorf("records %s at the same path %s", pair.names, pair.first)
+		}
 	}
 
 	if s.Previous != nil {
@@ -323,4 +336,12 @@ func Remove(path string) error {
 		return fmt.Errorf("removing %s: %w", path, err)
 	}
 	return nil
+}
+
+// previousPath is where the previous generation is, or "" when there is none.
+func previousPath(s State) string {
+	if s.Previous == nil {
+		return ""
+	}
+	return s.Previous.Path
 }

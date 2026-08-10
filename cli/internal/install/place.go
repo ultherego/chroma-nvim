@@ -119,6 +119,40 @@ func (tx *Transaction) StageSource(prepared PreparedSource, paths Paths) error {
 	return nil
 }
 
+// RefuseSubstituted reports why a path the record names cannot be acted on.
+//
+// **A persisted path proves where Chroma once put something. It does not prove
+// what is there now.** Between the record being written and this running,
+// anything may have replaced the directory — measured, not imagined: with the
+// kept generation replaced by a link, a rollback moved the link into place and
+// rewrote the record, and an uninstall handed the link back as somebody's
+// configuration and then deleted its own state.
+//
+// So the type is checked again, with Lstat, before any move that crosses an
+// ownership boundary. A symbolic link is refused whatever is on the other end:
+// following it would mean acting on an object Chroma never put there, and
+// moving it would mean recording a link as a generation.
+func RefuseSubstituted(path string) error {
+	info, err := os.Lstat(path)
+	if err != nil {
+		return fmt.Errorf("looking at %s: %w", path, err)
+	}
+
+	switch {
+	case info.Mode()&os.ModeSymlink != 0:
+		destination, readErr := os.Readlink(path)
+		if readErr != nil {
+			destination = "somewhere this cannot read"
+		}
+		return fmt.Errorf(
+			"%s is a symbolic link to %s, not the directory Chroma recorded there.\nChroma will not move or remove what is on the other end of a link it did not make",
+			path, destination)
+	case !info.IsDir():
+		return fmt.Errorf("%s is not a directory, so it is not the configuration Chroma recorded there", path)
+	}
+	return nil
+}
+
 // RestoreGeneration puts a kept generation back where a configuration lives.
 //
 // A rename, not a copy: the directory is the generation, and copying it would
@@ -128,6 +162,9 @@ func (tx *Transaction) StageSource(prepared PreparedSource, paths Paths) error {
 func (tx *Transaction) RestoreGeneration(from string, paths Paths) error {
 	if from == "" {
 		return errors.New("no generation was named to restore")
+	}
+	if err := RefuseSubstituted(from); err != nil {
+		return err
 	}
 	if _, err := os.Stat(filepath.Join(from, "init.lua")); err != nil {
 		return fmt.Errorf("%s is not a configuration that can be restored: %w", from, err)

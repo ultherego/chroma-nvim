@@ -976,6 +976,28 @@ A state rather than two flags, for the reason contract 5 gave: `pending` and
 `handed_back` as booleans leave a combination that means nothing, and a schema
 should not be able to express what the product will not do.
 
+**A persisted path proves where Chroma once put something. It does not prove
+what is there now.**
+
+Between a record being written and a command acting on it, anything may have
+replaced the directory. Measured: with the kept generation replaced by a link,
+a rollback moved the link into place and rewrote the record; with the held
+configuration replaced by a link, an uninstall handed the link back as
+somebody's own work, recorded that, and deleted its own state. Neither touched
+what was on the other end, but both crossed an ownership boundary on the
+strength of a string from an old record.
+
+So the type is checked again with `Lstat` before any move that crosses such a
+boundary, and a link is refused whatever is on the other end of it: following it
+means acting on an object Chroma never put there, and moving it means recording
+a link as a generation. For an uninstall the check comes **before `pending` is
+written** — once Chroma cannot show what is at the recorded path, it has no
+business starting a transfer of ownership at all.
+
+The record also refuses to name one directory as two things. `user_backup` and
+`previous.path`, either of them and the installation itself: each alias would
+send a destructive step at the wrong object.
+
 **What this does not defend against.** Somebody who owns the account can edit
 `install.json` and write any state they like. Resisting that would need
 authenticated state with a secret outside their control, which is a different

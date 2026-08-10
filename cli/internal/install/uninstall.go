@@ -233,6 +233,13 @@ func (i *Installer) Uninstall(paths Paths, current installstate.State) (Removal,
 	// do it is on disk. If this write fails the filesystem is untouched, which
 	// is the whole point of putting it first.
 	if current.Handover == installstate.HandoverHeld {
+		// Before the protocol starts, not merely before the move. Once Chroma
+		// cannot show that what sits at the recorded path is the directory it
+		// put there, it has no business beginning a transfer of ownership.
+		if err := RefuseSubstituted(current.UserBackup); err != nil {
+			return removal, err
+		}
+
 		beginning := current
 		beginning.Handover = installstate.HandoverPending
 		if err := installstate.Write(paths.InstallState, beginning); err != nil {

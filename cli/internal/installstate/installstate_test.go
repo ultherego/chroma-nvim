@@ -364,3 +364,36 @@ func TestRemoveIsIdempotent(t *testing.T) {
 		t.Error("the record is still there")
 	}
 }
+
+// One directory cannot be two things. Each of these aliases would send a
+// destructive step at the wrong object.
+func TestAliasedPathsAreRefused(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		build func(*State)
+	}{
+		{"the backup is the installation", func(s *State) {
+			s.UserBackup = s.ConfigDir
+			s.Handover = HandoverHeld
+		}},
+		{"the generation is the installation", func(s *State) {
+			s.Previous = &Generation{Path: s.ConfigDir, Source: Source{Type: FromRelease}}
+		}},
+		{"the backup is the generation", func(s *State) {
+			s.UserBackup = "/home/somebody/.config/nvim.kept"
+			s.Handover = HandoverHeld
+			s.Previous = &Generation{Path: s.UserBackup, Source: Source{Type: FromRelease}}
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "install.json")
+
+			record := whole()
+			tc.build(&record)
+
+			if err := Write(path, record); err == nil {
+				t.Error("a record naming one directory as two things was accepted")
+			}
+		})
+	}
+}
