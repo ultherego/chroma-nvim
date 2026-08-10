@@ -175,6 +175,13 @@ func DetectInterruption(paths Paths, current installstate.State) (*Interruption,
 // uncommitted tree and then failed to move the committed one into place would
 // leave a machine with no configuration at all — the same hole it exists to
 // close, dug one level down.
+//
+// What it deletes is exactly the directory it moved aside itself, in this run.
+// Nothing is removed by name: a `*.chroma-provisional-*` left by an earlier
+// recovery that was interrupted looks identical to one somebody created, and
+// after the process that made it is gone there is no evidence of which it is.
+// A familiar name is not proof of ownership — the same rule that stopped an
+// orphaned backup being given a role it had not earned.
 func (found *Interruption) Repair(paths Paths) error {
 	// Anything at the target that was never committed goes aside, under a name
 	// that is not a backup: a second `*.chroma-backup-*` would make the next
@@ -205,10 +212,13 @@ func (found *Interruption) Repair(paths Paths) error {
 			putBack(paths, aside))
 	}
 
-	// Only now, with the committed arrangement back, is anything removed. A
-	// provisional tree is by definition one no record ever described, and this
-	// sweeps any left by an earlier recovery that was itself interrupted.
-	return sweepProvisional(paths)
+	// Only now, with the committed arrangement back, and only this one.
+	if aside != "" {
+		if err := os.RemoveAll(aside); err != nil {
+			return fmt.Errorf("removing the uncommitted configuration at %s: %w", aside, err)
+		}
+	}
+	return nil
 }
 
 // putBack returns the uncommitted tree to the target when the committed one
@@ -228,28 +238,22 @@ func putBack(paths Paths, aside string) error {
 	return nil
 }
 
-// sweepProvisional removes trees an interrupted recovery left aside.
-func sweepProvisional(paths Paths) error {
-	beside := filepath.Dir(paths.ConfigDir)
-	entries, err := os.ReadDir(beside)
+// leftovers names provisional trees an earlier interrupted recovery left, so
+// they can be mentioned rather than removed.
+func leftovers(paths Paths) []string {
+	entries, err := os.ReadDir(filepath.Dir(paths.ConfigDir))
 	if err != nil {
-		return fmt.Errorf("looking beside %s: %w", paths.ConfigDir, err)
+		return nil
 	}
 
+	var found []string
 	base := filepath.Base(paths.ConfigDir)
-	var problems []string
 	for _, entry := range entries {
-		if !strings.HasPrefix(entry.Name(), base+provisionalMark) {
-			continue
-		}
-		if err := os.RemoveAll(filepath.Join(beside, entry.Name())); err != nil {
-			problems = append(problems, err.Error())
+		if strings.HasPrefix(entry.Name(), base+provisionalMark) {
+			found = append(found, entry.Name())
 		}
 	}
-	if len(problems) > 0 {
-		return fmt.Errorf("removing uncommitted configurations: %s", strings.Join(problems, "; "))
-	}
-	return nil
+	return found
 }
 
 func describeVersionOfGeneration(version string) string {
@@ -273,12 +277,17 @@ func Recover(paths Paths, current installstate.State) (string, error) {
 		return "", err
 	}
 	if found == nil {
-		// Even with nothing to recover, a provisional tree from an interrupted
-		// recovery is worth removing.
-		return "", sweepProvisional(paths)
+		return "", nil
 	}
 	if err := found.Repair(paths); err != nil {
 		return "", err
 	}
-	return found.Why, nil
+
+	why := found.Why
+	if stray := leftovers(paths); len(stray) > 0 {
+		why += fmt.Sprintf(
+			"\n%s was left beside the configuration by a recovery that did not finish. Nothing here can show it was Chroma's, so it is left for you to look at and remove.",
+			strings.Join(stray, ", "))
+	}
+	return why, nil
 }

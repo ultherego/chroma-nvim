@@ -225,8 +225,16 @@ func TestRecoveryIsRetryable(t *testing.T) {
 	if got := held(t, paths.ConfigDir); got != "v1" {
 		t.Errorf("the target holds %q, want the committed v1", got)
 	}
-	if exists(aside) {
-		t.Error("the provisional tree from the interrupted recovery is still there")
+
+	// The tree the earlier attempt moved aside stays. After the process that
+	// made it is gone, a `*.chroma-provisional-*` looks exactly like one
+	// somebody created, and nothing here can tell them apart — so it is
+	// reported rather than removed. The accepted cost of that rule.
+	if !exists(aside) {
+		t.Error("a directory nothing could prove was Chroma's was removed anyway")
+	}
+	if !strings.Contains(why, filepath.Base(aside)) {
+		t.Errorf("the leftover was not mentioned: %q", why)
 	}
 }
 

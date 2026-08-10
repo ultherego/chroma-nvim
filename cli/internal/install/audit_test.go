@@ -87,3 +87,29 @@ func TestTakingOverALinkedDirectoryIsRefused(t *testing.T) {
 		t.Error("an installation was recorded despite the refusal")
 	}
 }
+
+// Audit finding 3: a directory is removed because its name matches a pattern.
+//
+// The topology is complete — nothing interrupted, nothing missing — so recovery
+// has no work. It sweeps anyway, by name, and there is no evidence that this
+// particular inode was made by a Chroma recovery rather than by whoever owns the
+// account.
+func TestACleanupNeverRemovesADirectoryItDidNotCreate(t *testing.T) {
+	fixed(t)
+
+	paths, current := installed(t, nil)
+
+	theirs := paths.ConfigDir + provisionalMark + "OWNED-BY-USER"
+	if err := os.MkdirAll(theirs, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	write(t, filepath.Join(theirs, "DO_NOT_DELETE"), "mine\n")
+
+	if _, err := Recover(paths, current); err != nil {
+		t.Fatalf("Recover: %v", err)
+	}
+
+	if !exists(filepath.Join(theirs, "DO_NOT_DELETE")) {
+		t.Error("a directory nobody proved was Chroma's was removed because its name matched")
+	}
+}
