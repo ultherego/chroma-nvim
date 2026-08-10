@@ -1,6 +1,7 @@
 package install
 
 import (
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -8,21 +9,109 @@ import (
 	"github.com/ultherego/chroma-nvim/cli/internal/state"
 )
 
-// xdg points every base directory at one root, which is what the tests want and
-// also what CI does: no case here may resolve to a real home directory.
+// xdg confines a test to a directory of its own.
+//
+// Every variable, not the ones a particular test happens to read. `XDG_CACHE_HOME`
+// was missing, so the whole package resolved CacheDir to the real
+// `~/.cache/nvim` of whoever ran it — and an uninstall removes the cache
+// directory, which means the suite was quietly deleting the Neovim cache of its
+// own author. It was invisible because a cache regenerates; it surfaced only
+// when a takeover test started moving that directory aside instead of removing
+// it, and the moved-aside copy appeared in a home directory.
+//
+// HOME is set too, because every one of these has a documented fallback under
+// the home directory and a test that leaves one unset is one refactor away from
+// resolving there. XDG_RUNTIME_DIR because the lock lives in it.
+//
+// A test harness that can reach outside its own root is not a harness that
+// proves anything about destructive code. See confined.
 func xdg(t *testing.T, root string) {
 	t.Helper()
+
+	t.Setenv("HOME", root)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(root, "config"))
 	t.Setenv("XDG_DATA_HOME", filepath.Join(root, "data"))
 	t.Setenv("XDG_STATE_HOME", filepath.Join(root, "state"))
-
-	// The fourth, and it was missing. Without it every test in this package
-	// resolved CacheDir to the real `~/.cache/nvim` of whoever ran them — and
-	// an uninstall removes the cache directory, so the suite was quietly
-	// deleting the Neovim cache of its own author. Found by a takeover test
-	// that moves the directory aside instead of removing it, which is the only
-	// reason it was visible at all.
 	t.Setenv("XDG_CACHE_HOME", filepath.Join(root, "cache"))
+	t.Setenv("XDG_RUNTIME_DIR", filepath.Join(root, "run"))
+
+	if err := os.MkdirAll(filepath.Join(root, "run"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	// Checked here, so that no fixture has to remember to. Both shapes, because
+	// `--default` and an installation of its own resolve different directories
+	// and a harness that confines one of them confines nothing.
+	for _, useDefault := range []bool{false, true} {
+		paths, err := ResolvePaths(useDefault)
+		if err != nil {
+			t.Fatalf("ResolvePaths(%v): %v", useDefault, err)
+		}
+		confined(t, root, paths)
+	}
+}
+
+// confined refuses to let a destructive test run against anything outside its
+// own root.
+//
+// Called by xdg rather than by the fixtures, so that adding a fixture cannot
+// silently opt out of it. The cost of getting this wrong is not a failing test
+// — it is a passing one, run against the machine of whoever ran it, which is
+// the kind of false confidence worth spending a function on.
+func confined(t *testing.T, root string, paths Paths) {
+	t.Helper()
+
+	clean := filepath.Clean(root) + string(filepath.Separator)
+	for name, path := range map[string]string{
+		"ConfigDir":     paths.ConfigDir,
+		"DataDir":       paths.DataDir,
+		"StateDir":      paths.StateDir,
+		"CacheDir":      paths.CacheDir,
+		"SelectionFile": paths.SelectionFile,
+		"InstallState":  paths.InstallState,
+		"BackupDir":     paths.BackupDir,
+		"LogDir":        paths.LogDir,
+	} {
+		if path == "" {
+			continue
+		}
+		if !strings.HasPrefix(filepath.Clean(path)+string(filepath.Separator), clean) {
+			t.Fatalf("%s resolved to %s, which is outside the test root %s: this test would have run against the machine it is running on", name, path, root)
+		}
+	}
+}
+
+// The harness proves its own confinement, because nothing else does.
+//
+// Each variable governs one directory, and leaving any of them unset sends that
+// directory to the home of whoever is running the suite. That is exactly what
+// happened with XDG_CACHE_HOME, for as long as nothing in the suite moved the
+// cache directory rather than removing it.
+func TestEveryBaseDirectoryVariableIsWhatConfinesIt(t *testing.T) {
+	root := t.TempDir()
+	xdg(t, root)
+
+	for variable, governs := range map[string]func(Paths) string{
+		"XDG_CONFIG_HOME": func(p Paths) string { return p.ConfigDir },
+		"XDG_DATA_HOME":   func(p Paths) string { return p.DataDir },
+		"XDG_STATE_HOME":  func(p Paths) string { return p.StateDir },
+		"XDG_CACHE_HOME":  func(p Paths) string { return p.CacheDir },
+	} {
+		t.Run("without "+variable, func(t *testing.T) {
+			t.Setenv(variable, "")
+			t.Setenv("HOME", t.TempDir())
+
+			paths, err := ResolvePaths(true)
+			if err != nil {
+				t.Fatalf("ResolvePaths: %v", err)
+			}
+
+			inside := filepath.Clean(root) + string(filepath.Separator)
+			if strings.HasPrefix(filepath.Clean(governs(paths))+string(filepath.Separator), inside) {
+				t.Errorf("%s unset left its directory inside the root anyway, so confinement does not depend on it", variable)
+			}
+		})
+	}
 }
 
 func TestIsolatedInstallationIsBesideTheRest(t *testing.T) {

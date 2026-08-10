@@ -42,6 +42,18 @@ import (
 // after giving two of three back, and one flag for four directories cannot say
 // which.
 //
+// What device and inode are not: a cryptographic identity. A filesystem may
+// reuse an inode number once the object holding it is gone, so a directory
+// deleted and another created in the same place can in principle present the
+// pair that was recorded. That is a stated limit of this design, not an
+// oversight. The threat model here is corruption, stale topology and
+// substitution — a directory replaced by one that merely looks alike — and
+// against all three the pair is decisive. It is not, and is not claimed to be,
+// a defence against the owner of the account forging state deliberately; that
+// boundary is the same one `install.json` itself sits on. Adding a marker file
+// with a UUID would not move it either, because a marker is content and content
+// copies with the directory.
+//
 // 5 replaced `handed_back` with `handover`, a state rather than a flag. H4
 // forged the old inference: with Chroma still installed, deleting the backup and
 // one file out of the tree was enough to make it conclude the user's

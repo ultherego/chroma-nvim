@@ -1118,6 +1118,14 @@ recorded, Chroma does not know where the real one went, and the two available
 actions — hand this back as somebody's work, or delete it as Chroma's — are both
 destructive and both wrong.
 
+It is not a cryptographic identity, and the limit is worth stating rather than
+discovering. A filesystem may reuse an inode number once the object holding it
+is gone, so a directory deleted and another created in its place can in
+principle present the pair that was recorded. Against corruption, stale
+topology and substitution — the three this design is actually about — the pair
+is decisive; against a deliberate forgery it is not, and neither would a marker
+file be, because a marker is content and content copies with the directory.
+
 This is not, and does not claim to be, a defence against the owner of the
 account editing `install.json`. That boundary is stated in "Where each operation
 commits" and has not moved.
