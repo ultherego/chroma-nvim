@@ -76,6 +76,34 @@ func TestUninstallGivesBackWhatItBorrowedAndRemovesWhatItMade(t *testing.T) {
 	if exists(paths.InstallState) {
 		t.Error("the install record survived the uninstall")
 	}
+
+	// The directory the selection lived in goes too, when nothing else is in
+	// it. A real uninstall left exactly this behind before it was noticed.
+	if exists(filepath.Dir(paths.SelectionFile)) {
+		t.Errorf("%s is still there, empty", filepath.Dir(paths.SelectionFile))
+	}
+}
+
+// But only when it is empty. What somebody else put beside the selection is
+// theirs, and Chroma has no business deciding what it is.
+func TestTheSelectionDirectoryIsKeptWhenSomethingElseIsInIt(t *testing.T) {
+	fixed(t)
+
+	paths, current, _ := takenOver(t)
+
+	theirs := filepath.Join(filepath.Dir(paths.SelectionFile), "notes.md")
+	if err := os.WriteFile(theirs, []byte("mine\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	installer := &Installer{}
+	if _, err := installer.Uninstall(paths, current); err != nil {
+		t.Fatalf("Uninstall: %v", err)
+	}
+
+	if !exists(theirs) {
+		t.Error("a file that was not Chroma's was removed with the selection")
+	}
 }
 
 // The one thing that must never be on the removal list, checked on the plan so

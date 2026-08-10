@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/ultherego/chroma-nvim/cli/internal/installstate"
 )
@@ -141,6 +142,17 @@ func (i *Installer) Uninstall(paths Paths, current installstate.State) (Removal,
 			continue
 		}
 		removal.Removed = append(removal.Removed, path)
+	}
+
+	// The directory the selection lived in, if nothing else is in it. `Remove`
+	// rather than `RemoveAll` on purpose: it succeeds only on an empty
+	// directory, so anything somebody else put there keeps it — and Chroma has
+	// no business deciding what that is. Left behind, this was the one thing a
+	// real uninstall still left on the machine.
+	if current.SelectionFile != "" {
+		if err := os.Remove(filepath.Dir(current.SelectionFile)); err == nil {
+			removal.Removed = append(removal.Removed, filepath.Dir(current.SelectionFile))
+		}
 	}
 
 	sink.Emit(Event{Step: "uninstall", Status: StatusDone})
