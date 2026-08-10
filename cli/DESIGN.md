@@ -489,7 +489,7 @@ chroma install     fetch a release and place it          --version --components
                                                          --dry-run --non-interactive
 chroma update      to the next release, same components  --dry-run
 chroma components  edit the enabled set (TUI)            --add --remove
-chroma doctor      preflight, and what is missing now
+chroma doctor      is the installation on this machine healthy
 chroma rollback    restore the backup this made
 chroma uninstall   remove what this installed            --keep-state
 chroma version     CLI version, installed version, contract
@@ -1180,6 +1180,43 @@ from those.
 Doing that turned up a gap the old arrangement had hidden: the rule is written
 down at two places, and only the update's was tested. A mutant that made
 `rollback` undo a record it had already committed survived the whole suite.
+
+## What the plain commands mean
+
+Two defaults were wrong in the same way: they answered a question about the
+machine with a fact about the shell.
+
+`chroma install` — the command README documents and the one somebody types
+first — refused, and said to name a release with `--version`. An installer whose
+plain form does not install is not an installer. With neither `--version` nor
+`--source-tree`, it installs the newest release. The default is filled in after
+validation rather than as the flag's default, because validation refuses a
+version and a source tree together and a flag default would make every
+`--source-tree` run look like both were asked for.
+
+`chroma doctor` defaulted `--tree` to `.`, so on a perfectly healthy managed
+installation it answered:
+
+```
+$ cd /tmp && chroma doctor
+no components directory in . — is that a Chroma Neovim tree?   (exit 2)
+```
+
+It now finds the installation the way every other managed command does, reads
+that installation's own contract, and reports **the components its owner
+actually chose**. Somebody who turned Kubernetes off is not running a machine
+that is missing `kubectl`; they are running one that does not need it, and a
+report saying otherwise describes an installation they do not have. An
+installation with no selection document is core alone, which is what the
+installer would have written.
+
+`--tree` stays, as what it always really was: an explicit read-only override for
+somebody working on a checkout. There it reports the whole contract, because a
+checkout has no selection to narrow it by, and it says so in its first line.
+
+The exit codes were already right and were confirmed by measurement rather than
+assumed: a missing external tool is reported and exits 0, and a missing or
+too-old tool of Chroma's own exits 4.
 
 ## Implementation order
 

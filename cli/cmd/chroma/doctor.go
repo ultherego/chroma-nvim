@@ -6,11 +6,29 @@ import (
 	"os"
 	"strings"
 
+	"path/filepath"
+
 	"github.com/ultherego/chroma-nvim/cli/internal/component"
 	"github.com/ultherego/chroma-nvim/cli/internal/detect"
+	"github.com/ultherego/chroma-nvim/cli/internal/state"
 )
 
-// cmdDoctor reports what is on this machine. It is a diagnostic, not a gate.
+// cmdDoctor reports whether the Chroma on this machine is healthy.
+//
+// That question, and not "does the directory I happen to be standing in contain
+// a components/ folder". `--tree` used to default to `.`, so the ordinary
+// invocation failed in every directory but a checkout — measured against a
+// working managed installation:
+//
+//	$ cd /tmp && chroma doctor
+//	no components directory in . — is that a Chroma Neovim tree?   (exit 2)
+//
+// With no flag it now finds the installation the way every other managed
+// command does, reads that installation's own contract, and reports the
+// components its owner actually chose. `--tree` remains, as what it always
+// really was: an explicit read-only override for somebody working on a checkout,
+// and there it reports the whole contract because there is no selection to
+// narrow it by.
 //
 // The report has two halves and the line between them is the point. Chroma's
 // own tooling is the half that can be broken: without git there are no plugins.
@@ -20,7 +38,17 @@ import (
 // prints `not found`, not `ERROR`, and does not change the exit code.
 func cmdDoctor(args []string, out, errOut *os.File) int {
 	set := flag.NewFlagSet("doctor", flag.ContinueOnError)
-	dir, code := tree(set, args, errOut)
+	set.SetOutput(errOut)
+
+	// No default. An empty string is the question "which installation?", and a
+	// default of "." was the answer "whichever directory you are in", which is
+	// not a question anybody asked.
+	root := set.String("tree", "", "read a checkout instead of the installation on this machine (developer-only)")
+	if err := set.Parse(args); err != nil {
+		return exitMisuse
+	}
+
+	dir, enabled, code := subject(*root, out, errOut)
 	if code != exitOK {
 		return code
 	}
@@ -37,9 +65,18 @@ func cmdDoctor(args []string, out, errOut *os.File) int {
 	}
 	fmt.Fprint(out, "\n")
 
-	// Every component this tree ships, so `doctor` answers "what would I need
-	// for that" as well as "what am I missing now".
-	tools := detect.Tools(loaded, loaded.IDs(), nil, nil)
+	// The components in force, not every component the release ships. Somebody
+	// who turned Kubernetes off is not running a machine that is missing kubectl
+	// — they are running a machine that does not need it, and a report saying
+	// otherwise describes an installation they do not have.
+	//
+	// A checkout has no selection to narrow by, so there it is the whole
+	// contract: that is what `--tree` is for.
+	ids := enabled
+	if ids == nil {
+		ids = loaded.IDs()
+	}
+	tools := detect.Tools(loaded, ids, nil, nil)
 
 	own, external := detect.Split(tools)
 
@@ -50,6 +87,59 @@ func cmdDoctor(args []string, out, errOut *os.File) int {
 		return exitPreflight
 	}
 	return exitOK
+}
+
+// subject decides what this report is about: an installation, or a checkout.
+//
+// Returns the components directory to read and the component ids in force, or
+// nil ids when there is no selection because the subject is a tree.
+func subject(root string, out, errOut *os.File) (string, []string, int) {
+	if root != "" {
+		dir := filepath.Join(root, "components")
+		if info, err := os.Stat(dir); err != nil || !info.IsDir() {
+			fmt.Fprintf(errOut, "no components directory in %s — is that a Chroma Neovim tree?\n", root)
+			return "", nil, exitMisuse
+		}
+		fmt.Fprintf(out, "Reading %s, not an installation.\n\n", root)
+		return dir, nil, exitOK
+	}
+
+	paths, current, code := managed(errOut)
+	if code != exitOK {
+		// managed() has already said there is none and how to get one. Adding a
+		// second sentence about --tree here would offer a developer flag to
+		// somebody who has just been told to install.
+		return "", nil, code
+	}
+
+	dir := filepath.Join(current.ConfigDir, "components")
+	if info, err := os.Stat(dir); err != nil || !info.IsDir() {
+		fmt.Fprintf(errOut, "%s is recorded as a Chroma installation but has no components directory.\nRun `chroma install` again, or point at a checkout with --tree.\n", current.ConfigDir)
+		return "", nil, exitFailed
+	}
+
+	fmt.Fprintf(out, "Chroma %s at %s\n\n", describeVersionOf(current.Version), current.ConfigDir)
+
+	// The selection is read against the installation's own contract, so that a
+	// component that was chosen and no longer exists is not silently counted.
+	contract, code := load(dir, errOut)
+	if code != exitOK {
+		return "", nil, code
+	}
+
+	chosen, found, err := state.Load(paths.SelectionFile, contract)
+	if err != nil {
+		fmt.Fprintln(errOut, err)
+		return "", nil, exitFailed
+	}
+	if !found {
+		// An installation with no selection document is core alone, which is
+		// what the installer would have written. Reporting the whole contract
+		// instead would describe components nobody enabled.
+		return dir, []string{"core"}, exitOK
+	}
+
+	return dir, chosen.Enabled(contract), exitOK
 }
 
 // reportOwn prints Chroma's own tooling and says whether any of it is missing.

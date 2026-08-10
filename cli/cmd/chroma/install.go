@@ -72,6 +72,18 @@ func cmdInstall(args []string, out, errOut *os.File) int {
 		return exitMisuse
 	}
 
+	// `chroma install` with nothing else is the command README documents and
+	// the one somebody types first, and it used to refuse: "name a release with
+	// --version". An installer whose plain form does not install is not an
+	// installer, so the plain form means the newest release.
+	//
+	// Set after Validate, not as the flag's default: Validate refuses a version
+	// and a source tree together, and a default would make every --source-tree
+	// run look like both were asked for.
+	if opts.Version == "" && opts.SourceTree == "" {
+		opts.Version = release.Latest
+	}
+
 	// Ctrl-C between here and the end of the transaction cancels the context,
 	// which stops the child process and rolls the installation back.
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
@@ -224,8 +236,7 @@ func prepareSource(ctx context.Context, opts install.Options, errOut *os.File) (
 		return prepared, exitOK
 
 	case opts.Version != "":
-		source := release.GitHubSource{Version: opts.Version}
-		prepared, err := source.Prepare(ctx)
+		prepared, err := releaseSource(opts.Version).Prepare(ctx)
 		if err != nil {
 			fmt.Fprintln(errOut, err)
 			return install.PreparedSource{}, exitFailed
@@ -233,9 +244,27 @@ func prepareSource(ctx context.Context, opts install.Options, errOut *os.File) (
 		return prepared, exitOK
 
 	default:
+		// Unreachable from cmdInstall, which fills in `latest` above. Kept as a
+		// refusal rather than a silent default so that a second caller cannot
+		// acquire one by accident.
 		fmt.Fprintf(errOut, "nothing to install: name a release with --version (or --version %s), or a checkout with --source-tree.\n", release.Latest)
 		return install.PreparedSource{}, exitMisuse
 	}
+}
+
+// releaseSource turns a version into a tree on this machine.
+//
+// A package variable for the same reason the installer holds its durable writes
+// in one: a test that has to reach the network to find out which version this
+// command asked for is a test that answers a different question. Replaced in
+// tests, never in a released binary.
+var releaseSource = func(version string) preparer {
+	return release.GitHubSource{Version: version}
+}
+
+// preparer is the half of a source this command uses.
+type preparer interface {
+	Prepare(context.Context) (install.PreparedSource, error)
 }
 
 // renderPlan prints what would happen, before anything does.

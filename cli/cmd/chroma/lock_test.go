@@ -17,6 +17,14 @@ func machine(t *testing.T) install.Paths {
 	t.Helper()
 
 	root := t.TempDir()
+
+	// HOME too. Every one of these has a documented fallback under the home
+	// directory, so a test that leaves it pointing at the real one is a test
+	// that can reach the machine it is running on the moment a variable is
+	// dropped — which is exactly how the install package came to be deleting
+	// its author's Neovim cache.
+	t.Setenv("HOME", root)
+
 	for _, pair := range [][2]string{
 		{"XDG_CONFIG_HOME", "config"},
 		{"XDG_DATA_HOME", "data"},

@@ -106,7 +106,7 @@ release does not change your components.
 ## Managing an installation
 
 ```sh
-chroma doctor      # what each component needs, and what this machine has
+chroma doctor      # is the Chroma on this machine healthy, and what is it missing
 chroma update      # move to another release, keeping your components
 chroma rollback    # go back to the previous one, keeping your components
 ```
