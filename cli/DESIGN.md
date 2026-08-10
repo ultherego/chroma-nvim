@@ -594,6 +594,50 @@ binary as everything else on purpose: the release workflow has to build the
 archive with the code that was tested, not with a shell pipeline that agrees
 with it today.
 
+**One `SHA256SUMS` covers every asset**, not only the archive — the
+cross-compiled binaries are hashed by the packager too, through `--asset`. The
+workflow builds them and hands them over; it does not compute a digest. Assets
+are listed by basename, because a release asset is flat, and two files sharing
+one basename are refused rather than published as one.
+
+---
+
+## Releasing
+
+**A tag, not a branch.** `.github/workflows/release.yml` triggers on `v*` and
+builds everything from the commit the tag points at. Nothing in it fetches a
+branch, pulls, or resolves a ref of its own:
+
+```
+tag  →  commit X  →  binaries built from X
+                     archive built from X
+                     SHA256SUMS describing both
+                     release pointing at X
+```
+
+**Publication is the last job, and the only one that can write.** `contents:
+write` is scoped to it; everything that could fail has already run by the time
+it starts. The release is created in a single `gh release create` call carrying
+every asset, so a release either exists complete or does not exist — uploading
+one at a time would leave a published release missing a binary.
+
+**The gates are the ones `main` gets, called rather than copied.** The workflow
+`uses: ./.github/workflows/ci.yml`, which is why that file has a
+`workflow_call` trigger. A second definition of "good enough to ship" is a
+second thing to keep current, and one of them falls behind.
+
+Between packaging and publication the build checks its own output with tools
+that did not produce it: `sha256sum -c SHA256SUMS`, `tar -tzf` for entries
+outside the prefix the archive claims to be, and `chroma version` against the
+tag it was built for. The version reaches the binary through
+`-ldflags -X main.version`, so a tag is the only place a release number is
+written down and no commit carries one.
+
+**A hyphen makes it a pre-release.** Semver says so, and it is the distinction
+that matters here: `v0.0.0-release-dev.1` must not become what
+`--version latest` resolves to, so it is published with `--prerelease
+--latest=false`.
+
 ---
 
 ## Implementation order
@@ -632,7 +676,7 @@ Everything else is a backlog entry, and the work continues.
 10  GitHub release source
 11  complete Neovim provisioning            Mason installs everything it is asked to
 12  TUI                                     line-oriented; it produces Options
-13  release workflow
+13  release workflow                        a tag builds and publishes; last job writes
     ----------------------------------------- installer V1 ends here
 14  update
 15  components

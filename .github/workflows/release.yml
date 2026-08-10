@@ -1,0 +1,188 @@
+name: Release
+
+# One tag, one commit, one set of assets.
+#
+# Everything published here is built from `github.sha` — the commit the tag
+# points at — and nothing fetches a branch, pulls, or resolves a ref of its
+# own. A release that says "built from X" while its archive came from whatever
+# `main` held at upload time is the failure this workflow exists to make
+# impossible.
+#
+# Publication is the last job and nothing before it touches the GitHub API.
+# If a gate, a build or the packager fails, there is no release at all rather
+# than a release with some of its assets.
+#
+# Actions are pinned to full commit SHAs for the reason ci.yml explains: a tag
+# is a pointer its owner can move, which is a credential-shaped hole in any
+# workflow that holds a token — and this one holds a token that can write.
+
+on:
+  push:
+    tags:
+      - "v*"
+  # A tag can be re-run by hand after a fixed workflow, without moving it.
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: the existing tag to build and publish
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  # Never cancelled: a half-finished release run is worse than a slow one.
+  group: release-${{ github.event.inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  # The same gates every commit on main gets, called rather than copied. A copy
+  # would be a second definition of "good enough to ship" and one of them would
+  # fall behind.
+  quality:
+    uses: ./.github/workflows/ci.yml
+
+  build:
+    name: Build and package
+    needs: quality
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    outputs:
+      # Decided once, here, and consumed by publish. Deciding it twice is how
+      # a pre-release ends up marked as the latest one in a later edit.
+      prerelease: ${{ steps.release.outputs.prerelease }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Explicit rather than implied. This is the whole invariant: the
+          # binaries, the archive and the checksums all come from one commit.
+          ref: ${{ github.event.inputs.tag || github.sha }}
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: cli/go.mod
+          cache: false
+
+      - name: Name the release
+        id: release
+        env:
+          TAG: ${{ github.event.inputs.tag || github.ref_name }}
+        run: |
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          # Semver says a hyphen in the version is a pre-release, and that is
+          # exactly the distinction GitHub wants: v0.0.0-release-dev.1 must not
+          # become what `--version latest` resolves to.
+          case "$TAG" in
+            *-*) echo "prerelease=true" >> "$GITHUB_OUTPUT" ;;
+            *)   echo "prerelease=false" >> "$GITHUB_OUTPUT" ;;
+          esac
+
+      - name: Build the binaries
+        env:
+          TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          mkdir -p dist
+          for target in linux/amd64 linux/arm64; do
+            goos="${target%/*}"
+            goarch="${target#*/}"
+            # -s -w drops the symbol table and DWARF: nothing here reads a Go
+            # stack trace out of a user's terminal, and the binary is smaller.
+            # The version is injected rather than committed, so a tag is the
+            # only place a release number is written down.
+            GOOS="$goos" GOARCH="$goarch" CGO_ENABLED=0 \
+              go build -C cli -trimpath \
+                -ldflags "-s -w -X main.version=$TAG" \
+                -o "../dist/chroma-$goos-$goarch" ./cmd/chroma
+          done
+          ls -l dist
+
+      - name: Package the configuration
+        env:
+          TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          # The same `chroma package` a developer runs, from the code that was
+          # just tested — not a tar pipeline in this file that agrees with it
+          # today. It refuses a tree whose runtime files differ from the commit,
+          # which on a fresh checkout passes and on a tampered one does not.
+          # It also writes SHA256SUMS covering the binaries, so one file
+          # describes every asset and no shell computes a checksum here.
+          go run -C cli ./cmd/chroma package \
+            --tree .. \
+            --version "$TAG" \
+            --out ../dist \
+            --asset ../dist/chroma-linux-amd64 \
+            --asset ../dist/chroma-linux-arm64
+
+      - name: Check the checksums with something that did not write them
+        working-directory: dist
+        run: |
+          cat SHA256SUMS
+          sha256sum -c SHA256SUMS
+
+      - name: The archive is what the installer will accept
+        env:
+          TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          # Unpacked with the extractor's own rules in mind: every entry has to
+          # sit under the prefix the release claims to be. Cheap, and it catches
+          # a packager change that would only surface on somebody's machine.
+          tar -tzf "dist/chroma-nvim-$TAG.tar.gz" > entries.txt
+          if grep -qv "^chroma-nvim-$TAG/" entries.txt; then
+            echo "the archive holds entries outside chroma-nvim-$TAG/:"
+            grep -v "^chroma-nvim-$TAG/" entries.txt
+            exit 1
+          fi
+          grep -q "^chroma-nvim-$TAG/init.lua$" entries.txt
+
+      - name: The binary reports the tag it was built for
+        env:
+          TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          chmod +x dist/chroma-linux-amd64
+          reported=$(./dist/chroma-linux-amd64 version | head -1)
+          echo "$reported"
+          test "$reported" = "chroma $TAG"
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-assets
+          path: dist/
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    name: Publish
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # The only job that can write, and it can only write here. Everything that
+    # could fail has already run.
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: release-assets
+          path: dist
+
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.inputs.tag || github.ref_name }}
+          PRERELEASE: ${{ needs.build.outputs.prerelease }}
+        run: |
+          # One call with every asset: a release either exists complete or does
+          # not exist. Uploading them one at a time would leave a published
+          # release missing a binary if the second upload failed.
+          flags="--generate-notes"
+          if [ "$PRERELEASE" = "true" ]; then
+            flags="$flags --prerelease --latest=false"
+          fi
+
+          # shellcheck disable=SC2086
+          gh release create "$TAG" $flags \
+            --title "Chroma Neovim $TAG" \
+            dist/chroma-nvim-"$TAG".tar.gz \
+            dist/SHA256SUMS \
+            dist/chroma-linux-amd64 \
+            dist/chroma-linux-arm64

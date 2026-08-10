@@ -19,6 +19,10 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+  # Called by the release workflow, so a tag is held to exactly these gates
+  # rather than to a copy of them that drifts. A tag push does not match the
+  # branch filter above, so this adds a caller and not a second run.
+  workflow_call:
 
 permissions:
   contents: read

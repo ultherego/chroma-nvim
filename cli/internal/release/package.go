@@ -64,7 +64,7 @@ type Result struct {
 // when it stages a developer checkout, so an installation from a release and an
 // installation from a tree contain the same files. A second list here is how
 // those two quietly stop being the same product.
-func Package(tree, version, outDir string) (Result, error) {
+func Package(tree, version, outDir string, assets ...string) (Result, error) {
 	if version == "" {
 		return Result{}, errors.New("a release needs a version")
 	}
@@ -104,13 +104,55 @@ func Package(tree, version, outDir string) (Result, error) {
 	}
 
 	sum := hex.EncodeToString(digest.Sum(nil))
+
+	// One SHA256SUMS for everything the release publishes, written here rather
+	// than assembled by the workflow. The alternative is a shell pipeline that
+	// agrees with this code today, and a release whose checksums were produced
+	// by something nobody tested.
+	lines := []string{fmt.Sprintf("%s  %s", sum, ArchiveName(version))}
+
+	named := append([]string(nil), assets...)
+	sort.Strings(named)
+	seen := map[string]bool{ArchiveName(version): true}
+
+	for _, path := range named {
+		name := filepath.Base(path)
+		// Release assets are flat, so two files with one basename would publish
+		// as one and the checksums would describe whichever won.
+		if seen[name] {
+			return Result{}, fmt.Errorf("two assets are both called %q", name)
+		}
+		seen[name] = true
+
+		assetSum, err := sha256Of(path)
+		if err != nil {
+			return Result{}, err
+		}
+		lines = append(lines, fmt.Sprintf("%s  %s", assetSum, name))
+	}
+
 	sumsPath := filepath.Join(outDir, SumsName)
-	line := fmt.Sprintf("%s  %s\n", sum, ArchiveName(version))
-	if err := os.WriteFile(sumsPath, []byte(line), 0o644); err != nil {
+	if err := os.WriteFile(sumsPath, []byte(strings.Join(lines, "\n")+"\n"), 0o644); err != nil {
 		return Result{}, fmt.Errorf("writing %s: %w", sumsPath, err)
 	}
 
 	return Result{Archive: archivePath, Sums: sumsPath, SHA256: sum}, nil
+}
+
+// sha256Of hashes a file that was built elsewhere — a cross-compiled binary,
+// which this package does not produce and has no business producing.
+func sha256Of(path string) (string, error) {
+	handle, err := os.Open(path)
+	if err != nil {
+		return "", fmt.Errorf("reading asset %s: %w", path, err)
+	}
+	defer handle.Close()
+
+	digest := sha256.New()
+	if _, err := io.Copy(digest, handle); err != nil {
+		return "", fmt.Errorf("reading asset %s: %w", path, err)
+	}
+	return hex.EncodeToString(digest.Sum(nil)), nil
 }
 
 // writeTree adds the runtime entries, in a fixed order.

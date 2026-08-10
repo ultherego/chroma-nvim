@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/ultherego/chroma-nvim/cli/internal/release"
 )
@@ -25,6 +26,13 @@ func cmdPackage(args []string, out, errOut *os.File) int {
 	version := set.String("version", "", "the version this release is, e.g. v1.0.0")
 	outDir := set.String("out", "dist", "where to write the archive and SHA256SUMS")
 	allowDirty := set.Bool("allow-dirty", false, "package a tree with uncommitted runtime changes; the result belongs to no commit")
+
+	// Files built elsewhere that the release publishes beside the archive —
+	// the cross-compiled binaries. They are listed in SHA256SUMS by this
+	// command rather than by the workflow, so one file describes every asset
+	// and it is written by the code that has tests.
+	var assets multiFlag
+	set.Var(&assets, "asset", "another file to list in SHA256SUMS; repeatable")
 
 	if err := set.Parse(args); err != nil {
 		return exitMisuse
@@ -67,7 +75,7 @@ func cmdPackage(args []string, out, errOut *os.File) int {
 		return exitMisuse
 	}
 
-	result, err := release.Package(root, *version, *outDir)
+	result, err := release.Package(root, *version, *outDir, assets...)
 	if err != nil {
 		fmt.Fprintln(errOut, err)
 		return exitFailed
@@ -81,4 +89,17 @@ func cmdPackage(args []string, out, errOut *os.File) int {
 	fmt.Fprintf(out, "%s\n%s\n\nbuilt from %s\n%s  %s\n",
 		result.Archive, result.Sums, built, result.SHA256, filepath.Base(result.Archive))
 	return exitOK
+}
+
+// multiFlag collects a flag given more than once.
+type multiFlag []string
+
+func (m *multiFlag) String() string { return strings.Join(*m, ", ") }
+
+func (m *multiFlag) Set(value string) error {
+	if strings.TrimSpace(value) == "" {
+		return fmt.Errorf("an empty path is not an asset")
+	}
+	*m = append(*m, value)
+	return nil
 }

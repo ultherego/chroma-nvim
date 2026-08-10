@@ -187,6 +187,111 @@ func TestTheRecordedChecksumIsTheArchivesOwn(t *testing.T) {
 	}
 }
 
+// One SHA256SUMS covers every asset a release publishes, not only the archive.
+// The binaries are cross-compiled elsewhere, but their checksums are written by
+// the code that has tests rather than by a shell pipeline in a workflow.
+func TestSumsCoverTheBinariesToo(t *testing.T) {
+	out := t.TempDir()
+
+	amd64 := filepath.Join(t.TempDir(), "chroma-linux-amd64")
+	arm64 := filepath.Join(t.TempDir(), "chroma-linux-arm64")
+	if err := os.WriteFile(amd64, []byte("not really a binary"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(arm64, []byte("nor is this one"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := Package(tree(t), "v1.0.0", out, amd64, arm64)
+	if err != nil {
+		t.Fatalf("Package: %v", err)
+	}
+
+	contents, err := os.ReadFile(result.Sums)
+	if err != nil {
+		t.Fatalf("reading %s: %v", SumsName, err)
+	}
+	parsed, err := ReadSums(contents)
+	if err != nil {
+		t.Fatalf("ReadSums: %v", err)
+	}
+
+	if len(parsed) != 3 {
+		t.Errorf("%s lists %d assets, want the archive and both binaries: %v", SumsName, len(parsed), parsed)
+	}
+
+	// Listed by basename, because a release asset is flat. A path would name a
+	// file nobody downloading it can find.
+	for path, name := range map[string]string{amd64: "chroma-linux-amd64", arm64: "chroma-linux-arm64"} {
+		raw, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := sha256.Sum256(raw)
+		if parsed[name] != hex.EncodeToString(want[:]) {
+			t.Errorf("%s records %q for %s, want %q", SumsName, parsed[name], name, hex.EncodeToString(want[:]))
+		}
+	}
+}
+
+// Flat assets mean one name each. Two files sharing a basename would publish as
+// one, and the checksums would describe whichever the upload happened to win.
+func TestTwoAssetsWithOneNameAreRefused(t *testing.T) {
+	first := filepath.Join(t.TempDir(), "chroma-linux-amd64")
+	second := filepath.Join(t.TempDir(), "chroma-linux-amd64")
+	for _, path := range []string{first, second} {
+		if err := os.WriteFile(path, []byte(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if _, err := Package(tree(t), "v1.0.0", t.TempDir(), first, second); err == nil {
+		t.Error("two assets with the same basename were packaged")
+	}
+}
+
+func TestAnAssetThatIsNotThereIsAnError(t *testing.T) {
+	_, err := Package(tree(t), "v1.0.0", t.TempDir(), filepath.Join(t.TempDir(), "never-built"))
+	if err == nil {
+		t.Error("a missing asset was listed in the checksums anyway")
+	}
+}
+
+// Order in, order out: the same assets in a different order produce the same
+// file, so a release built twice has one checksum list rather than two.
+func TestSumsAreOrderedRegardlessOfHowAssetsArrive(t *testing.T) {
+	dir := t.TempDir()
+	amd64 := filepath.Join(dir, "chroma-linux-amd64")
+	arm64 := filepath.Join(dir, "chroma-linux-arm64")
+	for _, path := range []string{amd64, arm64} {
+		if err := os.WriteFile(path, []byte(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	source := tree(t)
+	one, err := Package(source, "v1.0.0", t.TempDir(), amd64, arm64)
+	if err != nil {
+		t.Fatalf("Package: %v", err)
+	}
+	other, err := Package(source, "v1.0.0", t.TempDir(), arm64, amd64)
+	if err != nil {
+		t.Fatalf("Package: %v", err)
+	}
+
+	first, err := os.ReadFile(one.Sums)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := os.ReadFile(other.Sums)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(first) != string(second) {
+		t.Errorf("%s depends on the order the assets were passed:\n%s\n---\n%s", SumsName, first, second)
+	}
+}
+
 // The installer copies RuntimeEntries when it stages a checkout. If the
 // packager used a different list, an installation from a release and one from a
 // tree would be different products with the same version.
