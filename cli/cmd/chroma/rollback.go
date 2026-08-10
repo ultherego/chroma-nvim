@@ -8,7 +8,6 @@ import (
 	"os/signal"
 	"path/filepath"
 	"sort"
-	"strings"
 
 	"github.com/ultherego/chroma-nvim/cli/internal/component"
 	"github.com/ultherego/chroma-nvim/cli/internal/detect"
@@ -167,6 +166,3 @@ func describeVersionOf(version string) string {
 	}
 	return version
 }
-
-// used so the linter sees strings imported for a reason if the file changes
-var _ = strings.TrimSpace
