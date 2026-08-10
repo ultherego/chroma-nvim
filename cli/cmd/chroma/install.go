@@ -291,27 +291,63 @@ func asked(out *os.File, prompt string) bool {
 	}
 }
 
-// logFile opens this operation's log, and falls back to saying it could not.
+// logFile is where this operation's detail goes — every line the editor printed
+// while installing plugins and compiling parsers. The screen gets a status;
+// this gets everything, so that a failure has somewhere to point.
 //
-// The log is where the detail goes — every line the editor printed while
-// installing plugins and compiling parsers. The screen gets a status; this gets
-// everything, so that a failure has somewhere to point.
+// The file is not opened here. It is opened at the first line written to it,
+// and the reason is a measurement: on a `--default` installation the log
+// directory sits under `~/.local/state/nvim`, which at this point in the run is
+// still somebody else's directory. Creating it eagerly put a Chroma log inside
+// the user's own state directory, and the takeover then moved that directory
+// aside with the log in it and handed it back at uninstall with the log still
+// there. Nothing failed and nothing was lost; Chroma simply left a file behind
+// in a directory it had promised to return untouched.
+//
+// By the first write the borrowing has happened and the path belongs to Chroma.
+//
 // It returns an io.Writer rather than an *os.File on purpose: a nil *os.File
 // assigned to an interface is not a nil interface, and the runner would write
 // to it and panic.
 func logFile(paths install.Paths, errOut *os.File) io.Writer {
-	if err := os.MkdirAll(paths.LogDir, 0o755); err != nil {
-		fmt.Fprintf(errOut, "not writing a log: %v\n", err)
+	return &lazyLog{dir: paths.LogDir, errOut: errOut}
+}
+
+// lazyLog opens the log file the first time something is written to it.
+type lazyLog struct {
+	dir    string
+	errOut *os.File
+
+	handle io.Writer
+	opened bool
+}
+
+func (l *lazyLog) Write(line []byte) (int, error) {
+	if !l.opened {
+		l.opened = true
+		l.handle = l.open()
+	}
+	if l.handle == nil {
+		// Said once, when it was tried. A run with nowhere to log is a run that
+		// still installs.
+		return len(line), nil
+	}
+	return l.handle.Write(line)
+}
+
+func (l *lazyLog) open() io.Writer {
+	if err := os.MkdirAll(l.dir, 0o755); err != nil {
+		fmt.Fprintf(l.errOut, "not writing a log: %v\n", err)
 		return nil
 	}
 
-	name := filepath.Join(paths.LogDir, fmt.Sprintf("install-%s.log", timestamp()))
+	name := filepath.Join(l.dir, fmt.Sprintf("install-%s.log", timestamp()))
 	handle, err := os.OpenFile(name, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o644)
 	if err != nil {
-		fmt.Fprintf(errOut, "not writing a log: %v\n", err)
+		fmt.Fprintf(l.errOut, "not writing a log: %v\n", err)
 		return nil
 	}
-	fmt.Fprintf(errOut, "Log: %s\n", name)
+	fmt.Fprintf(l.errOut, "Log: %s\n", name)
 	return handle
 }
 
