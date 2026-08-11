@@ -114,9 +114,10 @@ func (r ExecRunner) Run(ctx context.Context, cmd Command, sink ProgressSink) err
 		tail []string
 	)
 
-	done := make(chan struct{})
+	// Buffered, so the goroutine can put its answer down and leave even if
+	// nothing is waiting yet.
+	scanned := make(chan error, 1)
 	go func() {
-		defer close(done)
 		scanner := bufio.NewScanner(output)
 		scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 		for scanner.Scan() {
@@ -136,22 +137,58 @@ func (r ExecRunner) Run(ctx context.Context, cmd Command, sink ProgressSink) err
 			}
 			mu.Unlock()
 		}
+
+		// Whatever stopped the scan, the pipe still has to be emptied.
+		//
+		// A Scanner stops on a line longer than its buffer, and stopping is not
+		// the same as being finished: the child goes on writing into a pipe
+		// nobody is reading, fills it, and blocks on the write forever — so
+		// Wait below never returns. Measured, and it is a hang rather than a
+		// wrong answer: one line of two megabytes from a child that then exits
+		// cleanly made this run until the test framework killed it.
+		//
+		// Reading the rest and discarding it lets the child finish and lets the
+		// error below be reported. The output really is lost; that is what the
+		// error says.
+		err := scanner.Err()
+		if err != nil {
+			_, _ = io.Copy(io.Discard, output)
+		}
+		scanned <- err
 	}()
-	<-done
+	scanErr := <-scanned
 
-	if err := process.Wait(); err != nil {
-		mu.Lock()
-		said := strings.Join(tail, "\n")
-		mu.Unlock()
+	waitErr := process.Wait()
 
-		// The context's own reason, which is more useful than "signal: killed".
-		if ctxErr := ctx.Err(); ctxErr != nil {
-			return fmt.Errorf("%s stopped: %w\n%s", cmd.Name, ctxErr, said)
+	mu.Lock()
+	said := strings.Join(tail, "\n")
+	mu.Unlock()
+
+	// The context's own reason first, which is more useful than "signal: killed"
+	// and truer than anything the other two could say about a run that was
+	// cancelled.
+	if ctxErr := ctx.Err(); ctxErr != nil && waitErr != nil {
+		return fmt.Errorf("%s stopped: %w\n%s", cmd.Name, ctxErr, said)
+	}
+
+	// Then the child's own failure, which is what somebody is looking for. A
+	// reading problem alongside it is worth naming and is not the headline.
+	if waitErr != nil {
+		if scanErr != nil {
+			return fmt.Errorf("%s failed: %w\nits output could not be read either: %v\n%s", cmd.Name, waitErr, scanErr, said)
 		}
 		if said != "" {
-			return fmt.Errorf("%s failed: %w\n%s", cmd.Name, err, said)
+			return fmt.Errorf("%s failed: %w\n%s", cmd.Name, waitErr, said)
 		}
-		return fmt.Errorf("%s failed: %w", cmd.Name, err)
+		return fmt.Errorf("%s failed: %w", cmd.Name, waitErr)
+	}
+
+	// And an exit status of zero is not success if this could not see what the
+	// child did. The installer decides whether an editor bootstrapped correctly
+	// from what it reads here; reporting success on output that was thrown away
+	// would be deciding it from nothing.
+	if scanErr != nil {
+		return fmt.Errorf("the output of %s could not be read, so this cannot say whether it worked: %w", cmd.Name, scanErr)
 	}
 
 	return nil

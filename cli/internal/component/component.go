@@ -317,14 +317,12 @@ func validateVersion(v *Version) string {
 // looksLikeVersion accepts a leading v and dotted numbers, with whatever suffix
 // a release likes to carry: 0.26.1, v1.14.3, 2.51.0-rc1.
 func looksLikeVersion(value string) bool {
-	value = strings.TrimPrefix(value, "v")
+	value = numbersOf(strings.TrimPrefix(value, "v"))
 	if value == "" {
 		return false
 	}
 
-	for _, part := range strings.Split(strings.FieldsFunc(value, func(r rune) bool {
-		return r == '-' || r == '+'
-	})[0], ".") {
+	for _, part := range strings.Split(value, ".") {
 		if part == "" {
 			return false
 		}
@@ -335,6 +333,23 @@ func looksLikeVersion(value string) bool {
 		}
 	}
 	return true
+}
+
+// numbersOf is the part of a version before any pre-release or build suffix,
+// and it is empty when there is nothing before one.
+//
+// A version is a value out of a file somebody wrote by hand, so "-" and "+" are
+// inputs like any other. Taking the first field of a split was correct for
+// every version and fatal for those two: `FieldsFunc` returns nothing when the
+// string is only separators, and indexing it panicked the whole CLI on a
+// contract it was in the middle of reporting problems with. Neither of these
+// two callers had a way to express that precondition in its signature, so it is
+// removed rather than documented.
+func numbersOf(value string) string {
+	if cut := strings.IndexAny(value, "-+"); cut >= 0 {
+		return value[:cut]
+	}
+	return value
 }
 
 // CompareVersions orders two dotted versions: -1, 0 or 1. Missing components
@@ -362,8 +377,7 @@ func CompareVersions(a, b string) int {
 }
 
 func versionParts(value string) []int {
-	value = strings.TrimPrefix(strings.TrimSpace(value), "v")
-	value = strings.FieldsFunc(value, func(r rune) bool { return r == '-' || r == '+' })[0]
+	value = numbersOf(strings.TrimPrefix(strings.TrimSpace(value), "v"))
 
 	var parts []int
 	for _, part := range strings.Split(value, ".") {

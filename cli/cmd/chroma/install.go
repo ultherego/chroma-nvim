@@ -163,7 +163,7 @@ func cmdInstall(args []string, out, errOut *os.File) int {
 		return exitMisuse
 	}
 
-	built := plan.Build(loaded, append([]string{"core"}, selected...), onPath)
+	built := plan.Build(loaded, append([]string{"core"}, selected...), describeTools)
 	renderPlan(out, opts, paths, prepared, built)
 
 	if len(built.Unknown) > 0 {

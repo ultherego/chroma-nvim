@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/ultherego/chroma-nvim/cli/internal/component"
+	"github.com/ultherego/chroma-nvim/cli/internal/detect"
 )
 
 // A contract built for the occasion, so these cases do not change meaning when
@@ -27,7 +28,15 @@ func fixture() component.Set {
 	}
 }
 
-func has(names ...string) Lookup {
+// on builds a plan for a machine where exactly these commands exist and each
+// answers with a version new enough for whatever asked for it.
+func on(set component.Set, requested []string, names ...string) Plan {
+	return Build(set, requested, func(s component.Set, enabled []string) []detect.Tool {
+		return detect.Tools(s, enabled, has(names...), func(string) string { return "999.0.0" })
+	})
+}
+
+func has(names ...string) func(string) bool {
 	set := map[string]bool{}
 	for _, name := range names {
 		set[name] = true
@@ -38,7 +47,7 @@ func has(names ...string) Lookup {
 // The resolver's whole job, from the guidance: asking for Terraform gets Core
 // whether or not the user thought of it.
 func TestDependenciesArePulledIn(t *testing.T) {
-	p := Build(fixture(), []string{"terraform"}, has("git", "terraform"))
+	p := on(fixture(), []string{"terraform"}, "git", "terraform")
 
 	if got := strings.Join(p.Components, ","); got != "core,terraform" {
 		t.Errorf("components = %q, want core,terraform", got)
@@ -49,7 +58,7 @@ func TestDependenciesArePulledIn(t *testing.T) {
 }
 
 func TestAskingForADependencyDirectlyIsNotAnAddition(t *testing.T) {
-	p := Build(fixture(), []string{"core", "terraform"}, has("git", "terraform"))
+	p := on(fixture(), []string{"core", "terraform"}, "git", "terraform")
 
 	if len(p.Added) != 0 {
 		t.Errorf("added = %v, want none: both were asked for by name", p.Added)
@@ -59,7 +68,7 @@ func TestAskingForADependencyDirectlyIsNotAnAddition(t *testing.T) {
 // Silently installing less than was asked for is how somebody spends an evening
 // debugging a component that was never enabled.
 func TestUnknownComponentIsReported(t *testing.T) {
-	p := Build(fixture(), []string{"terraform", "vault"}, has("git", "terraform"))
+	p := on(fixture(), []string{"terraform", "vault"}, "git", "terraform")
 
 	if got := strings.Join(p.Unknown, ","); got != "vault" {
 		t.Errorf("unknown = %q, want vault", got)
@@ -72,11 +81,11 @@ func TestUnknownComponentIsReported(t *testing.T) {
 // Complete() is about Chroma's own tooling only. Without git there are no
 // plugins and there is no installation.
 func TestMissingChromaToolMakesThePlanIncomplete(t *testing.T) {
-	if Build(fixture(), []string{"terraform"}, has("git", "tofu")).Complete() != true {
+	if on(fixture(), []string{"terraform"}, "git", "tofu").Complete() != true {
 		t.Error("git is there, so the plan is complete")
 	}
 
-	if Build(fixture(), []string{"terraform"}, has("tofu")).Complete() {
+	if on(fixture(), []string{"terraform"}, "tofu").Complete() {
 		t.Error("a plan with no git is not complete: lazy.nvim cannot clone")
 	}
 }
@@ -85,7 +94,7 @@ func TestMissingChromaToolMakesThePlanIncomplete(t *testing.T) {
 // Chroma's Terraform features, not for a terraform binary. An empty machine
 // installs a complete Chroma, and the features say what they need when used.
 func TestMissingExternalToolDoesNotMakeThePlanIncomplete(t *testing.T) {
-	p := Build(fixture(), []string{"terraform"}, has("git"))
+	p := on(fixture(), []string{"terraform"}, "git")
 
 	if !p.Complete() {
 		t.Error("neither terraform nor tofu is on this machine, and neither is Chroma's to install")
@@ -104,7 +113,7 @@ func TestMissingExternalToolDoesNotMakeThePlanIncomplete(t *testing.T) {
 
 // And core's own tools are never external, whichever component pulled core in.
 func TestCoreToolsAreNotExternal(t *testing.T) {
-	for _, tool := range Build(fixture(), []string{"terraform"}, has()).Tools {
+	for _, tool := range on(fixture(), []string{"terraform"}).Tools {
 		if tool.Names[0] == "git" && tool.External {
 			t.Error("git is marked external; it is Chroma's own requirement")
 		}
@@ -115,13 +124,13 @@ func TestCoreToolsAreNotExternal(t *testing.T) {
 // one of Chroma's own: the configuration works without it, and treating the two
 // the same would make every plan on a fresh machine look broken.
 func TestMissingRecommendedToolDoesNotMakeItIncomplete(t *testing.T) {
-	p := Build(fixture(), []string{"core"}, has("git"))
+	p := on(fixture(), []string{"core"}, "git")
 
 	fzf := false
 	for _, tool := range p.Tools {
 		if tool.Names[0] == "fzf" {
 			fzf = true
-			if tool.External || tool.Level != "recommended" || tool.Present {
+			if tool.External || tool.Level != "recommended" || tool.Status == detect.Present {
 				t.Fatalf("fzf = %+v; this test needs core's own absent recommended tool", tool)
 			}
 		}
@@ -136,7 +145,7 @@ func TestMissingRecommendedToolDoesNotMakeItIncomplete(t *testing.T) {
 }
 
 func TestToolsAreListedOnce(t *testing.T) {
-	p := Build(fixture(), []string{"terraform", "kubernetes"}, has("git"))
+	p := on(fixture(), []string{"terraform", "kubernetes"}, "git")
 
 	count := 0
 	for _, tool := range p.Tools {
@@ -170,7 +179,7 @@ func TestRequiredBeatsRecommended(t *testing.T) {
 		}},
 	}
 
-	p := Build(set, []string{"a-recommends", "core"}, has())
+	p := on(set, []string{"a-recommends", "core"})
 
 	var found *Tool
 	for i := range p.Tools {
@@ -206,7 +215,7 @@ func TestRecommendedDoesNotWeakenRequired(t *testing.T) {
 		}},
 	}
 
-	p := Build(set, []string{"a-requires", "b-recommends"}, has())
+	p := on(set, []string{"a-requires", "b-recommends"})
 	if len(p.Tools) != 1 {
 		t.Fatalf("tools = %v, want one entry", p.Tools)
 	}
@@ -217,7 +226,7 @@ func TestRecommendedDoesNotWeakenRequired(t *testing.T) {
 
 func TestRenderNamesWhatIsMissing(t *testing.T) {
 	var buffer bytes.Buffer
-	Build(fixture(), []string{"terraform"}, has("git")).Render(&buffer)
+	on(fixture(), []string{"terraform"}, "git").Render(&buffer)
 	out := buffer.String()
 
 	for _, want := range []string{"core, terraform", "pulled in as a dependency", "fzf (recommended)"} {
@@ -232,7 +241,7 @@ func TestRenderNamesWhatIsMissing(t *testing.T) {
 // before installing, which is exactly what it is not.
 func TestRenderNamesExternalToolsWithoutCountingThem(t *testing.T) {
 	var buffer bytes.Buffer
-	Build(fixture(), []string{"terraform"}, has("git")).Render(&buffer)
+	on(fixture(), []string{"terraform"}, "git").Render(&buffer)
 	out := buffer.String()
 
 	for _, want := range []string{"terraform/tofu", "does not install these"} {
@@ -254,7 +263,7 @@ func TestRenderNamesExternalToolsWithoutCountingThem(t *testing.T) {
 // reads as success. The exit code disagreed with the text.
 func TestRenderSaysWhenNothingWouldBeInstalled(t *testing.T) {
 	var buffer bytes.Buffer
-	Build(fixture(), []string{"vault"}, has()).Render(&buffer)
+	on(fixture(), []string{"vault"}).Render(&buffer)
 	out := buffer.String()
 
 	if !strings.Contains(out, "nothing would be installed") {
@@ -267,7 +276,7 @@ func TestRenderSaysWhenNothingWouldBeInstalled(t *testing.T) {
 
 func TestRenderSaysWhenNothingIsMissing(t *testing.T) {
 	var buffer bytes.Buffer
-	Build(fixture(), []string{"core"}, has("git", "fzf")).Render(&buffer)
+	on(fixture(), []string{"core"}, "git", "fzf").Render(&buffer)
 
 	if !strings.Contains(buffer.String(), "Missing       nothing") {
 		t.Errorf("a complete plan should say so:\n%s", buffer.String())

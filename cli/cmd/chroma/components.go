@@ -114,7 +114,7 @@ func cmdComponents(args []string, out, errOut *os.File) int {
 	}
 
 	// The same resolver the installation uses, so `requires` means one thing.
-	built := plan.Build(loaded, append([]string{"core"}, wanted...), onPath)
+	built := plan.Build(loaded, append([]string{"core"}, wanted...), describeTools)
 
 	fmt.Fprint(out, "\nChanges\n\n")
 	for _, id := range added {
@@ -161,7 +161,12 @@ func cmdComponents(args []string, out, errOut *os.File) int {
 
 // listComponents answers "what does this tree offer", and changes nothing.
 func listComponents(tree string, out, errOut *os.File) int {
-	set, code := load(tree, errOut)
+	dir, code := contractIn(tree, errOut)
+	if code != exitOK {
+		return code
+	}
+
+	set, code := load(dir, errOut)
 	if code != exitOK {
 		return code
 	}

@@ -1393,6 +1393,55 @@ state still held — and that is a correct state, as long as the record says
 exactly that, a second run does not touch what has already gone home, and it
 finishes the rest. It is a regression test, not a hope.
 
+## Three small ones, and what they had in common
+
+Two of them were a second definition of something the product already had.
+
+**The plan asked whether a name was on PATH.** `doctor` reads what a tool says
+its version is and holds it to the floor the contract states; the plan asked
+`exec.LookPath` and called anything it found present. Measured with a stubbed
+PATH: on a machine with git 2.18 and tree-sitter 0.25, the plan was complete and
+`doctor` exited 4, at the same moment about the same executables. An
+installation would have gone ahead against a machine that cannot run it.
+
+`plan.Tool` is now `detect.Tool`, and `plan.Build` takes a detector rather than a
+name lookup. It is called with the components the plan resolved and not the ones
+that were asked for, because a component pulled in by `requires` needs its tools
+described too. A recommended tool that is too old still does not stop anything —
+`Complete()` is about required tools of Chroma's own, and that distinction is the
+whole of it.
+
+**`--tree` meant two things.** `doctor --tree /repo` read `/repo/components`;
+`components --tree /repo` passed `/repo` to the loader as though it were the
+contract directory, found no `*.json`, and listed nothing — with exit 0, which is
+worse than refusing. One helper decides what the flag means now.
+
+**A version out of a hand-written file could stop the CLI.** `strings.FieldsFunc`
+returns nothing when the string is only separators, and the first element of that
+was taken: `"-"`, `"+"`, `"v-"`, `"-rc1"` and friends panicked the parser in the
+middle of reporting the problems in a contract. Two functions had the same hidden
+precondition and neither could express it in its signature, so the split is one
+function and the precondition is gone.
+
+### And one that was worse than it looked
+
+`ExecRunner` ignored `scanner.Err()`. The scanner stops on a line longer than its
+buffer, which is indistinguishable from end-of-output unless asked — so a child
+that printed one very long line and exited cleanly was reported as success, with
+its output thrown away.
+
+It is not a wrong answer, it is a hang. Stopping the scan is not the same as
+being finished: the child goes on writing into a pipe nobody is emptying, fills
+it, and blocks forever, so `Wait` never returns. Measured with a two-megabyte
+line: the run continued until the test framework killed it at forty-five seconds.
+
+The rest of the pipe is drained so the child can finish, the scan error is
+carried out of the goroutine on a channel, and the three possible reasons are
+ordered: a cancelled run reports the context, a failed child reports its own
+failure and the tail of what it said, and an exit status of zero with unreadable
+output is a failure too — because the installer decides whether an editor
+bootstrapped correctly from what it reads there.
+
 ## Implementation order
 
 Done, in this order. Kept because the reasoning for each step is in the commits

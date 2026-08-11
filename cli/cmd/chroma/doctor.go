@@ -95,10 +95,9 @@ func cmdDoctor(args []string, out, errOut *os.File) int {
 // nil ids when there is no selection because the subject is a tree.
 func subject(root string, out, errOut *os.File) (string, []string, int) {
 	if root != "" {
-		dir := filepath.Join(root, "components")
-		if info, err := os.Stat(dir); err != nil || !info.IsDir() {
-			fmt.Fprintf(errOut, "no components directory in %s — is that a Chroma Neovim tree?\n", root)
-			return "", nil, exitMisuse
+		dir, code := contractIn(root, errOut)
+		if code != exitOK {
+			return "", nil, code
 		}
 		fmt.Fprintf(out, "Reading %s, not an installation.\n\n", root)
 		return dir, nil, exitOK

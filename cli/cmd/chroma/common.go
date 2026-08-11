@@ -5,10 +5,10 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 
 	"github.com/ultherego/chroma-nvim/cli/internal/component"
+	"github.com/ultherego/chroma-nvim/cli/internal/detect"
 	"github.com/ultherego/chroma-nvim/cli/internal/install"
 	"github.com/ultherego/chroma-nvim/cli/internal/installstate"
 	"github.com/ultherego/chroma-nvim/cli/internal/lock"
@@ -60,11 +60,6 @@ func load(dir string, errOut *os.File) (component.Set, int) {
 	}
 
 	return set, exitOK
-}
-
-func onPath(name string) bool {
-	_, err := exec.LookPath(name)
-	return err == nil
 }
 
 // locked takes the exclusive lock for one installation.
@@ -135,4 +130,32 @@ func foreseen(paths install.Paths, current installstate.State, out, errOut *os.F
 		fmt.Fprintf(out, "An earlier Chroma operation did not finish.\n%s\n\nA real run would put that right before doing anything else.\n\n", found.Why)
 	}
 	return exitOK
+}
+
+// describeTools is how every plan finds out what this machine has.
+//
+// One function, passed to plan.Build, and the same detection `doctor` reports
+// from. There used to be a second definition — a name lookup that answered
+// "present" for anything on PATH — and the two disagreed about the same
+// machine: a plan called a git of 2.18 present while doctor called it too old
+// for the floor core states.
+func describeTools(set component.Set, enabled []string) []detect.Tool {
+	return detect.Tools(set, enabled, nil, nil)
+}
+
+// contractIn resolves `--tree <root>` to the directory holding the component
+// contract, which is the one place that decides what the flag means.
+//
+// `--tree` names a configuration root — the thing a release unpacks to, with
+// `init.lua` beside `components/` — and `doctor` read it that way while
+// `components` passed the root straight to the loader as though it were the
+// contract directory. So the same flag on the same checkout worked for one and
+// silently listed nothing for the other, exit 0 and all.
+func contractIn(root string, errOut *os.File) (string, int) {
+	dir := filepath.Join(root, "components")
+	if info, err := os.Stat(dir); err != nil || !info.IsDir() {
+		fmt.Fprintf(errOut, "no components directory in %s — is that a Chroma Neovim tree?\n", root)
+		return "", exitMisuse
+	}
+	return dir, exitOK
 }

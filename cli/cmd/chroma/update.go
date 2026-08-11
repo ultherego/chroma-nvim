@@ -122,7 +122,7 @@ func cmdUpdate(args []string, out, errOut *os.File) int {
 		return code
 	}
 
-	built := plan.Build(loaded, append([]string{"core"}, selected...), onPath)
+	built := plan.Build(loaded, append([]string{"core"}, selected...), describeTools)
 	renderUpdate(out, current, target, prepared, built)
 
 	if *dryRun {

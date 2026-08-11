@@ -12,26 +12,32 @@ import (
 	"strings"
 
 	"github.com/ultherego/chroma-nvim/cli/internal/component"
+	"github.com/ultherego/chroma-nvim/cli/internal/detect"
 )
 
-// Lookup reports whether a command is on PATH. Injected so a plan can be built
-// for a machine other than this one, which is what makes it testable.
-type Lookup func(string) bool
+// Detector describes the tools a set of components needs, as they are on this
+// machine. `detect.Tools` is the only implementation; it is a parameter so a
+// plan can be built for a machine other than this one, which is what makes it
+// testable.
+//
+// It is called with the components the plan resolved, not with the ones that
+// were asked for: a component pulled in by `requires` needs its tools described
+// too, and a list made before the resolution would not have them.
+type Detector func(component.Set, []string) []detect.Tool
 
-// Tool is one entry in the plan's tool list.
-type Tool struct {
-	Names   []string
-	Reason  string
-	Level   string
-	Present bool
-
-	// Component is the id that asked for it, and External marks it as the
-	// user's own rather than Chroma's. `core` is Chroma itself; everything else
-	// asks for tools that belong to the machine — terraform, kubectl, helm —
-	// which Chroma reports on and never installs.
-	Component string
-	External  bool
-}
+// Tool is one entry in the plan's tool list, and it is `detect.Tool` because
+// there is one answer to "is this tool usable on this machine" and it lives
+// there.
+//
+// It used to be a type of its own, filled in from a `func(string) bool` that
+// asked only whether the name was on PATH. So a plan called a git of 2.18
+// present while `doctor`, reading the same executable, called it too old for
+// the floor core states — and the installation went ahead against a machine
+// that could not run it. Measured, with a stubbed PATH: the plan was complete
+// and doctor exited 4 on the same machine, at the same moment.
+//
+// Two definitions of "present" is the shape of that bug, so there is now one.
+type Tool = detect.Tool
 
 // Plan is what would happen. Component ids are sorted, so the same request
 // produces the same plan and two runs can be compared.
@@ -57,7 +63,13 @@ type Plan struct {
 // Without git, by contrast, there are no plugins and there is no installation.
 func (p Plan) Complete() bool {
 	for _, tool := range p.Tools {
-		if !tool.External && tool.Level == "required" && !tool.Present {
+		// Present, not merely found. A required tool below the floor its
+		// component states is exactly as unusable as an absent one, and this is
+		// the only place that decides whether an installation may proceed.
+		//
+		// Only required, and only Chroma's own: a recommended tool that is too
+		// old is a fact about the machine, reported and not in the way.
+		if !tool.External && tool.Level == "required" && tool.Status != detect.Present {
 			return false
 		}
 	}
@@ -80,7 +92,11 @@ func (p Plan) External() []Tool {
 // costs. An unknown id is reported rather than ignored: silently installing
 // less than was asked for is how a user ends up debugging a component that was
 // never enabled.
-func Build(set component.Set, requested []string, lookup Lookup) Plan {
+// Build works out what would be enabled and what it needs.
+//
+// The tools are described by the detector rather than worked out here from a
+// name lookup. See Tool and Detector.
+func Build(set component.Set, requested []string, describe Detector) Plan {
 	plan := Plan{Requested: append([]string(nil), requested...)}
 
 	chosen := map[string]bool{}
@@ -120,6 +136,13 @@ func Build(set component.Set, requested []string, lookup Lookup) Plan {
 
 	// One entry per tool, not per component that wants it: the same tool asked
 	// for twice is one thing to install, and saying so twice reads like two.
+	// Described now, with the resolved list, and keyed the way the loop below
+	// keys them so a tool named by two components is one entry in both.
+	described := map[string]detect.Tool{}
+	for _, tool := range describe(set, plan.Components) {
+		described[strings.Join(tool.Names, "|")] = tool
+	}
+
 	seen := map[string]int{}
 	for _, id := range plan.Components {
 		for _, level := range []struct {
@@ -148,23 +171,8 @@ func Build(set component.Set, requested []string, lookup Lookup) Plan {
 					continue
 				}
 
-				present := false
-				for _, name := range tool.Names() {
-					if lookup(name) {
-						present = true
-						break
-					}
-				}
-
 				seen[key] = len(plan.Tools)
-				plan.Tools = append(plan.Tools, Tool{
-					Names:     tool.Names(),
-					Reason:    tool.Reason,
-					Level:     level.name,
-					Present:   present,
-					Component: id,
-					External:  id != "core",
-				})
+				plan.Tools = append(plan.Tools, described[key])
 			}
 		}
 	}
@@ -198,7 +206,7 @@ func (p Plan) Render(w io.Writer) {
 			continue
 		}
 		name := strings.Join(tool.Names, " or ")
-		if tool.Present {
+		if tool.Status == detect.Present {
 			present = append(present, name)
 		} else {
 			missing = append(missing, fmt.Sprintf("%s (%s)", name, tool.Level))
@@ -228,7 +236,7 @@ func (p Plan) Render(w io.Writer) {
 func (p Plan) absentExternal() []string {
 	var out []string
 	for _, tool := range p.External() {
-		if !tool.Present {
+		if tool.Status != detect.Present {
 			out = append(out, strings.Join(tool.Names, "/"))
 		}
 	}

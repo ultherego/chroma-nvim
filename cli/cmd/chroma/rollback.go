@@ -112,7 +112,7 @@ func cmdRollback(args []string, out, errOut *os.File) int {
 		return code
 	}
 
-	built := plan.Build(restored, append([]string{"core"}, selected...), onPath)
+	built := plan.Build(restored, append([]string{"core"}, selected...), describeTools)
 
 	fmt.Fprint(out, "Chroma Neovim will be rolled back.\n\n")
 	fmt.Fprintf(out, "  Current       %s\n", describeVersionOf(current.Version))
