@@ -327,19 +327,46 @@ once, changed since" without calling `read()`.
 hash it and then calling `read()` reads it twice, and a file can change in
 between: the precheck says trusted, the contents change, and the modal appears
 after Chroma has promised there would not be one. So the snapshot the adapter
-took is the one that is used:
+took is the one that is used, and each state says for itself what happens next:
 
 ```text
-trusted     parse that exact snapshot; read() is not called at all
-otherwise   print the explanation, then call vim.secure.read() only to put
-            Neovim's trust question in front of the user, and load nothing
-            in this invocation
+missing          there are no project tasks; nothing else is said
+
+trusted          parse that exact snapshot
+                 vim.secure.read() is not called at all
+
+untrusted        explain the "exrc" modal that is about to appear
+                 call vim.secure.read() only to put Neovim's own question
+                 in front of the user, and load nothing this invocation
+
+denied           refuse, saying it was denied, and offer :trust ++remove
+                 vim.secure.read() is not called: Neovim sees the `!`,
+                 returns nil and asks nothing
+
+unknown/refused  refuse with the generic trust-database wording
+                 vim.secure.read() is not called
 ```
 
-Security is unchanged — the hash that authorises the snapshot is the hash
-Neovim recorded, compared the way Neovim compares it — and the promise about the
-modal becomes one Chroma can keep. After `:trust`, the next Run Task starts
-again from a fresh snapshot, which is the same rule as §4's no-caching.
+Three of the five never reach `read()`, which is what keeps the other promise:
+Chroma never announces a modal that is not going to appear.
+
+**The snapshot is bytes, not lines.** Since a trusted snapshot is parsed without
+`read()` ever seeing it, how the file is read is part of the security boundary
+and not an implementation detail. Neovim opens the file in binary mode, reads it
+whole and takes `sha256` of exactly those bytes. Chroma does the same, and:
+
+```text
+bytes hashed  ==  bytes authorised  ==  bytes parsed
+```
+
+Reading lines and joining them would produce a second representation of the
+file — one that can differ in line endings and in a final newline — and then
+Chroma would be answering a different question from the one Neovim answered.
+
+Security is unchanged by any of this: the hash that authorises the snapshot is
+the hash Neovim recorded, compared the way Neovim compares it. After `:trust`,
+the next Run Task starts again from a fresh snapshot, which is the same rule as
+the no-caching above.
 
 The adapter reads Neovim's trust database, and that is a deliberate coupling to
 another project's implementation detail. It carries two obligations:
@@ -657,15 +684,25 @@ That is four files, not one: the keymap in `lua/plugins/devops.lua`, the
 component's description and its required tool in `components/ansible.json`, the
 health line in `lua/chroma/health.lua`, and the sentence in `CONTRACT.md`.
 
-**The required `ansible` goes with it.** The component requires that executable
-for exactly one stated reason — *"running a playbook or a role from the buffer"*
-— and that is the thing being retired. What remains of the plugin was read at
-the pinned version: its `ftplugin/ansible.lua` sets `keywordprg` to
-`ansible-doc` and only when `executable('ansible-doc')` says so, and extends
-`path` for `gf`; neither needs the `ansible` CLI, and the language server is a
-separate tool already declared separately. If `ansible-doc` is worth declaring,
-it is declared as itself and at its own level — not left standing as a required
-tool whose reason no longer exists.
+**The required `ansible` goes with it, and `ansible-doc` arrives as optional.**
+The component requires that executable for exactly one stated reason —
+*"running a playbook or a role from the buffer"* — and that is the thing being
+retired. What remains of the plugin was read at the pinned version: its
+`ftplugin/ansible.lua` sets `keywordprg` to `ansible-doc`, and only when
+`executable('ansible-doc')` says so, and extends `path` for `gf`. Neither needs
+the `ansible` CLI, and the language server is declared separately already.
+
+So the component's tools become exactly this:
+
+```text
+remove   required  ansible      "running a playbook or a role from the buffer"
+add      optional  ansible-doc  "documentation lookup through keywordprg"
+```
+
+Optional rather than recommended, and declared rather than omitted, because it
+is what the code actually does: a guarded lookup that improves the component
+when the tool is there and changes nothing when it is not — which is precisely
+what the optional level already means in `core.json`.
 
 ---
 
@@ -729,8 +766,10 @@ Trust         evaluated only on explicit Run Task, never at startup
               states: missing / untrusted / trusted / denied / unknown
               denied is never reported as "no tasks"
               adapter resolves realpath + current hash + entry, not just `!`
-              the adapter's snapshot is authoritative; a trusted one is parsed
-              without calling read(), which only ever drives Neovim's trust UI
+              the adapter's snapshot is authoritative and is exact file bytes:
+              hashed, authorised and parsed without a second representation
+              trusted parses that snapshot; only untrusted calls read(),
+              and denied, missing and unknown never call it at all
               trust-database adapter: format pinned by a test,
               parse failure degrades to the generic refusal
               definitions are read per Run Task and never cached for a session
@@ -759,7 +798,7 @@ UI            <leader>xr → picker → preview → confirmation
 
 Integration   the nvim-ansible execution path retires in this milestone:
               <leader>ar and require("ansible").run() go, the plugin stays
-              the required `ansible` tool goes with the reason that named it
+              required `ansible` goes; optional `ansible-doc` takes its place
               components/ansible.json, health.lua and CONTRACT.md follow
 
 Architecture  tasks are core, not a component
