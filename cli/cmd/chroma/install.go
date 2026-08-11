@@ -321,7 +321,7 @@ type preparer interface {
 
 // renderPlan prints what would happen, before anything does.
 func renderPlan(out *os.File, opts install.Options, paths install.Paths, prepared install.PreparedSource, built plan.Plan) {
-	fmt.Fprintf(out, "Chroma Neovim will be installed.\n\n")
+	fmt.Fprintf(out, "Nothing has been written yet. This is what installing would do.\n\n")
 
 	switch {
 	case prepared.Version == "":

@@ -282,7 +282,7 @@ func carriedOver(paths install.Paths, set component.Set, errOut *os.File) ([]str
 
 // renderUpdate prints what would change, before it does.
 func renderUpdate(out *os.File, current installstate.State, target string, prepared install.PreparedSource, built plan.Plan) {
-	fmt.Fprintf(out, "Chroma Neovim will be updated.\n\n")
+	fmt.Fprintf(out, "Nothing has been written yet. This is what updating would do.\n\n")
 	fmt.Fprintf(out, "  Current       %s\n", current.Version)
 	fmt.Fprintf(out, "  Available     %s\n", target)
 	fmt.Fprintf(out, "  Location      %s\n", current.ConfigDir)

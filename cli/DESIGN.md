@@ -394,7 +394,7 @@ no answer.
 █ ▀█ █▀▀ █ █ ▀▄▀ █ █ ▀ █
 ▀  ▀ ▀▀▀ ▀▀▀  ▀  ▀ ▀   ▀
 
-Chroma Neovim will be installed.
+Nothing has been written yet. This is what installing would do.
 
   Release       v2.1.0
   Location      ~/.config/chroma-nvim
@@ -424,6 +424,11 @@ Chroma Neovim will be installed.
 
 Proceed? [y/N]
 ```
+
+The first line is the whole promise of this screen: it is a plan, and at the
+moment it is printed nothing on the machine has changed. It used to read
+`Chroma Neovim will be installed.`, which states an outcome — and reads, to
+somebody who has just run the command, like a report that it happened.
 
 The table is Chroma's own tooling, one row per tool, and a `required` row that
 does not say `ok` is the row the exit code follows. `External` is named and not
