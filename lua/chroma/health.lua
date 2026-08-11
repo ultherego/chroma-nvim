@@ -79,6 +79,47 @@ local function check_neovim()
   )
 end
 
+--- What Neovim project tasks need, which is more than Chroma itself does.
+---
+--- Chroma's floor is 0.12 and stays there. This one feature asks for 0.12.3
+--- because that is where upstream `799cbfff8` (2026-05-20, "fix(vim.secure):
+--- read() command injection vulnerability") landed, and project tasks are the
+--- only thing in Chroma that puts Neovim's trust prompt in front of anybody.
+--- A security boundary is not built on an implementation without the fix.
+local TASKS_FLOOR = { 0, 12, 3 }
+
+---Which Neovim this is. A variable because a test cannot be several of them,
+---and the whole value of this check is what it says on the ones it is not
+---running on.
+---@type fun(): table
+M.version = vim.version
+
+local function check_project_tasks()
+  health.start("Project tasks")
+
+  -- The version, and nothing else. Nothing here looks for a `.chroma/tasks.json`,
+  -- reads one, or asks the trust database about it: trust is evaluated on an
+  -- explicit Run Task and nowhere else, and a health check that raised the
+  -- trust modal — or recorded a decision — would be doing the one thing the
+  -- contract forbids it to do.
+  local version = M.version()
+
+  if vim.version.ge(version, TASKS_FLOOR) then
+    health.ok(("Neovim %s — project tasks are available"):format(version))
+    return
+  end
+
+  -- A warning, not an error: Chroma itself supports this editor and everything
+  -- else in it works. One feature does not.
+  health.warn(
+    ("Project tasks unavailable — Neovim 0.12.3 or newer is required, and this is %s"):format(version),
+    "They are the only part of Chroma that puts Neovim's trust prompt on screen, and it "
+      .. "reaches `vim.secure.read()`, whose command-injection fix (upstream 799cbfff8, "
+      .. "2026-05-20) is absent from 0.12.0 to 0.12.2 and present from 0.12.3. Everything "
+      .. "else in Chroma works on this version."
+  )
+end
+
 local function check_core()
   health.start("Core tooling")
 
@@ -328,6 +369,11 @@ end
 
 function M.check()
   check_neovim()
+  -- Its own section, deliberately. Folded into the one above, an editor that
+  -- provides every API Chroma calls would either be reported unhealthy for
+  -- lacking one feature, or — as it was — reported as having everything while
+  -- one thing refuses to run.
+  check_project_tasks()
   check_core()
   check_lockfile()
   check_pickers()

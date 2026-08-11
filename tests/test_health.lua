@@ -135,4 +135,109 @@ T["external tools"]["are reported as the user's own, not as a failure"] = functi
   eq(text:find("Chroma does not install or manage these", 1, true) ~= nil, true)
 end
 
+-- ---------------------------------------------------------------------------
+-- The one feature that asks for more Neovim than Chroma does
+--
+-- Project tasks reach `vim.secure.read()`, whose command-injection fix landed
+-- in 0.12.3. Chroma's own floor is 0.12 and stays there, so an editor between
+-- the two is a correct Chroma with one feature missing — and health has to be
+-- able to say both things at once.
+
+T["project tasks"] = new_set({
+  hooks = {
+    post_case = function()
+      require("chroma.health").version = vim.version
+    end,
+  },
+})
+
+---The report as seen by an editor claiming to be `version`.
+---@param version string
+---@return string
+local function report_on(version)
+  require("chroma.health").version = function()
+    return vim.version.parse(version)
+  end
+  return report()
+end
+
+T["project tasks"]["are unavailable below 0.12.3, and say why"] = function()
+  local text = report_on("0.12.2")
+
+  eq(text:find("Project tasks unavailable", 1, true) ~= nil, true)
+  eq(text:find("0.12.3", 1, true) ~= nil, true)
+  -- The reason, not just the number: a version floor with no argument behind
+  -- it reads as an arbitrary demand to upgrade.
+  eq(text:find("vim.secure.read", 1, true) ~= nil, true)
+  eq(text:find("799cbfff8", 1, true) ~= nil, true)
+end
+
+T["project tasks"]["are their own section, and a warning rather than a fault"] = function()
+  -- Folded into the section above, an editor that provides every API Chroma
+  -- calls would either be reported unhealthy for lacking one feature, or —
+  -- which is what happened before this — reported as having everything while
+  -- one thing refuses to run.
+  local text = report_on("0.12.2")
+
+  eq(text:find("Project tasks ~", 1, true) ~= nil, true)
+
+  local reported
+  for _, line in ipairs(vim.split(text, "\n")) do
+    if line:find("Project tasks unavailable", 1, true) then
+      reported = line
+    end
+  end
+
+  eq(reported ~= nil, true)
+  eq(reported:find("WARNING", 1, true) ~= nil, true)
+  eq(reported:find("ERROR", 1, true), nil)
+end
+
+T["project tasks"]["leave the rest of Chroma reported as healthy"] = function()
+  -- Both at once. An editor that provides every API this configuration calls
+  -- is a working Chroma even when one feature needs a newer one.
+  local text = report_on("0.12.2")
+
+  eq(text:find("every editor API this configuration calls is present", 1, true) ~= nil, true)
+  eq(text:find("Project tasks unavailable", 1, true) ~= nil, true)
+end
+
+T["project tasks"]["are available from 0.12.3 onwards"] = function()
+  for _, version in ipairs({ "0.12.3", "0.12.4", "0.12.10", "0.13.0", "1.0.0" }) do
+    local text = report_on(version)
+    -- 0.12.10 is the one a string comparison gets wrong.
+    eq({ version, text:find("project tasks are available", 1, true) ~= nil }, { version, true })
+  end
+end
+
+T["project tasks"]["are unavailable on the versions before it"] = function()
+  for _, version in ipairs({ "0.12.0", "0.12.1", "0.12.2", "0.11.9" }) do
+    local text = report_on(version)
+    eq({ version, text:find("Project tasks unavailable", 1, true) ~= nil }, { version, true })
+  end
+end
+
+T["project tasks"]["treat a prerelease of the floor as below it"] = function()
+  -- Semver, and the right answer: 0.12.3-dev is a build of something that is
+  -- not 0.12.3 yet, and the fix may or may not be in it.
+  eq(report_on("0.12.3-dev"):find("Project tasks unavailable", 1, true) ~= nil, true)
+end
+
+T["project tasks"]["are checked without touching a task file or the trust database"] = function()
+  -- Trust is evaluated on an explicit Run Task and nowhere else. A health check
+  -- that raised the modal, or recorded a decision, would be the one thing the
+  -- contract forbids it to do.
+  local asked = 0
+  local real = vim.secure.read
+  vim.secure.read = function(path)
+    asked = asked + 1
+    return real(path)
+  end
+
+  local ok = pcall(report_on, "0.12.2")
+  vim.secure.read = real
+
+  eq({ ok, asked }, { true, 0 })
+end
+
 return T
