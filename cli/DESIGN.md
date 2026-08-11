@@ -1345,6 +1345,54 @@ transaction left behind describes a machine that is about to change.
 confirmation when the lock became global, so its dry run never reached one. That
 is now held in place by a test rather than by luck.
 
+## The record is the last thing to go
+
+An uninstall that could not finish removed the record anyway, and the record is
+the only description of what is left to finish. Measured in both shapes.
+
+Isolated, with the data directory impossible to remove:
+
+```
+data directory left behind: true
+state directory still there: false
+record still there:          false        ← the map of what remains
+```
+
+A second run answered "No Chroma installation is recorded".
+
+A takeover, with Chroma's cache impossible to move out of the way:
+
+```
+uninstall failed:   true
+record still there: false
+user's cache back:  false      ← still owed
+user's state back:  true       ← handed back anyway
+```
+
+That is the worse of the two: somebody's cache directory left at a
+`*.chroma-backup-*` path, and nothing anywhere recording that it is theirs.
+
+**The state directory is the commit point of an uninstall, not an item on a
+list.** `install.json` lives under it, so parting with it is the moment Chroma
+stops being able to say what is unfinished. Both shapes now say the same thing:
+
+```
+phase 1   ownership handover up to the commit point (the configuration)
+phase 2   everything else Chroma owns — hand-backs and removals, all retryable
+          if any of it failed: the record stays, and this stops
+phase 3   isolated:  remove the state directory        ← the commit
+          takeover:  give the state directory back     ← the commit
+```
+
+Nothing reaches phase three while anything else is unfinished, and there is
+deliberately nothing after it.
+
+What this makes possible is the case that matters after schema 6: a run may stop
+with the configuration and the data handed back, the cache still owed and the
+state still held — and that is a correct state, as long as the record says
+exactly that, a second run does not touch what has already gone home, and it
+finishes the rest. It is a regression test, not a hope.
+
 ## Implementation order
 
 Done, in this order. Kept because the reasoning for each step is in the commits

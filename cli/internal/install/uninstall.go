@@ -408,6 +408,16 @@ func (i *Installer) Uninstall(paths Paths, current installstate.State) (Removal,
 		if one.Kind == "configuration" {
 			continue
 		}
+		if one.Kind == "state" {
+			// The terminal resource, and it waits for phase three. install.json
+			// lives under it, so handing it back is the moment Chroma stops
+			// having a record — and doing that while anything else is still
+			// owed is how a borrowed cache ends up stranded at a backup path
+			// with nothing left to say whose it is. Measured, before this: the
+			// cache could not be handed back, the state went home anyway, and
+			// the record went with it.
+			continue
+		}
 
 		moved, err := tx.HoldAside(one.Original)
 		if err != nil {
@@ -442,14 +452,6 @@ func (i *Installer) Uninstall(paths Paths, current installstate.State) (Removal,
 		// one just handed back. Its copy is removed instead, immediately, which
 		// is what finishing the uninstall would do anyway.
 		current = markHandedBack(current, one.Kind)
-		if one.Kind == "state" {
-			if moved != "" {
-				if err := os.RemoveAll(moved); err != nil {
-					removal.Problems = append(removal.Problems, fmt.Errorf("removing %s: %w", moved, err))
-				}
-			}
-			continue
-		}
 
 		if moved != "" {
 			held = append(held, doomed{report: one.Original, target: moved})
@@ -465,8 +467,15 @@ func (i *Installer) Uninstall(paths Paths, current installstate.State) (Removal,
 	// Chroma's own paths, and then the copies of the ones whose place has been
 	// given back. Both are Chroma's; only the second kind no longer lives where
 	// its name says, which is why it is reported under the path it had.
+	//
+	// The state directory is held back from this list. It is where install.json
+	// lives, so removing it is the last act of an uninstall and not one item
+	// among several — see finish below.
 	going := make([]doomed, 0, len(plan.Remove)+len(held))
 	for _, path := range plan.Remove {
+		if path == current.StateDir {
+			continue
+		}
 		going = append(going, doomed{report: path, target: path})
 	}
 	going = append(going, held...)
@@ -490,8 +499,83 @@ func (i *Installer) Uninstall(paths Paths, current installstate.State) (Removal,
 		}
 	}
 
+	// **The end of phase two, and the gate into phase three.**
+	//
+	// Everything above can be attempted again: the removals are of Chroma's own
+	// paths, and the hand-backs are of directories still standing where the
+	// record says. So if any of it failed, the record stays exactly where it is
+	// and this stops — because the record is the only description of what is
+	// left to finish, and the next step destroys it.
+	//
+	// Measured, before this gate existed. Isolated: the data directory could
+	// not be removed, the state directory went anyway, and a second run
+	// answered "No Chroma installation is recorded". Takeover: the cache could
+	// not be handed back, the borrowed state went home anyway, and the user's
+	// cache was left at a backup path with nothing to say whose it was.
+	if len(removal.Problems) > 0 {
+		sink.Emit(Event{Step: "uninstall", Status: StatusFailed,
+			Message: "some of what Chroma made could not be removed; the record is kept so this can be run again"})
+		return removal, errors.Join(removal.Problems...)
+	}
+
+	if problems := finish(paths, current, plan, sink); len(problems) > 0 {
+		removal.Problems = append(removal.Problems, problems...)
+		return removal, errors.Join(removal.Problems...)
+	}
+	removal.Removed = append(removal.Removed, current.StateDir)
+
 	sink.Emit(Event{Step: "uninstall", Status: StatusDone})
 	return removal, errors.Join(removal.Problems...)
+}
+
+// finish is the last act of an uninstall, and the only one that destroys the
+// record.
+//
+// Two shapes, one meaning. An installation of its own owns its state directory,
+// so removing it is the commit. A takeover borrowed it, so giving it back is —
+// and Chroma's own copy, which is where install.json has been all along, is
+// removed immediately afterwards.
+//
+// Nothing reaches here while anything else is unfinished.
+func finish(paths Paths, current installstate.State, plan RemovalPlan, sink ProgressSink) []error {
+	borrowed, owed := firstOfKind(plan.GiveBack, "state")
+	if !owed {
+		if err := os.RemoveAll(current.StateDir); err != nil {
+			return []error{fmt.Errorf("removing %s: %w", current.StateDir, err)}
+		}
+		return nil
+	}
+
+	tx := NewTransaction(paths)
+	moved, err := tx.HoldAside(borrowed.Original)
+	if err != nil {
+		return []error{fmt.Errorf("giving your %s back: %w", borrowed.Kind, err)}
+	}
+
+	if err := ProveIdentity(borrowed.Backup, identityOfRecord(borrowed), "your "+borrowed.Kind); err != nil {
+		if moved != "" {
+			if putBack := os.Rename(moved, borrowed.Original); putBack != nil {
+				return []error{err, fmt.Errorf("putting %s back as %s: %w", moved, borrowed.Original, putBack)}
+			}
+		}
+		return []error{err}
+	}
+	if err := os.Rename(borrowed.Backup, borrowed.Original); err != nil {
+		if moved != "" {
+			_ = os.Rename(moved, borrowed.Original)
+		}
+		return []error{describeRestoreFailure(borrowed.Backup, borrowed.Original, err)}
+	}
+	sink.Emit(Event{Step: "restore", Status: StatusDone, Message: borrowed.Kind + ": " + borrowed.Original})
+
+	// The record went with it. Removing Chroma's copy is what makes the
+	// uninstall complete, and there is deliberately nothing after this line.
+	if moved != "" {
+		if err := os.RemoveAll(moved); err != nil {
+			return []error{fmt.Errorf("removing %s: %w", moved, err)}
+		}
+	}
+	return nil
 }
 
 // beginHandover marks every directory still owed as being in transit.
