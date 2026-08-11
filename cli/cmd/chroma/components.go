@@ -14,7 +14,6 @@ import (
 	"github.com/ultherego/chroma-nvim/cli/internal/detect"
 	"github.com/ultherego/chroma-nvim/cli/internal/install"
 	"github.com/ultherego/chroma-nvim/cli/internal/plan"
-	"github.com/ultherego/chroma-nvim/cli/internal/tui"
 )
 
 // cmdComponents changes which parts of an installation are enabled.
@@ -95,7 +94,7 @@ func cmdComponents(args []string, out, errOut *os.File) int {
 	}
 
 	if !given {
-		chosen, err := tui.Components(loaded, existing, os.Stdin, out)
+		chosen, err := askComponentsInteractively(loaded, existing, os.Stdin, out)
 		if err != nil {
 			fmt.Fprintln(errOut, err)
 			return exitMisuse

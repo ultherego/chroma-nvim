@@ -514,6 +514,21 @@ jobs:
           fi
           echo "gofmt clean."
 
+      - name: Dependencies are the ones that were reviewed
+        run: |
+          cd cli
+          # go.sum authenticates the contents of the versions in go.mod, and
+          # this checks that what is in the module cache still matches those
+          # hashes. It is not a whole supply-chain defence and is not offered as
+          # one — it is the cheap half, and the CLI depends on somebody else's
+          # code now, which it did not before.
+          go mod verify
+          # And the graph is the one that was committed. Not a security check:
+          # protection against a dependency arriving by accident, in a commit
+          # about something else.
+          go mod tidy
+          git diff --exit-code -- go.mod go.sum
+
       - name: go vet
         run: cd cli && go vet ./...
 

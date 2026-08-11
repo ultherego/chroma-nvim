@@ -16,7 +16,6 @@ import (
 	"github.com/ultherego/chroma-nvim/cli/internal/install"
 	"github.com/ultherego/chroma-nvim/cli/internal/plan"
 	"github.com/ultherego/chroma-nvim/cli/internal/release"
-	"github.com/ultherego/chroma-nvim/cli/internal/tui"
 )
 
 // cmdInstall places a Chroma Neovim on this machine.
@@ -137,7 +136,7 @@ func cmdInstall(args []string, out, errOut *os.File) int {
 	// where to go would break every scripted install that answers the final
 	// question with --yes and nothing else.
 	if opts.Selected == nil && opts.Profile == "" && !opts.NonInteractive {
-		opts, err = tui.Ask(opts, loaded, os.Stdin, out)
+		opts, err = askInteractively(opts, loaded, os.Stdin, out)
 		if err != nil {
 			fmt.Fprintln(errOut, err)
 			return exitMisuse

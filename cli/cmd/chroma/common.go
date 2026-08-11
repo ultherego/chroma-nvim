@@ -12,6 +12,7 @@ import (
 	"github.com/ultherego/chroma-nvim/cli/internal/install"
 	"github.com/ultherego/chroma-nvim/cli/internal/installstate"
 	"github.com/ultherego/chroma-nvim/cli/internal/lock"
+	"github.com/ultherego/chroma-nvim/cli/internal/tui"
 )
 
 // tree resolves --tree, defaulting to the working directory, and returns the
@@ -159,3 +160,18 @@ func contractIn(root string, errOut *os.File) (string, int) {
 	}
 	return dir, exitOK
 }
+
+// The two questions this CLI asks a person, held in package variables.
+//
+// A test about the installer should not be a test about a terminal emulator.
+// One of the tests that drives this flow is a regression for the lock: it
+// answers "take over ~/.config/nvim" and then proves the lock followed the
+// answer rather than the paths resolved before it was given. That invariant is
+// about the installer, so the seam belongs here, at the boundary where a
+// decision becomes a value.
+//
+// Replaced with t.Cleanup, and never from a parallel test.
+var (
+	askInteractively           = tui.Ask
+	askComponentsInteractively = tui.Components
+)
