@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 	"syscall"
 
 	"github.com/ultherego/chroma-nvim/cli/internal/installstate"
@@ -216,6 +217,27 @@ func (tx *Transaction) borrowOne(borrowable Borrowable) (bool, error) {
 		return false, fmt.Errorf("%s is not a directory, and Chroma will not move it aside", borrowable.Original)
 	}
 
+	// Chroma's own directories are never borrowed, whatever the record says.
+	//
+	// The record is what usually prevents this: a second installation is
+	// refused because the first one is written down. But a record can be
+	// deleted by hand, and then the directory standing at Neovim's path is
+	// Chroma's from last time, and borrowing it means recording Chroma's own
+	// files as "the state you had before Chroma" — while the real one, moved
+	// aside by that earlier installation, is left with nothing pointing at it.
+	//
+	// Measured on a real machine: two generations of backups side by side, the
+	// newer one holding Chroma's log directory and the older one holding the
+	// user's own shada and logs. A later uninstall would have handed back the
+	// wrong one and orphaned 800 MB of somebody's editor.
+	if found := chromaLeftIt(borrowable.Original); found != "" {
+		return false, fmt.Errorf(
+			"%s is a directory an earlier Chroma left behind (%s), not a %s of yours.\n"+
+				"Borrowing it would record Chroma's own files as what you had before Chroma, and orphan whatever is in the backup beside it.\n"+
+				"Look at %s.chroma-backup-* — one of them is yours — then remove or move %s and install again",
+			borrowable.Original, found, borrowable.Kind, borrowable.Original, borrowable.Original)
+	}
+
 	identity, err := identityOf(info, borrowable.Original)
 	if err != nil {
 		return false, err
@@ -240,6 +262,35 @@ func (tx *Transaction) borrowOne(borrowable Borrowable) (bool, error) {
 		Handover: installstate.HandoverHeld,
 	})
 	return true, nil
+}
+
+// chromaLeftIt names what marks a directory as one Chroma made, or "".
+//
+// Two marks, and both are things only this program writes. `install.json` is
+// the record itself, and a `logs/install-*.log` is what every installation
+// leaves behind — measured on a real machine, that is what told Chroma's copy
+// of a state directory apart from the user's, which had a shada and an
+// `lsp.log` and no `logs/` at all.
+//
+// Deliberately narrow. A directory somebody else's plugin called `logs` is not
+// evidence of anything, and refusing an installation on a guess would be worse
+// than the mistake this prevents.
+func chromaLeftIt(dir string) string {
+	if _, err := os.Lstat(filepath.Join(dir, "install.json")); err == nil {
+		return "it holds install.json"
+	}
+
+	logs, err := os.ReadDir(filepath.Join(dir, "logs"))
+	if err != nil {
+		return ""
+	}
+	for _, entry := range logs {
+		if strings.HasPrefix(entry.Name(), "install-") && strings.HasSuffix(entry.Name(), ".log") {
+			return "it holds logs/" + entry.Name()
+		}
+	}
+
+	return ""
 }
 
 // asideFrom picks an unused sibling path to move a directory to.

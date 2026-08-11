@@ -146,3 +146,90 @@ func TestNothingIsRecordedAfterAnUninstall(t *testing.T) {
 		t.Errorf("the record survived the uninstall, so the next install will refuse: found=%v err=%v", found, err)
 	}
 }
+
+// The record is what usually stops a second installation, and a record can be
+// deleted by hand. What is left then is Chroma's own directory standing at
+// Neovim's path — and borrowing it records Chroma's files as "what you had
+// before Chroma" while the real one, moved aside by the earlier installation,
+// is left with nothing pointing at it.
+//
+// Measured on a real machine before this refusal existed: two generations of
+// backups side by side, the newer holding Chroma's log directory and the older
+// holding the user's own shada. 800 MB of somebody's editor, one uninstall away
+// from being unreachable.
+func TestInstallRefusesToBorrowADirectoryChromaLeftBehind(t *testing.T) {
+	for _, leftover := range []struct {
+		name  string
+		build func(t *testing.T, stateDir string)
+		says  string
+	}{
+		{
+			name: "a log from an earlier installation",
+			build: func(t *testing.T, stateDir string) {
+				logs := filepath.Join(stateDir, "logs")
+				if err := os.MkdirAll(logs, 0o755); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(filepath.Join(logs, "install-20260811T213336Z.log"), []byte("clone\n"), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			},
+			says: "logs/install-20260811T213336Z.log",
+		},
+		{
+			name: "a record somebody did not finish removing",
+			build: func(t *testing.T, stateDir string) {
+				if err := os.WriteFile(filepath.Join(stateDir, "install.json"), []byte("{}\n"), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			},
+			says: "install.json",
+		},
+	} {
+		t.Run(leftover.name, func(t *testing.T) {
+			fixed(t)
+
+			paths := used(t)
+			leftover.build(t, paths.StateDir)
+
+			installer := &Installer{Runner: &failAt{}}
+			_, err := installer.Apply(context.Background(), Options{UseDefault: true, Selected: []string{}}, paths, prepared(t), shipped(t))
+
+			if err == nil {
+				t.Fatal("the installation borrowed a directory Chroma had left behind")
+			}
+			if !strings.Contains(err.Error(), leftover.says) {
+				t.Errorf("the refusal does not name what it found: %v", err)
+			}
+
+			// And it refused without touching anything: the machine is as it was.
+			if left := asides(t, paths); len(left) > 0 {
+				t.Errorf("a refused installation moved %v aside", left)
+			}
+			if _, err := os.ReadFile(filepath.Join(paths.DataDir, "mine.txt")); err != nil {
+				t.Errorf("a refused installation disturbed the data directory: %v", err)
+			}
+		})
+	}
+}
+
+// Narrow on purpose. Somebody else's `logs` directory is not evidence of
+// anything, and an installation refused on a guess is worse than the mistake
+// the refusal prevents.
+func TestInstallBorrowsAnOrdinaryDirectoryWithALogsFolder(t *testing.T) {
+	fixed(t)
+
+	paths := used(t)
+	logs := filepath.Join(paths.StateDir, "logs")
+	if err := os.MkdirAll(logs, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(logs, "something-else.log"), []byte("not Chroma's\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	installer := &Installer{Runner: &failAt{}}
+	if _, err := installer.Apply(context.Background(), Options{UseDefault: true, Selected: []string{}}, paths, prepared(t), shipped(t)); err != nil {
+		t.Fatalf("an ordinary state directory was refused: %v", err)
+	}
+}
