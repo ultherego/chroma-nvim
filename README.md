@@ -80,8 +80,15 @@ whatever Neovim configuration you already have:
 NVIM_APPNAME=chroma-nvim nvim
 ```
 
-Choosing the other placement takes over `~/.config/nvim` and keeps what was
-there, to be given back if you ever uninstall.
+Choosing the other placement takes over Neovim's own directories and keeps what
+was there, to be given back if you ever uninstall. Not just `~/.config/nvim`:
+Neovim reads `~/.local/share/nvim`, `~/.local/state/nvim` and `~/.cache/nvim`
+too, so all four are moved aside and all four are returned — your plugins, your
+undo history and your shada included.
+
+There is one managed installation per machine. If Chroma is already installed,
+`install` says so and points you at `update`, `components` or `uninstall`
+instead of making a second one.
 
 Everything the installer fetches is verified before it is unpacked: the archive
 is checked against the checksum published with the release, and unpacking
@@ -122,9 +129,14 @@ chroma uninstall
 
 It prints the exact list of paths before it removes anything. What Chroma made
 — the configuration, the kept generations, the plugins, the Mason packages, the
-parsers, the cache, the state and your component selection — is removed. A
-configuration that was in `~/.config/nvim` before Chroma took it over is
-**given back**, not deleted. External tools and Neovim itself are never touched.
+parsers, the cache, the state and your component selection — is removed. Anything
+that was in Neovim's own directories before Chroma took them over is **given
+back**, not deleted, and Chroma refuses to move a directory it cannot show is the
+one it was left. External tools and Neovim itself are never touched.
+
+If part of the removal fails, the record stays where it is and says what is left
+to finish, so running it again completes the rest rather than starting from a
+machine nothing describes.
 
 ## Development
 
