@@ -170,6 +170,36 @@ T["stopping"]["accepts a symlink that leads to a regular file"] = function()
   eq(found.root, root)
 end
 
+T["stopping"]["refuses when it could not look, rather than calling it absent"] = function()
+  -- The permission version of the broken symlink: an unreadable `.chroma/`
+  -- answers EACCES, not ENOENT, and reading every failure as "nothing here"
+  -- walks up into the parent's tasks. Injected rather than produced with
+  -- chmod, so the case says the same thing when the suite runs as root.
+  local root = tree()
+  tasks_in(root)
+
+  local child = vim.fs.joinpath(root, "sub")
+  local candidate = vim.fs.joinpath(child, ".chroma", "tasks.json")
+  vim.fn.mkdir(child, "p")
+
+  local real = vim.uv.fs_lstat
+  vim.uv.fs_lstat = function(path)
+    if path == candidate then
+      return nil, ("EACCES: permission denied: %s"):format(path), "EACCES"
+    end
+    return real(path)
+  end
+  local ok, found, problem = pcall(source.find, child)
+  vim.uv.fs_lstat = real
+
+  eq(ok, true)
+  eq(found, nil)
+  if not problem:find("cannot be inspected", 1, true) then
+    error(("refusal %q does not say the entry could not be inspected"):format(problem))
+  end
+  eq(problem:find("EACCES", 1, true) ~= nil, true)
+end
+
 T["stopping"]["refuses a file it cannot read"] = function()
   if vim.uv.getuid() == 0 then
     -- Root reads everything, so the case would pass for the wrong reason.

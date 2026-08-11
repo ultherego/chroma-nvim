@@ -80,7 +80,9 @@ function M.find(from)
   while directory do
     local path = vim.fs.joinpath(directory, DIRECTORY, FILE)
 
-    if vim.uv.fs_lstat(path) then
+    local entry, failure, code = vim.uv.fs_lstat(path)
+
+    if entry then
       -- Found something with that name. Whatever it is, the search ends here:
       -- stepping over an unusable entry would hand this project's Run Task to
       -- whichever repository happens to be above it.
@@ -89,6 +91,17 @@ function M.find(from)
         return nil, problem
       end
       return { root = directory, path = path, resolved = resolved }, nil
+    end
+
+    -- "There is nothing here" and "I was not allowed to look" are two answers,
+    -- and only the first may continue upward. Measured: luv fails with the code
+    -- as its third value, so an unreadable `.chroma/` answers EACCES while a
+    -- missing one answers ENOENT — and reading both as absence turns a
+    -- permission problem into somebody else's tasks running. ENOTDIR is
+    -- absence too: it means a path component is not a directory, so no entry
+    -- of that name exists here either.
+    if code ~= "ENOENT" and code ~= "ENOTDIR" then
+      return nil, ("%s cannot be inspected: %s"):format(path, failure or code or "unknown filesystem error")
     end
 
     local parent = vim.fs.dirname(directory)
