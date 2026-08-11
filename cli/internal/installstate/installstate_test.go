@@ -298,7 +298,7 @@ func TestAHandedBackStateCannotAlsoNameSomethingToRestore(t *testing.T) {
 	record := whole()
 	handed := borrowed("configuration", record.ConfigDir, "/home/somebody/.config/nvim.chroma-original")
 	handed.Handover = HandoverHandedBack
-	handed.Device, handed.Inode = 0, 0
+	handed.Device, handed.Inode, handed.Mtime = 0, 0, 0
 	record.Borrowed = []Borrowed{handed, borrowed("data", "/home/somebody/.local/share/nvim", "/home/somebody/.config/nvim.chroma-original")}
 
 	if _, err := Write(path, record); err == nil {
@@ -339,7 +339,7 @@ func TestABorrowedDirectoryMustBeFullyDescribed(t *testing.T) {
 		{"nothing to hold", func(b *Borrowed) { b.Backup = "" }},
 		{"nowhere to put it back", func(b *Borrowed) { b.Original = "" }},
 		{"nothing to call it", func(b *Borrowed) { b.Kind = "" }},
-		{"no identity to prove it by", func(b *Borrowed) { b.Device, b.Inode = 0, 0 }},
+		{"no identity to prove it by", func(b *Borrowed) { b.Device, b.Inode, b.Mtime = 0, 0, 0 }},
 		{"a state nobody defined", func(b *Borrowed) { b.Handover = Handover("half") }},
 		{"no state at all", func(b *Borrowed) { b.Handover = HandoverNone }},
 	} {
@@ -413,6 +413,7 @@ func borrowed(kind, original, backup string) Borrowed {
 		Backup:   backup,
 		Device:   66306,
 		Inode:    1 + uint64(len(kind)),
+		Mtime:    1_754_000_000_000_000_000,
 		Handover: HandoverHeld,
 	}
 }

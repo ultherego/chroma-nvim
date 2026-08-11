@@ -114,7 +114,7 @@ func ReconcileHandover(current installstate.State) (installstate.State, string, 
 				"a handover of your %s was interrupted: %s is no longer there and %s cannot be read, so this cannot tell where it went: %w",
 				borrowed.Kind, borrowed.Backup, borrowed.Original, err)
 		}
-		if got != (Identity{Device: borrowed.Device, Inode: borrowed.Inode}) {
+		if got != identityOfRecord(borrowed) {
 			return current, "", fmt.Errorf(
 				"a handover of your %s was interrupted: %s is no longer there and %s is not the directory Chroma moved aside, so the two do not add up",
 				borrowed.Kind, borrowed.Backup, borrowed.Original)
@@ -301,7 +301,7 @@ func (i *Installer) Uninstall(paths Paths, current installstate.State) (Removal,
 	// there, it has no business beginning a transfer of ownership at all.
 	if beginning, entered := beginHandover(current, plan); entered {
 		for _, one := range plan.GiveBack {
-			if err := ProveIdentity(one.Backup, Identity{Device: one.Device, Inode: one.Inode}, "your "+one.Kind); err != nil {
+			if err := ProveIdentity(one.Backup, identityOfRecord(one), "your "+one.Kind); err != nil {
 				return removal, err
 			}
 		}
@@ -349,7 +349,7 @@ func (i *Installer) Uninstall(paths Paths, current installstate.State) (Removal,
 	// The configuration, on its own and first, because it is the commit point.
 	if configuration, found := firstOfKind(plan.GiveBack, "configuration"); found {
 		sink.Emit(Event{Step: "restore", Status: StatusStart})
-		want := Identity{Device: configuration.Device, Inode: configuration.Inode}
+		want := identityOfRecord(configuration)
 		if err := tx.RestoreGeneration(configuration.Backup, want, paths); err != nil {
 			// Put the Chroma configuration back and stop. Nothing has been
 			// deleted, so this is recoverable by running the command again.
@@ -415,7 +415,7 @@ func (i *Installer) Uninstall(paths Paths, current installstate.State) (Removal,
 			continue
 		}
 
-		want := Identity{Device: one.Device, Inode: one.Inode}
+		want := identityOfRecord(one)
 		if err := ProveIdentity(one.Backup, want, "your "+one.Kind); err != nil {
 			removal.Problems = append(removal.Problems, err)
 			// Chroma's own directory goes back where it was, so the path is not

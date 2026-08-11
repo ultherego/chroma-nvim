@@ -89,8 +89,11 @@ func TestDoctorFindsTheInstallationRatherThanTheCurrentDirectory(t *testing.T) {
 	if strings.Contains(printed, "no components directory") {
 		t.Errorf("doctor read the current directory instead of the installation:\n%s", printed)
 	}
-	if code != exitOK {
-		t.Errorf("exit %d, want %d:\n%s", code, exitOK, printed)
+	// Either is fine and neither is the point: the runner may be missing a tool
+	// Chroma needs, which is a fact about the runner. What is under test is
+	// which installation the report is about.
+	if code != exitOK && code != exitPreflight {
+		t.Errorf("exit %d:\n%s", code, printed)
 	}
 	if !strings.Contains(printed, paths.ConfigDir) {
 		t.Errorf("the report does not say which installation it is about:\n%s", printed)

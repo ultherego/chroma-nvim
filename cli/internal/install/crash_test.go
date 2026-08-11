@@ -8,6 +8,7 @@ import (
 	"strings"
 	"syscall"
 	"testing"
+	"time"
 
 	"github.com/ultherego/chroma-nvim/cli/internal/installstate"
 )
@@ -118,7 +119,24 @@ func TestCrashChild(t *testing.T) {
 // dropped. That is the allowlist working, and the marker has to live inside it.
 func mark(t *testing.T, dir, generation string) {
 	t.Helper()
+
+	// The directory keeps the modification time it had. A test that labels a
+	// generation is standing in for a release having been installed there, not
+	// for somebody adding a file to a directory Chroma is holding — and the
+	// second of those is a thing the identity proof is meant to notice, so a
+	// fixture must not do it by accident.
+	//
+	// Only a directory's own entries change its mtime, and this adds one, so
+	// without the restore every marked directory would stop being provably the
+	// one that was recorded.
+	before, err := os.Lstat(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(filepath.Join(dir, "README.md"), []byte(generation), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(dir, time.Time{}, before.ModTime()); err != nil {
 		t.Fatal(err)
 	}
 }

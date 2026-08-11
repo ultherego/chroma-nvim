@@ -110,7 +110,7 @@ func TestEveryMutatingCommandTakesTheLock(t *testing.T) {
 		// install takes the lock after the plan and the confirmation, because
 		// until the interactive flow has answered it does not know which
 		// installation it would touch. So this drives it past both.
-		{"install", []string{"--source-tree", filepath.Join("..", "..", ".."), "--components", "", "--yes"}, cmdInstall},
+		{"install", []string{"--source-tree", bare(t), "--components", "", "--yes"}, cmdInstall},
 		{"update", []string{"--dry-run"}, cmdUpdate},
 		{"components", []string{"--set", "terraform", "--yes"}, cmdComponents},
 		{"rollback", []string{"--dry-run"}, cmdRollback},
@@ -200,6 +200,7 @@ func TestTheUninstallPlanDoesNotOfferAHandedBackConfiguration(t *testing.T) {
 		Backup:   userBackup,
 		Device:   identity.Device,
 		Inode:    identity.Inode,
+		Mtime:    identity.Mtime,
 		Handover: installstate.HandoverPending,
 	}}
 	if _, err := installstate.Write(paths.InstallState, record); err != nil {
@@ -301,7 +302,7 @@ func TestInstallLocksTheInstallationItWillActuallyTouch(t *testing.T) {
 
 	code, errOut := captured(t, func(errFile *os.File) int {
 		return cmdInstall([]string{
-			"--source-tree", filepath.Join("..", "..", ".."),
+			"--source-tree", bare(t),
 			"--yes",
 		}, os.Stdout, errFile)
 	})
@@ -323,7 +324,7 @@ func TestADryRunLeavesNoLockBehind(t *testing.T) {
 
 	captured(t, func(errFile *os.File) int {
 		return cmdInstall([]string{
-			"--source-tree", filepath.Join("..", "..", ".."),
+			"--source-tree", bare(t),
 			"--dry-run",
 		}, os.Stdout, errFile)
 	})

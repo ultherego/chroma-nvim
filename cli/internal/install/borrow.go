@@ -22,12 +22,32 @@ import (
 // `Lstat` proves a thing is a directory and not a link, which is worth having
 // and is not identity.
 //
-// What is used instead is the device and inode the directory had at the moment
-// it was taken. `rename` keeps both, which is exactly the property needed: every
-// move Chroma makes preserves the identity, and a directory somebody else
-// created has a different inode no matter how carefully it is shaped. That is
-// also why this is not a marker file inside the directory — `cp -a` copies a
-// marker, and a copy is not the original.
+// What is used instead is the device, inode and modification time the directory
+// had at the moment it was taken. `rename` keeps all three, which is exactly the
+// property needed: every move Chroma makes preserves the identity.
+//
+// The inode alone was tried and measured to be insufficient. It answers the
+// copy: a `cp -a` of a directory has a different inode however carefully the
+// contents are reproduced. It does not answer the substitution, because a
+// filesystem may hand a newly created directory the inode of one just deleted at
+// the same path — and on ext4 that is not a rare event but the normal one:
+//
+//	btrfs, tmpfs, overlayfs   0/40 rounds reused the inode
+//	ext4 (the CI runner)     40/40 rounds reused the inode
+//
+// The substitution tests passed on a development machine and failed on CI for
+// exactly that reason, which is the only reason this was found before release.
+//
+// The modification time closes it. A directory's own mtime is not changed by
+// renaming it — only by changing what is in it — so it survives every move
+// Chroma makes; and a directory created in place of a deleted one is created
+// now, so its mtime is not the one that was recorded. Nanosecond resolution,
+// taken from the same stat call, at no cost.
+//
+// This is also why there is no marker file inside the directory. A marker is
+// content: `cp -a` copies it, so it would not answer the case the inode already
+// answers, and it would mean writing into a directory Chroma has promised to
+// give back untouched.
 //
 // This is not, and does not claim to be, a defence against the owner of the
 // account editing install.json. See cli/DESIGN.md.
@@ -66,6 +86,11 @@ func (p Paths) Borrowable() []Borrowable {
 type Identity struct {
 	Device uint64
 	Inode  uint64
+
+	// Mtime is nanoseconds since the epoch. Together with the inode it
+	// separates "the directory that was moved here" from "a directory created
+	// here after that one was deleted", which the inode cannot do on its own.
+	Mtime int64
 }
 
 // Identify reads the identity of the directory at a path.
@@ -91,7 +116,11 @@ func identityOf(info fs.FileInfo, path string) (Identity, error) {
 		return Identity{}, fmt.Errorf("%s is on a filesystem that does not report a device and inode, so Chroma cannot prove what it is", path)
 	}
 
-	identity := Identity{Device: uint64(stat.Dev), Inode: uint64(stat.Ino)}
+	identity := Identity{
+		Device: uint64(stat.Dev),
+		Inode:  uint64(stat.Ino),
+		Mtime:  stat.Mtim.Sec*1_000_000_000 + stat.Mtim.Nsec,
+	}
 	if identity.Device == 0 && identity.Inode == 0 {
 		return Identity{}, fmt.Errorf("%s reports no device or inode, so Chroma cannot prove what it is", path)
 	}
@@ -201,6 +230,7 @@ func (tx *Transaction) borrowOne(borrowable Borrowable) (bool, error) {
 		Backup:   backup,
 		Device:   identity.Device,
 		Inode:    identity.Inode,
+		Mtime:    identity.Mtime,
 		Handover: installstate.HandoverHeld,
 	})
 	return true, nil
@@ -238,7 +268,7 @@ func (tx *Transaction) giveBackBorrowed() error {
 	for index := len(tx.Borrowed) - 1; index >= 0; index-- {
 		borrowed := tx.Borrowed[index]
 
-		if err := ProveIdentity(borrowed.Backup, Identity{Device: borrowed.Device, Inode: borrowed.Inode}, borrowed.Kind+" Chroma moved aside"); err != nil {
+		if err := ProveIdentity(borrowed.Backup, identityOfRecord(borrowed), borrowed.Kind+" Chroma moved aside"); err != nil {
 			problems = append(problems, err)
 			kept = append(kept, borrowed)
 			continue
@@ -258,4 +288,9 @@ func (tx *Transaction) giveBackBorrowed() error {
 	tx.Borrowed = kept
 
 	return errors.Join(problems...)
+}
+
+// identityOfRecord is what a borrowed directory was, as the record holds it.
+func identityOfRecord(borrowed installstate.Borrowed) Identity {
+	return Identity{Device: borrowed.Device, Inode: borrowed.Inode, Mtime: borrowed.Mtime}
 }

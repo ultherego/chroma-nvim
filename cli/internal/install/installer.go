@@ -229,7 +229,7 @@ func (i *Installer) Rollback(
 	sink.Emit(Event{Step: "backup", Status: StatusDone, Message: tx.Backup})
 
 	sink.Emit(Event{Step: "restore", Status: StatusStart})
-	want := Identity{Device: target.Device, Inode: target.Inode}
+	want := Identity{Device: target.Device, Inode: target.Inode, Mtime: target.Mtime}
 	if err := tx.RestoreGeneration(target.Path, want, paths); err != nil {
 		return fail("restore", err)
 	}
@@ -273,6 +273,7 @@ func (i *Installer) Rollback(
 			Path:        tx.Backup,
 			Device:      tx.BackupIdentity.Device,
 			Inode:       tx.BackupIdentity.Inode,
+			Mtime:       tx.BackupIdentity.Mtime,
 			InstalledAt: current.InstalledAt,
 			Source:      current.Source,
 		},
@@ -377,6 +378,7 @@ func (i *Installer) carryOut(
 		previous.Path = tx.Backup
 		previous.Device = tx.BackupIdentity.Device
 		previous.Inode = tx.BackupIdentity.Inode
+		previous.Mtime = tx.BackupIdentity.Mtime
 	}
 
 	sink.Emit(Event{Step: "place", Status: StatusStart})

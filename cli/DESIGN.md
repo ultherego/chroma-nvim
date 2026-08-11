@@ -1105,26 +1105,43 @@ The shape was the second. `Lstat` proves a thing is a directory and not a link,
 which is worth having and is not identity. Anybody can make a directory with an
 `init.lua` in it.
 
-What is recorded instead is the **device and inode the directory had at the
-moment it was taken**. `rename` preserves both, which is exactly the property
-needed: every move Chroma makes carries the identity along, and a directory
-somebody else created has a different inode however carefully it is shaped. It
-is deliberately not a marker file inside the directory — `cp -a` copies a
-marker, and a copy is not the original.
+What is recorded instead is the **device, inode and modification time the
+directory had at the moment it was taken**. `rename` preserves all three, which
+is exactly the property needed: every move Chroma makes carries the identity
+along.
 
-Every move across an ownership boundary is now preceded by a proof, and a proof
-that fails is not repairable: if what is at the path is not what Chroma
-recorded, Chroma does not know where the real one went, and the two available
-actions — hand this back as somebody's work, or delete it as Chroma's — are both
+Device and inode alone were tried first, and measured to be insufficient. They
+answer the copy — a `cp -a` has a different inode however carefully the contents
+are reproduced — but not the substitution, because a filesystem may hand a newly
+created directory the inode of one just deleted at the same path:
+
+```
+btrfs, tmpfs, overlayfs    0/40 rounds reused the inode
+ext4 (the CI runner)      40/40 rounds reused the inode
+```
+
+The substitution tests passed on a development machine and failed on CI for
+precisely that reason, and that is the only reason it was found before release.
+A directory's own modification time changes only when its own entries change, so
+it survives every move Chroma makes, and a directory created where one was
+deleted carries the time it was created.
+
+The consequence is stated rather than discovered: if something adds or removes a
+top-level entry inside a directory Chroma is holding, Chroma refuses to move it
+and says so. That is the right way round — refusing to hand back a changed
+directory costs a manual move, and accepting a substituted one costs somebody
+their work.
+
+It is deliberately not a marker file inside the directory. A marker is content:
+`cp -a` copies it, so it answers nothing the inode does not already answer, and
+writing one would mean putting a file into a directory Chroma has promised to
+return untouched — the same mistake the install log made.
+
+Every move across an ownership boundary is preceded by a proof, and a proof that
+fails is not repairable: if what is at the path is not what Chroma recorded, then
+Chroma does not know where the real one went, and the two available actions —
+hand this back as somebody's work, or delete it as Chroma's — are both
 destructive and both wrong.
-
-It is not a cryptographic identity, and the limit is worth stating rather than
-discovering. A filesystem may reuse an inode number once the object holding it
-is gone, so a directory deleted and another created in its place can in
-principle present the pair that was recorded. Against corruption, stale
-topology and substitution — the three this design is actually about — the pair
-is decisive; against a deliberate forgery it is not, and neither would a marker
-file be, because a marker is content and content copies with the directory.
 
 This is not, and does not claim to be, a defence against the owner of the
 account editing `install.json`. That boundary is stated in "Where each operation

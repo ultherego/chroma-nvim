@@ -23,6 +23,7 @@ func borrowedNow(t *testing.T, kind, original, backup string) installstate.Borro
 		Backup:   backup,
 		Device:   identity.Device,
 		Inode:    identity.Inode,
+		Mtime:    identity.Mtime,
 		Handover: installstate.HandoverHeld,
 	}
 }

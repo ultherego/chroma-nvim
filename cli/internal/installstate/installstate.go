@@ -42,17 +42,36 @@ import (
 // after giving two of three back, and one flag for four directories cannot say
 // which.
 //
-// What device and inode are not: a cryptographic identity. A filesystem may
-// reuse an inode number once the object holding it is gone, so a directory
-// deleted and another created in the same place can in principle present the
-// pair that was recorded. That is a stated limit of this design, not an
-// oversight. The threat model here is corruption, stale topology and
-// substitution — a directory replaced by one that merely looks alike — and
-// against all three the pair is decisive. It is not, and is not claimed to be,
-// a defence against the owner of the account forging state deliberately; that
-// boundary is the same one `install.json` itself sits on. Adding a marker file
-// with a UUID would not move it either, because a marker is content and content
-// copies with the directory.
+// What the identity is not: a cryptographic one. It is what the operating
+// system already knows about an object — device, inode and modification time —
+// and it is chosen because those are exactly what `rename` preserves and what a
+// directory created in place of another does not have.
+//
+// Device and inode alone were tried first and measured to be insufficient. A
+// filesystem may hand a newly created directory the inode of one just deleted at
+// the same path, and this is not the rare case it sounds like:
+//
+//	btrfs, tmpfs, overlayfs   0/40 rounds reused the inode
+//	ext4                     40/40 rounds reused the inode
+//
+// The substitution tests therefore passed on a development machine and failed on
+// CI, which is the only reason it was caught. The modification time closes it: a
+// directory's own mtime changes only when its entries change, so every move
+// Chroma makes preserves it, while a directory created where one was deleted
+// carries the time it was created.
+//
+// The consequence, stated rather than discovered: if something adds or removes a
+// top-level entry inside a directory Chroma is holding, Chroma will refuse to
+// move it and say so. That is the right way round. Refusing to hand back a
+// directory that has changed under it costs somebody a manual move; accepting a
+// substituted one costs them their work.
+//
+// The threat model is unchanged and is corruption, stale topology and
+// substitution. This is not, and does not claim to be, a defence against the
+// owner of the account forging state deliberately — the same boundary
+// install.json itself sits on. A marker file with a UUID would not move that
+// boundary either, and would mean writing into a directory Chroma has promised
+// to return untouched.
 //
 // 5 replaced `handed_back` with `handover`, a state rather than a flag. H4
 // forged the old inference: with Chroma still installed, deleting the backup and
@@ -146,16 +165,22 @@ type Borrowed struct {
 	Original string `json:"original"`
 	Backup   string `json:"backup"`
 
-	// Device and Inode are what it was when it was moved. A rename keeps both,
-	// so together they are the proof that what is at Backup now is what was
-	// taken — which a path alone cannot be. Somebody who deletes the backup and
-	// puts an ordinary directory of the same shape in its place gets a refusal
-	// rather than their directory handed back as somebody else's.
+	// Device, Inode and Mtime are what it was when it was moved. A rename keeps
+	// all three, so together they are the proof that what is at Backup now is
+	// what was taken — which a path alone cannot be. Somebody who deletes the
+	// backup and puts an ordinary directory of the same shape in its place gets
+	// a refusal rather than their directory handed back as somebody else's.
+	//
+	// Mtime is not decoration. On ext4 a directory created where one was just
+	// deleted is given the same inode every time, measured 40 out of 40; the
+	// modification time of the new one is the moment it was created, and so is
+	// not the one recorded here.
 	//
 	// Not a defence against the owner of the account rewriting this file. That
 	// is a different threat model, and one this does not claim to be in.
 	Device uint64 `json:"device"`
 	Inode  uint64 `json:"inode"`
+	Mtime  int64  `json:"mtime"`
 
 	// Handover is how far giving this one back has got. Per directory, because
 	// a process can stop after returning two of three.
@@ -179,13 +204,14 @@ type Generation struct {
 	// Path is where it was moved to. This is what rollback restores.
 	Path string `json:"path"`
 
-	// Device and Inode are what that directory was when it was moved aside. A
-	// path says where to look; these say whether what is there is the
+	// Device, Inode and Mtime are what that directory was when it was moved
+	// aside. A path says where to look; these say whether what is there is the
 	// generation Chroma kept. Measured before they existed: deleting a kept
 	// generation and putting an ordinary Chroma-shaped directory at its path
 	// made rollback restore that directory as the release it was not.
 	Device uint64 `json:"device,omitempty"`
 	Inode  uint64 `json:"inode,omitempty"`
+	Mtime  int64  `json:"mtime,omitempty"`
 
 	// InstalledAt is when that generation was itself recorded.
 	InstalledAt string `json:"installed_at,omitempty"`
@@ -330,7 +356,7 @@ func (s State) validate() error {
 		if borrowed.Kind == "" || borrowed.Original == "" || borrowed.Backup == "" {
 			return fmt.Errorf("records a borrowed directory that does not say what it is: %+v", borrowed)
 		}
-		if borrowed.Handover != HandoverHandedBack && (borrowed.Device == 0 && borrowed.Inode == 0) {
+		if borrowed.Handover != HandoverHandedBack && borrowed.Device == 0 && borrowed.Inode == 0 && borrowed.Mtime == 0 {
 			return fmt.Errorf("records %s at %s with no identity, so it could not be shown to be the one taken", borrowed.Kind, borrowed.Backup)
 		}
 		if kinds[borrowed.Kind] {
