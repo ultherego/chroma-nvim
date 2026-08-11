@@ -60,8 +60,11 @@ func overLines(what questions, set component.Set, in io.Reader, out io.Writer) (
 	return chosen, nil
 }
 
+// welcome says what is about to be asked.
+//
+// It does not name the program. The command has already drawn the wordmark
+// above this, and a heading that repeats it is a second title on one screen.
 func welcome(out io.Writer) {
-	fmt.Fprint(out, "\nChroma Neovim\n\n")
 	fmt.Fprint(out, "  A Neovim configuration for infrastructure work. This will ask where it\n")
 	fmt.Fprint(out, "  should go and which parts you want, then show you the whole plan before\n")
 	fmt.Fprint(out, "  anything is written.\n")

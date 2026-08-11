@@ -74,6 +74,12 @@ func cmdInstall(args []string, out, errOut *os.File) int {
 		return exitMisuse
 	}
 
+	// Above everything this command says, and not above the plan: the plan comes
+	// after the questions, so a wordmark there was the third thing somebody saw
+	// rather than the first. Misuse of the flags is still reported without one,
+	// because it is printed after they have been read and found to make sense.
+	report.Banner(out)
+
 	// `chroma install` with nothing else is the command README documents and
 	// the one somebody types first, and it used to refuse: "name a release with
 	// --version". An installer whose plain form does not install is not an
@@ -307,7 +313,6 @@ type preparer interface {
 
 // renderPlan prints what would happen, before anything does.
 func renderPlan(out *os.File, opts install.Options, paths install.Paths, prepared install.PreparedSource, built plan.Plan) {
-	report.Banner(out)
 	fmt.Fprintf(out, "Chroma Neovim will be installed.\n\n")
 
 	switch {
