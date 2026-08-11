@@ -162,7 +162,7 @@ local function check_devops()
   check_all({
     { cmd = "kubectl", what = "the Kubernetes views (<leader>kk)" },
     { cmd = "helm", what = "the Helm view inside kubectl.nvim" },
-    { cmd = "ansible", what = "running playbooks (<leader>ar)" },
+    { cmd = "ansible-doc", what = "`K` on an Ansible module" },
     { cmd = "terragrunt", what = "formatting terragrunt.hcl files" },
     { cmd = "aws", what = "the AWS profile and region switcher (<leader>Ap)" },
   }, health.warn)

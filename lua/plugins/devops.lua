@@ -57,15 +57,15 @@ return {
     -- ft alone is not enough: the plugin's own ftdetect has to load before a
     -- file can be detected as yaml.ansible in the first place.
     lazy = false,
-    keys = {
-      {
-        "<leader>ar",
-        function()
-          require("ansible").run()
-        end,
-        mode = { "n", "v" },
-        desc = "Run playbook or role",
-      },
-    },
+
+    -- No keys, and that is the change rather than an omission. This plugin can
+    -- run a playbook by inferring the command from the buffer, and Chroma no
+    -- longer offers that: how a repository runs Ansible is what its own task
+    -- file says, and two execution models in one editor — one declared, one
+    -- guessed — is the thing the task runner exists to end.
+    --
+    -- What is left is what only this plugin does: detecting `yaml.ansible`,
+    -- which is what activates ansible-lint and ansiblels, pointing `K` at
+    -- `ansible-doc`, and extending `path` so `gf` follows a role.
   },
 }

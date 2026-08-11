@@ -2,15 +2,15 @@
   "contract": 5,
   "id": "ansible",
   "name": "Ansible",
-  "description": "Playbooks and roles: running them, and the language server.",
+  "description": "Playbooks and roles: the language server, linting and documentation.",
   "requires": [
     "core"
   ],
   "tools": {
-    "required": [
+    "optional": [
       {
-        "id": "ansible",
-        "reason": "running a playbook or a role from the buffer"
+        "id": "ansible-doc",
+        "reason": "documentation lookup through keywordprg"
       }
     ]
   },

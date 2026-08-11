@@ -269,7 +269,6 @@ Three of the plugin's defaults are remapped because Zellij eats them: >
 <
 Ansible ~
 >
-    <leader>ar   Run the playbook or role (also on a visual selection)
     <leader>av   Reveal the encrypted value under the cursor
     <leader>av   Encrypt the selection in place        (visual mode)
     <leader>aV   Show where the vault password comes from

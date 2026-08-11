@@ -178,8 +178,12 @@ Terraform · Terragrunt · Helm · Docker · Kubernetes · YAML · Ansible
 
 - `kubectl.nvim` — full Kubernetes workflow (see *Custom code* for why this
   replaced the planned `kube.nvim`)
-- `nvim-ansible` — running playbooks and roles; a separate concern from vault
-  handling. Note: the upstream repo ships no licence.
+- `nvim-ansible` — the `yaml.ansible` filetype that ansible-lint and ansiblels
+  need, `K` on a module through `ansible-doc`, and `gf` into a role. Its own
+  playbook runner is deliberately not exposed: how a repository runs Ansible is
+  what that repository says, and an editor with one declared and one inferred
+  way of running things has two. A separate concern from vault handling. Note:
+  the upstream repo ships no licence.
 
 ---
 
