@@ -95,6 +95,12 @@ root. That is what makes `cwd` mean one thing.
 **Discovery.** Run Task starts from Neovim's effective working directory and
 searches **upward only**; the first ancestor holding `.chroma/tasks.json`
 defines the project root, and finding none means there are no project tasks.
+
+Discovery stops at the **first filesystem entry** with that name. If the entry
+is not an acceptable regular file, discovery fails there and does not carry on
+to a parent — otherwise a directory named `tasks.json` in a subproject would
+silently hand execution to the tasks of the repository above it, which is a
+fallback wearing a search's clothes.
 Nothing searches downward, and no plugin's idea of a project is consulted —
 `project.nvim` is navigation, and an execution boundary may not rest on its
 heuristics.
@@ -138,6 +144,53 @@ directory.
 `schema` is required from the first commit, and a file without it is invalid
 rather than assumed to be version 1. A format that ships into other people's
 repositories cannot acquire versioning later.
+
+### Schema 1, exactly
+
+The component loader already refuses a contract with an unknown field rather
+than ignoring it, and this is the same kind of document read the same way. Every
+rule below is a refusal, and every refusal names the task and the field.
+
+**The document.** An object with exactly two keys, `schema` and `tasks`. Any
+other key is an unknown field and invalid. `schema` is the integer `1`; any
+other value is an unsupported schema, which is a different error from a
+malformed one. `tasks` is an array, possibly empty — a file that declares no
+tasks is valid and means there are none.
+
+**A task.** An object with `id`, `name`, `cwd` and `argv` required, `group` and
+`env` optional, and no other keys.
+
+```text
+id      non-empty string, unique within the document
+name    non-empty string; what the picker shows
+group   non-empty string when present; metadata only
+cwd     object, see below
+argv    array of at least one string
+env     object whose keys and values are all non-empty strings
+```
+
+An empty string is never a valid `id`, `name`, `group`, `env` key or `argv[0]`.
+A duplicate `id` is invalid — not last-wins, not first-wins, because both are a
+silent choice between two things somebody wrote on purpose. `null` anywhere is
+invalid; a field that is absent is absent, and one that is present has a value.
+
+**`cwd`.** An object with a `mode` of `project` or `relative`, and nothing else
+in Milestone 1.
+
+```text
+mode = project     `path` must be absent
+mode = relative    `path` is required, a non-empty string,
+                   and must not be absolute
+```
+
+`path` is always relative to the project root. An absolute `path` is invalid
+rather than silently honoured, and whatever it resolves to is checked against
+the containment invariant in §5 anyway.
+
+**`argv`.** Every element is a string. Numbers and booleans are invalid rather
+than coerced: a task that means `-p` `8080` writes `"8080"`, and a document that
+cannot decide is a document that will produce a different command in a different
+JSON library.
 
 `group` is metadata. It organises the picker and nothing else: a task in group
 `terraform` gets no Terraform behaviour, no default arguments and no special
@@ -270,6 +323,24 @@ and Neovim will ask again. Since the explanation Chroma prints has to be printed
 *before* the modal, the adapter must be able to tell "trusted" from "trusted
 once, changed since" without calling `read()`.
 
+**One snapshot is authoritative, and it is the adapter's.** Reading the file to
+hash it and then calling `read()` reads it twice, and a file can change in
+between: the precheck says trusted, the contents change, and the modal appears
+after Chroma has promised there would not be one. So the snapshot the adapter
+took is the one that is used:
+
+```text
+trusted     parse that exact snapshot; read() is not called at all
+otherwise   print the explanation, then call vim.secure.read() only to put
+            Neovim's trust question in front of the user, and load nothing
+            in this invocation
+```
+
+Security is unchanged — the hash that authorises the snapshot is the hash
+Neovim recorded, compared the way Neovim compares it — and the promise about the
+modal becomes one Chroma can keep. After `:trust`, the next Run Task starts
+again from a fresh snapshot, which is the same rule as §4's no-caching.
+
 The adapter reads Neovim's trust database, and that is a deliberate coupling to
 another project's implementation detail. It carries two obligations:
 
@@ -312,9 +383,11 @@ Task cannot run: working directory escapes project root.
 A textual prefix comparison does not implement this. `/project` is a prefix of
 `/project-evil`, and the containment check has to be on path components.
 
-Neovim's own current directory is deliberately not consulted. `:cd`, `:lcd`,
-`:tcd` and any plugin can move it, which makes it far too easy to change by
-accident for something that decides where `terraform apply` runs.
+**After project discovery, Neovim's current directory is never consulted again
+when a task's working directory is resolved.** `:cd`, `:lcd`, `:tcd` and any
+plugin can move it, which makes it far too easy to change by accident for
+something that decides where `terraform apply` runs. Discovery uses it once, to
+know where to start looking; nothing after that does.
 
 ---
 
@@ -334,6 +407,27 @@ array reaches the process as the array (see the measured note in §11).
 normalise, resolve or rewrite `../inventories/dev/hosts.yml`; the program
 interprets it against the declared `cwd`, which is what makes this faithful
 execution rather than one more layer that reinterprets commands.
+
+### How `argv[0]` is resolved
+
+`./scripts/deploy` is as legitimate an executable as `terraform`, and a task may
+override `PATH`, so "is it on `PATH`" is not a question that can be asked before
+the environment and the directory are known. Both are resolved first, and then:
+
+```text
+argv[0] contains no path separator   looked up in the task's effective PATH
+                                     (inherited environment + overrides)
+argv[0] is absolute                  used as written
+argv[0] is relative and path-like    resolved against the task's working
+                                     directory, not against Neovim's
+```
+
+If nothing executable is found that way, the task refuses by name before a
+terminal is opened. That check is not optional politeness: measured on Neovim
+0.12.4, `jobstart` raises `E475: … is not executable` rather than returning a
+failure, and inside the terminal library that happens after the window already
+exists — so without the check the user gets an empty terminal and a Vim error
+instead of a sentence naming the command that is missing.
 
 **`env` is an override, not a replacement.** The process inherits Neovim's
 environment — `PATH`, `HOME`, `SSH_AUTH_SOCK`, an `AWS_REGION` somebody exported
@@ -388,6 +482,16 @@ argv[7]  --ask-vault-pass
 argv[8]  kubernetes.yml
 ```
 
+### Confirmation
+
+> **Only an explicit affirmative starts the process.** No, cancel, escape, a
+> closed selection, a dismissed prompt and an answer that never arrives all mean
+> the same thing: nothing runs. The default is non-execution.
+
+How that question is drawn is an implementation detail. What it may never be is
+a prompt whose default is yes, or one where dismissing the UI counts as an
+answer — this is the last gate before something applies infrastructure.
+
 There is **no second, prettier line** showing the command as a shell would take
 it. Since the array never passes through a shell, a rendering joined with spaces
 misrepresents any argument containing a space, a quote or a semicolon — and it
@@ -428,8 +532,13 @@ state.
 
 ### Every run is its own thing
 
-From the first day, each explicit Run gets a monotonically increasing `run_id`,
-passed to the terminal as its `count`:
+From the first day, each explicit Run gets a `run_id` from **one monotonically
+increasing counter per Neovim session** — not per task and not per group. The
+terminal library builds a terminal's identity from the command, directory,
+environment and count, and Chroma's task id is not among them: two different
+tasks that happen to run `terraform plan` in one directory would collide on
+their first run each if the counter were per task. The `run_id` is passed as
+that count:
 
 ```text
 terraform-plan / run 41
@@ -448,12 +557,14 @@ No task runs on a guess. The refusal names what was missing; there is never a
 second attempt with a different directory or a different executable.
 
 ```text
-the task file is not trusted            → do not run
-schema is missing or unsupported        → do not run
-the task is malformed                   → do not run
-relative cwd does not exist             → do not run
-resolved cwd escapes the project root   → do not run
-the executable is not on PATH           → do not run
+the task file is not trusted              → do not run
+the task source is not a regular file     → do not run
+schema is missing or unsupported          → do not run
+the task is malformed by §3               → do not run
+relative cwd does not exist               → do not run
+resolved cwd escapes the project root     → do not run
+argv[0] resolves to nothing executable    → do not run
+the confirmation was anything but yes     → do not run
 ```
 
 ---
@@ -543,13 +654,18 @@ Somebody who wants to run a playbook from Chroma writes the task that says how
 their repository does it, which is the entire point.
 
 That is four files, not one: the keymap in `lua/plugins/devops.lua`, the
-component's description and the reason attached to its required tool in
-`components/ansible.json`, the health line in `lua/chroma/health.lua`, and the
-sentence in `CONTRACT.md`. Whether `ansible` remains a **required** tool of the
-component is a separate question and must be answered by reading what the
-remaining features actually invoke — it is not automatic that a component
-keeping `ansiblels` and `ansible-doc` needs the same tool at the same level, and
-it is not automatic that it does not.
+component's description and its required tool in `components/ansible.json`, the
+health line in `lua/chroma/health.lua`, and the sentence in `CONTRACT.md`.
+
+**The required `ansible` goes with it.** The component requires that executable
+for exactly one stated reason — *"running a playbook or a role from the buffer"*
+— and that is the thing being retired. What remains of the plugin was read at
+the pinned version: its `ftplugin/ansible.lua` sets `keywordprg` to
+`ansible-doc` and only when `executable('ansible-doc')` says so, and extends
+`path` for `gf`; neither needs the `ansible` CLI, and the language server is a
+separate tool already declared separately. If `ansible-doc` is worth declaring,
+it is declared as itself and at its own level — not left standing as a required
+tool whose reason no longer exists.
 
 ---
 
@@ -594,8 +710,13 @@ reporting off with it, which is why §8 gives the reporting to Chroma.
 ```text
 Source        .chroma/tasks.json only
               discovered upward from Neovim's working directory, first wins
+              discovery stops at the first entry of that name, valid or not
               must resolve to a readable regular file before it is read
 Schema        schema = 1, required
+              document: {schema, tasks} exactly, unknown fields refused
+              task: id, name, cwd, argv required; group, env optional
+              ids unique, no empty strings, no nulls, argv all strings
+              cwd: project (no path) | relative (relative path required)
 
 Availability  Chroma: Neovim >= 0.12
               project tasks: Neovim >= 0.12.3, else fail closed with the reason
@@ -608,6 +729,8 @@ Trust         evaluated only on explicit Run Task, never at startup
               states: missing / untrusted / trusted / denied / unknown
               denied is never reported as "no tasks"
               adapter resolves realpath + current hash + entry, not just `!`
+              the adapter's snapshot is authoritative; a trusted one is parsed
+              without calling read(), which only ever drives Neovim's trust UI
               trust-database adapter: format pinned by a test,
               parse failure degrades to the generic refusal
               definitions are read per Run Task and never cached for a session
@@ -616,13 +739,16 @@ cwd           project, relative
               realpath(cwd) inside realpath(project root), by path components
 
 Execution     argv only, no shell
+              argv[0]: bare name via the effective PATH, absolute as written,
+              path-like against the task's cwd; nothing found = named refusal
               relative arguments passed through unchanged
               inherited environment + task overrides
 
 Preview       task, working directory, environment overrides, indexed argv
               no shell rendering
+              only an explicit affirmative runs anything; the default is no
 
-Process       one Run = one new process = one unique run_id (terminal count)
+Process       one Run = one new process = one run_id, one counter per session
               Snacks.terminal.open(), auto_close = false
               interactive input kept; terminal survives every exit status
               Chroma's own TermClose reports a non-zero status, closes nothing
@@ -633,6 +759,7 @@ UI            <leader>xr → picker → preview → confirmation
 
 Integration   the nvim-ansible execution path retires in this milestone:
               <leader>ar and require("ansible").run() go, the plugin stays
+              the required `ansible` tool goes with the reason that named it
               components/ansible.json, health.lua and CONTRACT.md follow
 
 Architecture  tasks are core, not a component
