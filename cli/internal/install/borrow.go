@@ -107,10 +107,10 @@ func Identify(path string) (Identity, error) {
 }
 
 func identityOf(info fs.FileInfo, path string) (Identity, error) {
-	// Every filesystem this runs on reports both. One that does not cannot be
-	// asked the question this package needs answered, and the honest response
-	// is to stop rather than to carry on with an identity of zero — which
-	// would compare equal to every other unanswerable one.
+	// Every filesystem this runs on reports a device and an inode. One that does
+	// not cannot be asked the question this package needs answered, and the
+	// honest response is to stop rather than to carry on with an identity of
+	// zero — which would compare equal to every other unanswerable one.
 	stat, ok := info.Sys().(*syscall.Stat_t)
 	if !ok {
 		return Identity{}, fmt.Errorf("%s is on a filesystem that does not report a device and inode, so Chroma cannot prove what it is", path)
@@ -119,7 +119,13 @@ func identityOf(info fs.FileInfo, path string) (Identity, error) {
 	identity := Identity{
 		Device: uint64(stat.Dev),
 		Inode:  uint64(stat.Ino),
-		Mtime:  stat.Mtim.Sec*1_000_000_000 + stat.Mtim.Nsec,
+		// From fs.FileInfo rather than from the Stat_t beside it. The field
+		// holding this is called Mtim on Linux and Mtimespec on Darwin, so
+		// reading it directly compiles on the machine it was written on and
+		// nowhere else — which is exactly what happened, and what the
+		// cross-compile gate caught. ModTime is the same value, in nanoseconds,
+		// from the same stat call, and it is spelled one way everywhere.
+		Mtime: info.ModTime().UnixNano(),
 	}
 	if identity.Device == 0 && identity.Inode == 0 {
 		return Identity{}, fmt.Errorf("%s reports no device or inode, so Chroma cannot prove what it is", path)

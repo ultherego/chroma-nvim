@@ -230,6 +230,34 @@ CI fails if `doc/tags` is out of date, so this is not optional.
 jobs. `cd cli && go test ./...`. Note that `selene` lints this repository as
 Lua 5.1, so `goto` and its labels do not parse — measured, after writing one.
 
+**A green `go test` on this machine does not mean the CLI builds.** CI
+cross-compiles for linux/amd64, linux/arm64 and darwin/arm64; a development
+machine builds one of the three, so anything platform-specific compiles here and
+fails there. Measured: reading a modification time as `stat.Mtim` is correct on
+Linux and does not exist on Darwin, where the field is `Mtimespec`, and the
+whole test suite was green before the cross-compile gate found it. Before
+committing anything that touches `syscall`, and cheaply enough to do always:
+
+```sh
+cd cli
+for target in linux/amd64 linux/arm64 darwin/arm64; do
+  GOOS="${target%/*}" GOARCH="${target#*/}" CGO_ENABLED=0 go build -o /dev/null ./cmd/chroma
+done
+```
+
+The lesson generalises past the compiler. `go test ./...` also passes or fails
+according to what the machine underneath it does: the tools on its PATH, and the
+filesystem its temporary directories are on. Two of the same day's failures were
+that — a gate that needed `tree-sitter`, and an identity proof that ext4
+invalidates and btrfs does not. Anything whose result could depend on the
+machine belongs in a container, and `golang:1.24-bookworm` is a serviceable
+stand-in for the CI runner because it has Go, git and none of the rest:
+
+```sh
+docker run --rm -v "$PWD:/src:ro" golang:1.24-bookworm \
+  bash -c 'cp -r /src /work && cd /work/cli && go test ./...'
+```
+
 **Installations are tested in a container, never on a development machine.**
 `chroma install` fetches plugins, Mason packages and treesitter parsers; running
 that against somebody's home directory writes hundreds of megabytes that no
