@@ -147,6 +147,32 @@ T["states"]["a database whose lines are not decisions is unknown, and asks nothi
   eq(decision.problem ~= nil, true)
 end
 
+T["states"]["a database that exists and cannot be read is unknown, not absent"] = function()
+  -- The fail-open this replaced: every failure to open the database read as
+  -- "nobody has decided anything yet", so an unreadable security state was
+  -- downgraded to an ordinary first run. A broken symlink is an entry that
+  -- exists, which is what tells the two apart.
+  local source = project()
+  local db = vim.fs.joinpath(vim.fn.stdpath("state"), "trust")
+  vim.fn.mkdir(vim.fn.stdpath("state"), "p")
+  eq(vim.uv.fs_symlink(vim.fs.joinpath(vim.fn.stdpath("state"), "nowhere"), db), true)
+
+  local decision = trust.consult(source)
+
+  eq(decision.state, "unknown")
+  eq(asked, {})
+end
+
+T["states"]["a database that is a directory is unknown"] = function()
+  local source = project()
+  vim.fn.mkdir(vim.fs.joinpath(vim.fn.stdpath("state"), "trust"), "p")
+
+  local decision = trust.consult(source)
+
+  eq(decision.state, "unknown")
+  eq(asked, {})
+end
+
 T["states"]["a decision in a token Chroma does not recognise is unknown"] = function()
   -- The database belongs to Neovim, and a Chroma that reads a token it does
   -- not know and carries on has guessed at a security state. Other files'

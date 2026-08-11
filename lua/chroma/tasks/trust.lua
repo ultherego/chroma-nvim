@@ -89,24 +89,47 @@ end
 
 ---@return table<string, string>|nil decisions, string|nil problem
 local function decisions()
-  local file = io.open(database(), "r")
+  local path = database()
+
+  -- "Nobody has decided anything yet" and "I could not read the decisions" are
+  -- two answers, and only the first is untrusted. `lstat` first, as in
+  -- discovery and for the same reason: a trust database that is a broken
+  -- symlink exists, and treating a failed open as absence would quietly
+  -- downgrade an unreadable security state to "not decided yet". Neovim's own
+  -- reader does treat them alike — this adapter exists in order not to.
+  local entry, failure, code = vim.uv.fs_lstat(path)
+  if not entry then
+    if code == "ENOENT" or code == "ENOTDIR" then
+      return {}, nil
+    end
+    return nil, ("%s cannot be inspected: %s"):format(path, failure or code or "unknown filesystem error")
+  end
+
+  local file = io.open(path, "r")
   if not file then
-    return {}, nil
+    return nil, ("%s exists and cannot be opened"):format(path)
+  end
+
+  -- One read, then split. Reading a directory opens without complaint and
+  -- fails at the read — measured on 0.12.4 — so the failure has an answer here
+  -- rather than escaping from a line iterator part-way through.
+  local blob = file:read("*a")
+  file:close()
+  if not blob then
+    return nil, ("%s could not be read"):format(path)
   end
 
   local recorded = {}
-  for line in file:lines() do
+  for line in vim.gsplit(blob, "\n") do
     if line ~= "" then
-      local token, path = line:match("^(%S+) (.+)$")
+      local token, decided = line:match("^(%S+) (.+)$")
       if not token then
-        file:close()
-        return nil, ("%s could not be read"):format(database())
+        return nil, ("%s could not be read"):format(path)
       end
-      recorded[path] = token
+      recorded[decided] = token
     end
   end
 
-  file:close()
   return recorded, nil
 end
 

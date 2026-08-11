@@ -368,6 +368,13 @@ the hash Neovim recorded, compared the way Neovim compares it. After `:trust`,
 the next Run Task starts again from a fresh snapshot, which is the same rule as
 the no-caching above.
 
+One limit of the promise, stated rather than left to be discovered. Neovim's
+`read()` consults the trust database itself, so between Chroma's look and that
+call another process can change it — a `!` written in that window means the
+explanation is printed and no modal appears. Nothing unsafe follows: the state
+only ever moves towards refusing. What can be wrong is the announcement, and
+only while somebody else is editing the trust database at that moment.
+
 The adapter reads Neovim's trust database, and that is a deliberate coupling to
 another project's implementation detail. It carries two obligations:
 
