@@ -175,3 +175,25 @@ var (
 	askInteractively           = tui.Ask
 	askComponentsInteractively = tui.Components
 )
+
+// refused turns a question that got no usable answer into an exit code.
+//
+// Two different things arrive here and they used to leave as one. Escape is a
+// person deciding against an installation; a closed pipe is a machine that was
+// never able to answer. Both exited 2, so pressing escape was reported as
+// misuse of the CLI — while answering `Proceed? [y/N]` with `n`, which is the
+// same decision made ten seconds later, exited 3 and said "Nothing was
+// changed." One answer, two codes, depending only on when it was given.
+//
+// Escape now gets that same 3 and that same sentence, on stdout where the rest
+// of the conversation is. A closed pipe keeps 2 and keeps naming the flags that
+// would have let it answer, because that is a script that needs fixing.
+func refused(err error, out, errOut *os.File) int {
+	if errors.Is(err, tui.ErrAborted) {
+		fmt.Fprint(out, "Nothing was changed.\n")
+		return exitDeclined
+	}
+
+	fmt.Fprintln(errOut, err)
+	return exitMisuse
+}

@@ -223,6 +223,27 @@ func TestAskingPlainlyIsHonouredWhereThereIsATerminal(t *testing.T) {
 	}
 }
 
+// The form has to have a way out, and the library's own keymap gives it one
+// key with no help text. Measured before this: escape on the placement selector
+// did nothing at all and the run had to be killed.
+//
+// A keymap is all that can be checked without a terminal, so this checks the
+// keymap. What happens when the key is pressed is measured by hand, in a real
+// one.
+func TestTheFormCanBeLeftWithEscape(t *testing.T) {
+	keys := wayOut().Quit.Keys()
+
+	for _, want := range []string{"esc", "ctrl+c"} {
+		found := false
+		for _, got := range keys {
+			found = found || got == want
+		}
+		if !found {
+			t.Errorf("%q does not leave the form; it answers to %v", want, keys)
+		}
+	}
+}
+
 type nopWriter struct{}
 
 func (nopWriter) Write(p []byte) (int, error) { return len(p), nil }

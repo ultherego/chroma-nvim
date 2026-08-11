@@ -151,8 +151,7 @@ func cmdInstall(args []string, out, errOut *os.File) int {
 	if opts.Selected == nil && opts.Profile == "" && !opts.NonInteractive {
 		opts, err = askInteractively(opts, loaded, os.Stdin, out)
 		if err != nil {
-			fmt.Fprintln(errOut, err)
-			return exitMisuse
+			return refused(err, out, errOut)
 		}
 
 		// The questions are over. Said here rather than at the top of the plan,

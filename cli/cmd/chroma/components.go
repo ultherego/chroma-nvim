@@ -98,8 +98,7 @@ func cmdComponents(args []string, out, errOut *os.File) int {
 	if !given {
 		chosen, err := askComponentsInteractively(loaded, existing, *plain, os.Stdin, out)
 		if err != nil {
-			fmt.Fprintln(errOut, err)
-			return exitMisuse
+			return refused(err, out, errOut)
 		}
 		wanted = chosen
 	}

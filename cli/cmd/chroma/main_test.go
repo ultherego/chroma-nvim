@@ -188,6 +188,74 @@ func TestPlainReachesTheComponentSelector(t *testing.T) {
 	}
 }
 
+// Escape is an answer, and a closed pipe is not.
+//
+// Both used to exit 2, so a person who changed their mind was told they had
+// misused the CLI — while the same decision made one screen later, at
+// `Proceed? [y/N]`, exited 3 and said "Nothing was changed." The exit code is
+// the part of this that ends up in somebody's script, so it has to mean the
+// same thing whenever the answer is given.
+func TestEscapeIsADecisionAndAClosedPipeIsAMistake(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		err  error
+		want int
+		says string
+	}{
+		{name: "escape", err: tui.ErrAborted, want: exitDeclined, says: "Nothing was changed."},
+		{name: "a closed pipe", err: tui.ErrNoInput, want: exitMisuse, says: "--non-interactive"},
+	} {
+		t.Run("install, "+tc.name, func(t *testing.T) {
+			empty(t)
+
+			real := askInteractively
+			askInteractively = func(opts install.Options, _ component.Set, _ io.Reader, _ io.Writer) (install.Options, error) {
+				return opts, tc.err
+			}
+			t.Cleanup(func() { askInteractively = real })
+
+			printed, code := say(t, func(out, errOut *os.File) int {
+				return run([]string{"install", "--source-tree", filepath.Join("..", "..", "..")}, out, errOut)
+			})
+
+			if code != tc.want {
+				t.Errorf("exit = %d, want %d:\n%s", code, tc.want, printed)
+			}
+			if !strings.Contains(printed, tc.says) {
+				t.Errorf("it does not say %q:\n%s", tc.says, printed)
+			}
+		})
+
+		t.Run("components, "+tc.name, func(t *testing.T) {
+			paths := machine(t)
+			contractInto(t, paths.ConfigDir)
+			if err := os.MkdirAll(filepath.Dir(paths.SelectionFile), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(paths.SelectionFile, []byte(`{"schema":1,"selected":["terraform"]}`), 0o644); err != nil {
+				t.Fatal(err)
+			}
+
+			real := askComponentsInteractively
+			askComponentsInteractively = func(_ component.Set, _ []string, _ bool, _ io.Reader, _ io.Writer) ([]string, error) {
+				return nil, tc.err
+			}
+			t.Cleanup(func() { askComponentsInteractively = real })
+
+			printed, code := say(t, func(out, errOut *os.File) int {
+				return run([]string{"components"}, out, errOut)
+			})
+
+			if code != tc.want {
+				t.Errorf("exit = %d, want %d:\n%s", code, tc.want, printed)
+			}
+			if !strings.Contains(printed, tc.says) {
+				t.Errorf("it does not say %q:\n%s", tc.says, printed)
+			}
+		})
+	}
+}
+
 // A command that is not finished must say so rather than being reported as
 // unknown, which would read as a typo.
 func TestAnUnfinishedCommandSaysSo(t *testing.T) {

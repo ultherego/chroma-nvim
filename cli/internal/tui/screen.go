@@ -18,6 +18,7 @@ import (
 	"io"
 	"strings"
 
+	"charm.land/bubbles/v2/key"
 	"charm.land/huh/v2"
 
 	"github.com/ultherego/chroma-nvim/cli/internal/component"
@@ -56,6 +57,7 @@ func onScreen(what questions, set component.Set, in io.Reader, out io.Writer) (C
 	form := huh.NewForm(huh.NewGroup(fields...)).
 		WithInput(in).
 		WithOutput(out).
+		WithKeyMap(wayOut()).
 		WithTheme(huh.ThemeFunc(huh.ThemeCatppuccin))
 
 	if err := form.Run(); err != nil {
@@ -72,6 +74,23 @@ func onScreen(what questions, set component.Set, in io.Reader, out io.Writer) (C
 		chosen.Components = selected
 	}
 	return chosen, nil
+}
+
+// wayOut adds escape to the keys that leave without installing anything.
+//
+// The library binds only ctrl+c, and binds it with no help text, so the form
+// offered no visible way out at all — measured: escape on the placement
+// selector did nothing, and the run sat there until it was killed. Escape is
+// what somebody presses to mean "not this", and a question with no answer for
+// that is a question that has trapped them.
+//
+// The cost, stated because it is real: the form checks this before the field
+// does, so escape no longer clears an active `/` filter. Backspace still does,
+// and the worst case of the trade is a cancelled run that changed nothing.
+func wayOut() *huh.KeyMap {
+	keys := huh.NewDefaultKeyMap()
+	keys.Quit = key.NewBinding(key.WithKeys("ctrl+c", "esc"), key.WithHelp("esc", "cancel"))
+	return keys
 }
 
 // locationField offers the two placements the installer actually supports.
