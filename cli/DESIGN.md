@@ -1235,6 +1235,51 @@ The exit codes were already right and were confirmed by measurement rather than
 assumed: a missing external tool is reported and exits 0, and a missing or
 too-old tool of Chroma's own exits 4.
 
+## One commit per release, decided once
+
+A `workflow_dispatch` run takes its workflow definition and its default checkout
+from the ref it was started on. Only the build job read the tag that was asked
+for, so a release dispatched from `main` with an older tag ran every quality gate
+against `main` and built the assets from the tag: the gate said "main is good"
+and the archive came from somewhere else.
+
+Measured before it was fixed, and it needed no release to demonstrate —
+dispatched from `main` with a tag that does not exist at all:
+
+```
+success  quality / CLI test suite          ← all eight gates green
+success  quality / Test suite
+failure  Build and package                 ← only the checkout noticed
+skipped  Publish
+```
+
+A gate that is green about a tag nobody created is a gate with no relationship to
+what is being released.
+
+A `resolve` job now decides the commit once, before anything else runs, and
+everything downstream is given a SHA rather than a tag. `ci.yml` takes it as a
+`workflow_call` input and every checkout in it uses it; the build checks out the
+same SHA instead of resolving the tag a second time, because a tag is a pointer
+its owner can move and two resolutions a CI run apart can differ. A tag that does
+not exist is refused in the first job.
+
+Both jobs print the commit they are about, so "the gate was green" can be checked
+against "the gate was about this commit". The three cases, measured on the fixed
+workflow:
+
+```
+tag push                          gate == build == the tag's commit,   published
+dispatch, newer branch, old tag   gate == build == the tag's commit    (≠ caller)
+dispatch, tag does not exist      resolve fails; quality, build and publish skipped
+```
+
+The middle one is what the dispatch trigger exists for, stated as something that
+was run rather than as an intention: the workflow definition comes from the ref
+the run was started on, so a tag can be re-run after a fixed workflow without
+moving it, while the subject under test stays exactly the commit the tag names.
+Dispatching the workflow on the old tag instead would bring back the old,
+possibly broken, definition of the gate along with the old code.
+
 ## Implementation order
 
 Done, in this order. Kept because the reasoning for each step is in the commits
