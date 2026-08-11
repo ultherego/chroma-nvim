@@ -434,8 +434,10 @@ know where to start looking; nothing after that does.
  "-i", "../inventories/dev/hosts.yml", "--ask-vault-pass", "kubernetes.yml"]
 ```
 
-There is no command string, no shell mode and no quoting to implement — the
-array reaches the process as the array (see the measured note in §11).
+There is no command string, no shell mode and no quoting to implement. Nothing
+passes through a shell and **`argv[1..]` reach the process byte for byte**.
+`argv[0]` is the one element that changes: it is resolved by the rules below,
+and what runs is the absolute path that resolution produced.
 
 **A relative argument stays exactly what the task wrote.** Chroma does not
 normalise, resolve or rewrite `../inventories/dev/hosts.yml`; the program
@@ -457,11 +459,19 @@ argv[0] is relative and path-like    resolved against the task's working
 ```
 
 If nothing executable is found that way, the task refuses by name before a
-terminal is opened. That check is not optional politeness: measured on Neovim
-0.12.4, `jobstart` raises `E475: … is not executable` rather than returning a
-failure, and inside the terminal library that happens after the window already
-exists — so without the check the user gets an empty terminal and a Vim error
-instead of a sentence naming the command that is missing.
+terminal is opened.
+
+**And what is handed to the terminal is the resolved path, not the name the
+task wrote.** This is not Chroma reinterpreting a command; it is the only way
+the rules above can hold. Measured on Neovim 0.12.4: `jobstart` validates
+`argv[0]` before it looks at the `env` and `cwd` it was given, so a bare name
+is searched in the editor's `PATH` and a `./script` against the editor's
+directory. Both refuse with `E475: … is not executable` — measured with an
+executable that exists only in the task's `PATH`, and with one that exists only
+in the task's working directory — and inside the terminal library that happens
+after the window already exists. Resolving first, and passing the absolute path
+the task's own environment and directory produced, is what makes the process
+start where and as the task said. `argv[1..]` are untouched.
 
 **`env` is an override, not a replacement.** The process inherits Neovim's
 environment — `PATH`, `HOME`, `SSH_AUTH_SOCK`, an `AWS_REGION` somebody exported
@@ -505,7 +515,7 @@ Working directory
 Environment overrides
 AWS_PROFILE=beta
 
-argv[0]  ansible-playbook
+argv[0]  /usr/bin/ansible-playbook
 argv[1]  -K
 argv[2]  -b
 argv[3]  -u
@@ -525,6 +535,10 @@ argv[8]  kubernetes.yml
 How that question is drawn is an implementation detail. What it may never be is
 a prompt whose default is yes, or one where dismissing the UI counts as an
 answer — this is the last gate before something applies infrastructure.
+
+`argv[0]` is shown resolved, because that is what will run: the preview and the
+executor read the same prepared array, and a preview showing the name while the
+resolver had found something else would be describing a different command.
 
 There is **no second, prettier line** showing the command as a shell would take
 it. Since the array never passes through a shell, a rendering joined with spaces
