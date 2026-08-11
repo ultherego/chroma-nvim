@@ -78,6 +78,10 @@ func cmdInstall(args []string, out, errOut *os.File) int {
 	// after the questions, so a wordmark there was the third thing somebody saw
 	// rather than the first. Misuse of the flags is still reported without one,
 	// because it is printed after they have been read and found to make sense.
+	//
+	// On a screen it starts from a clean one. Not in a pipe or a file, where
+	// there is nothing to clear and the sequence would be noise in a log.
+	report.Clear(out)
 	report.Banner(out)
 
 	// `chroma install` with nothing else is the command README documents and
@@ -150,6 +154,11 @@ func cmdInstall(args []string, out, errOut *os.File) int {
 			fmt.Fprintln(errOut, err)
 			return exitMisuse
 		}
+
+		// The questions are over. Said here rather than at the top of the plan,
+		// because a run that asked nothing has the wordmark's own blank line
+		// above it already and would get two.
+		fmt.Fprintln(out)
 
 		// The placement question can change where this goes, so the paths and
 		// the refusal that depends on them are worked out again rather than

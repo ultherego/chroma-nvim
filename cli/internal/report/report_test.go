@@ -289,6 +289,33 @@ func TestAWideTerminalIsNotStretchedToFit(t *testing.T) {
 	}
 }
 
+// Clearing is for screens. A pipe has nothing to clear, and a file that starts
+// with an escape sequence is a log somebody has to strip before reading it.
+func TestTheScreenIsClearedOnlyWhereThereIsOne(t *testing.T) {
+	var piped bytes.Buffer
+	func() {
+		defer seam(nil, nil)()
+		Clear(&piped)
+	}()
+	if piped.Len() != 0 {
+		t.Errorf("something was written into a pipe: %q", piped.String())
+	}
+
+	var screen bytes.Buffer
+	func() {
+		defer seam(nil, func(io.Writer) int { return 80 })()
+		Clear(&screen)
+	}()
+	if screen.Len() == 0 {
+		t.Error("a terminal was not cleared")
+	}
+
+	// The scrollback is the user's. `ESC[3J` is the sequence that deletes it.
+	if strings.Contains(screen.String(), "[3J") {
+		t.Errorf("clearing the screen threw away the scrollback: %q", screen.String())
+	}
+}
+
 func TestANarrowTerminalGetsTheNameInsteadOfTheWordmark(t *testing.T) {
 	defer seam(nil, func(io.Writer) int { return 20 })()
 	var buffer bytes.Buffer
