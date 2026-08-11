@@ -97,17 +97,33 @@ local KNOWN = {
   },
 }
 
----Whether a decoded value is an array of non-empty strings.
+---Whether a decoded value is a JSON array, and whether it is a JSON object.
 ---
----An empty JSON object and an empty JSON array both decode to `{}`, so an empty
----one passes either way; that is the one ambiguity Lua's decoder leaves and it
----costs nothing, because an empty list and an empty object mean the same thing
----here — nothing contributed.
+---Asked of the decoder rather than guessed from the table afterwards. Measured
+---on Neovim 0.12.4: `[]` decodes to a list and `{}` to `vim.empty_dict`, which
+---`vim.islist` tells apart even when both are empty. Counting keys does not,
+---and this file promises something stronger than "close enough" — the Go
+---reader decodes into typed fields, so an object where `[]string` belongs is
+---an error there, and a Lua reader that shrugs at it accepts documents the
+---installer refuses.
+---@param value any
+---@return boolean
+local function array(value)
+  return type(value) == "table" and vim.islist(value)
+end
+
+---@param value any
+---@return boolean
+local function object(value)
+  return type(value) == "table" and not vim.islist(value)
+end
+
+---Whether a decoded value is an array of non-empty strings.
 ---@param value any
 ---@param what string
 ---@return string|nil problem
 local function string_array_problem(value, what)
-  if type(value) ~= "table" or (next(value) ~= nil and #value == 0) then
+  if not array(value) then
     return ("%s is not an array"):format(what)
   end
   for _, entry in ipairs(value) do
@@ -152,18 +168,18 @@ local function shape_problem(decoded)
   end
 
   if decoded.tools ~= nil then
-    if type(decoded.tools) ~= "table" then
+    if not object(decoded.tools) then
       return "tools is not an object"
     end
     for key, level in pairs(decoded.tools) do
       if type(key) ~= "string" then
         return "tools is not an object"
       end
-      if type(level) ~= "table" or (next(level) ~= nil and #level == 0) then
+      if not array(level) then
         return ("tools.%s is not an array"):format(key)
       end
       for _, tool in ipairs(level) do
-        if type(tool) ~= "table" or vim.islist(tool) and next(tool) ~= nil then
+        if not object(tool) then
           return ("tools.%s holds something that is not an object"):format(key)
         end
         if tool.any ~= nil then
@@ -172,7 +188,7 @@ local function shape_problem(decoded)
             return problem
           end
         end
-        if tool.version ~= nil and type(tool.version) ~= "table" then
+        if tool.version ~= nil and not object(tool.version) then
           return ("tools.%s[].version is not an object"):format(key)
         end
       end
@@ -180,7 +196,7 @@ local function shape_problem(decoded)
   end
 
   if decoded.nvim ~= nil then
-    if type(decoded.nvim) ~= "table" then
+    if not object(decoded.nvim) then
       return "nvim is not an object"
     end
     for key, list in pairs(decoded.nvim) do
@@ -316,8 +332,14 @@ local function read_one(path)
 
   local decoded
   ok, decoded = pcall(vim.json.decode, table.concat(contents, "\n"))
-  if not ok or type(decoded) ~= "table" then
+  if not ok then
     return nil, "is not valid JSON"
+  end
+  -- A bare string parses, and so does a top-level array; neither is a
+  -- component, and saying "is not valid JSON" about a file whose JSON is fine
+  -- sends somebody looking for a syntax error that is not there.
+  if not object(decoded) then
+    return nil, "is not a JSON object"
   end
 
   -- Before anything walks it: see shape_problem.
