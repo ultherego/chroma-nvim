@@ -73,8 +73,12 @@ chroma install
 ```
 
 It asks where to put the configuration and which components you want, shows the
-whole plan, and writes nothing until you agree. By default it installs beside
-whatever Neovim configuration you already have:
+whole plan, and writes nothing until you agree. In a terminal the questions are
+selectors you move through; over a pipe or into a file they are printed and
+typed, and `--plain` (or `CHROMA_PLAIN=1`) takes the printed ones in a terminal
+too. Nothing else changes with it — the plan you agree to is the same either way.
+
+By default it installs beside whatever Neovim configuration you already have:
 
 ```sh
 NVIM_APPNAME=chroma-nvim nvim

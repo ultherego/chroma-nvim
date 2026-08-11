@@ -36,6 +36,7 @@ func cmdInstall(args []string, out, errOut *os.File) int {
 	version := set.String("version", "", "the release to install")
 	useDefault := set.Bool("default", false, "take over ~/.config/nvim, backing up what is there")
 	nonInteractive := set.Bool("non-interactive", false, "never ask; anything unanswered is misuse")
+	plain := set.Bool("plain", false, "ask in printed lines instead of selectors, even on a terminal (also CHROMA_PLAIN=1)")
 	assumeYes := set.Bool("yes", false, "accept the final plan without asking")
 
 	if err := set.Parse(args); err != nil {
@@ -48,6 +49,7 @@ func cmdInstall(args []string, out, errOut *os.File) int {
 		UseDefault:     *useDefault,
 		Profile:        *profile,
 		NonInteractive: *nonInteractive,
+		Plain:          *plain,
 		DryRun:         *dryRun,
 		AssumeYes:      *assumeYes,
 	}

@@ -48,6 +48,12 @@ type Options struct {
 	// misuse rather than something to assume.
 	NonInteractive bool
 
+	// Plain asks the questions in printed lines even where there is a terminal
+	// to draw selectors on. It changes how somebody is asked and nothing about
+	// what is installed: both adapters fill in the same answers, and the plan,
+	// the tables and the transaction after them are the same code.
+	Plain bool
+
 	// DryRun builds and shows the plan, and writes nothing at all.
 	DryRun bool
 

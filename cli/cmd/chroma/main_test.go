@@ -2,9 +2,15 @@ package main
 
 import (
 	"bufio"
+	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/ultherego/chroma-nvim/cli/internal/component"
+	"github.com/ultherego/chroma-nvim/cli/internal/install"
+	"github.com/ultherego/chroma-nvim/cli/internal/tui"
 )
 
 // usageText captures what `chroma --help` prints.
@@ -89,6 +95,96 @@ func TestEveryCommandIsAdvertised(t *testing.T) {
 		if !listed[name] {
 			t.Errorf("%q dispatches and is not in the usage text", name)
 		}
+	}
+}
+
+// A flag that reaches nothing is the same failure as a command that dispatches
+// nowhere: it parses, it is documented, and it changes nothing.
+//
+// `--plain` is the escape hatch from the selector layer, so what matters is
+// that the answer arrives where the adapter is chosen. This drives the real
+// command up to that boundary and reads what it was handed.
+func TestPlainReachesTheLayerThatAsks(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		args []string
+		want bool
+	}{
+		{name: "nothing said", args: []string{"install"}},
+		{name: "--plain", args: []string{"install", "--plain"}, want: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			empty(t)
+
+			var asked *install.Options
+
+			// Answered with a refusal, so the run stops at the question: this is
+			// about the flag arriving, and installing anything to find that out
+			// would be a different test on a real machine.
+			real := askInteractively
+			askInteractively = func(opts install.Options, _ component.Set, _ io.Reader, _ io.Writer) (install.Options, error) {
+				asked = &opts
+				return opts, tui.ErrAborted
+			}
+			t.Cleanup(func() { askInteractively = real })
+
+			args := append(append([]string{}, tc.args...), "--source-tree", filepath.Join("..", "..", ".."))
+			say(t, func(out, errOut *os.File) int { return run(args, out, errOut) })
+
+			if asked == nil {
+				t.Fatal("the command never reached the layer that asks")
+			}
+			if asked.Plain != tc.want {
+				t.Errorf("Plain = %v, want %v", asked.Plain, tc.want)
+			}
+		})
+	}
+}
+
+// And the same for the other command that asks. Two flags of the same name are
+// two chances for one of them to be parsed and dropped.
+func TestPlainReachesTheComponentSelector(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		args []string
+		want bool
+	}{
+		{name: "nothing said", args: []string{"components"}},
+		{name: "--plain", args: []string{"components", "--plain"}, want: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			paths := machine(t)
+			contractInto(t, paths.ConfigDir)
+
+			// The selection document an installation leaves behind. Without it
+			// the command stops before it would ask, which is correct and is not
+			// what this measures.
+			if err := os.MkdirAll(filepath.Dir(paths.SelectionFile), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(paths.SelectionFile, []byte(`{"schema":1,"selected":["terraform"]}`), 0o644); err != nil {
+				t.Fatal(err)
+			}
+
+			asked := false
+			plain := false
+
+			real := askComponentsInteractively
+			askComponentsInteractively = func(_ component.Set, _ []string, isPlain bool, _ io.Reader, _ io.Writer) ([]string, error) {
+				asked, plain = true, isPlain
+				return nil, tui.ErrAborted
+			}
+			t.Cleanup(func() { askComponentsInteractively = real })
+
+			printed, _ := say(t, func(out, errOut *os.File) int { return run(tc.args, out, errOut) })
+
+			if !asked {
+				t.Fatalf("the command never reached the selector:\n%s", printed)
+			}
+			if plain != tc.want {
+				t.Errorf("plain = %v, want %v", plain, tc.want)
+			}
+		})
 	}
 }
 

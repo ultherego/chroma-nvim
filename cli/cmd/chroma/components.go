@@ -34,6 +34,7 @@ func cmdComponents(args []string, out, errOut *os.File) int {
 	tree := set.String("tree", "", "list the components a configuration tree offers, and change nothing")
 	assumeYes := set.Bool("yes", false, "apply the change without asking")
 	nonInteractive := set.Bool("non-interactive", false, "never ask; --set is then required")
+	plain := set.Bool("plain", false, "ask in printed lines instead of selectors, even on a terminal (also CHROMA_PLAIN=1)")
 
 	// --set is the primitive, and it is a target state rather than a mutation:
 	// what the installation should have afterwards, in full. `--set ''` is core
@@ -95,7 +96,7 @@ func cmdComponents(args []string, out, errOut *os.File) int {
 	}
 
 	if !given {
-		chosen, err := askComponentsInteractively(loaded, existing, os.Stdin, out)
+		chosen, err := askComponentsInteractively(loaded, existing, *plain, os.Stdin, out)
 		if err != nil {
 			fmt.Fprintln(errOut, err)
 			return exitMisuse

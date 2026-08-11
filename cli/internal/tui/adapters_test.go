@@ -139,7 +139,7 @@ func TestTheScreenUINeedsATerminalAtBothEnds(t *testing.T) {
 		{"something that is not a terminal to read from", file, nopWriter{}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			if !isOverLines(asking(tc.in, tc.out)) {
+			if !isOverLines(asking(tc.in, tc.out, false)) {
 				t.Error("a screen UI was chosen without a terminal at both ends")
 			}
 		})
@@ -169,7 +169,7 @@ func TestTheScreenUINeedsATerminalAtBothEnds(t *testing.T) {
 			}
 			t.Cleanup(func() { isTerminal = real })
 
-			if got := !isOverLines(asking(reader, writer)); got != tc.wantScreen {
+			if got := !isOverLines(asking(reader, writer, false)); got != tc.wantScreen {
 				t.Errorf("screen UI = %v, want %v", got, tc.wantScreen)
 			}
 		})
@@ -186,6 +186,40 @@ func TestTheScreenUINeedsATerminalAtBothEnds(t *testing.T) {
 	// the terminal library was measured not to have.
 	if _, err := Ask(install.Options{}, contract(t), strings.NewReader(""), file); !errors.Is(err, ErrNoInput) {
 		t.Errorf("a closed pipe gave %v, want ErrNoInput", err)
+	}
+}
+
+// The escape hatch, on the one machine where it matters: a terminal at both
+// ends, where the selectors are what would otherwise be chosen.
+//
+// It is checked against a stubbed terminal for the same reason the rule above
+// is. Without one every case here is "not a terminal anyway", and a gate that
+// did nothing at all would pass.
+func TestAskingPlainlyIsHonouredWhereThereIsATerminal(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		flag       bool
+		environ    string
+		wantScreen bool
+	}{
+		{name: "nothing said, and a terminal at both ends", wantScreen: true},
+		{name: "--plain", flag: true},
+		{name: "CHROMA_PLAIN=1", environ: "1"},
+		{name: "CHROMA_PLAIN=yes", environ: "yes"},
+		{name: "CHROMA_PLAIN=0 is not a way of asking for it", environ: "0", wantScreen: true},
+		{name: "CHROMA_PLAIN= is not either", environ: "", wantScreen: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("CHROMA_PLAIN", tc.environ)
+
+			real := isTerminal
+			isTerminal = func(any) bool { return true }
+			t.Cleanup(func() { isTerminal = real })
+
+			if got := !isOverLines(asking(strings.NewReader(""), nopWriter{}, tc.flag)); got != tc.wantScreen {
+				t.Errorf("screen UI = %v, want %v", got, tc.wantScreen)
+			}
+		})
 	}
 }
 

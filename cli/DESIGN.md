@@ -74,6 +74,14 @@ libraries, confined to the presentation boundary.** `huh` for the selectors and
 below that boundary imports them, nothing they do decides anything, and a
 release still builds to one static binary.
 
+**`--plain`, or `CHROMA_PLAIN=1`, takes the printed questions on a terminal
+too.** It is the way out of the selector layer for a terminal that draws it
+badly, a multiplexer that redraws it wrongly, or somebody who would rather type.
+Note what it is not: a second installer, or a switch that changes what happens.
+It picks which adapter puts the questions, and the plan, the tables and the
+transaction after the last answer are the same code either way — which is also
+how the two can be compared on one machine.
+
 One consequence worth stating: **an exhausted input is a refusal, not a
 default.** A pipe that has run out has not agreed to a location or to a set of
 components, so it produces an error naming `--non-interactive` rather than an

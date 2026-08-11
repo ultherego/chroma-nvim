@@ -13,6 +13,7 @@
 //
 //	a terminal          full-screen selectors, arrow keys and checkboxes
 //	anything else       printed questions and typed answers, over a pipe
+//	--plain             the printed questions, on a terminal too
 //	--non-interactive   nothing is asked; the flags are the answer
 //
 // The two adapters are deliberately not one. They are input adapters, not two
@@ -106,7 +107,7 @@ func Ask(opts install.Options, set component.Set, in io.Reader, out io.Writer) (
 		return opts, nil
 	}
 
-	chosen, err := asking(in, out)(what, set, in, out)
+	chosen, err := asking(in, out, opts.Plain)(what, set, in, out)
 	if err != nil {
 		return opts, err
 	}
@@ -118,8 +119,8 @@ func Ask(opts install.Options, set component.Set, in io.Reader, out io.Writer) (
 // The same screen `install` uses, called on its own by `chroma components`.
 // Sharing it is the point: two selectors would be two ideas of what a component
 // list looks like, and the one nobody looks at would be the one that goes wrong.
-func Components(set component.Set, current []string, in io.Reader, out io.Writer) ([]string, error) {
-	chosen, err := asking(in, out)(questions{components: true, current: current}, set, in, out)
+func Components(set component.Set, current []string, plain bool, in io.Reader, out io.Writer) ([]string, error) {
+	chosen, err := asking(in, out, plain)(questions{components: true, current: current}, set, in, out)
 	if err != nil {
 		return nil, err
 	}
@@ -152,11 +153,37 @@ func apply(opts install.Options, chosen Choices) install.Options {
 // A pipe, a file and a test's temporary file are all "not a terminal", and all
 // of them get the printed questions — which is also the answer for a screen
 // reader, and is why there is one fallback rather than two.
-func asking(in io.Reader, out io.Writer) adapter {
+//
+// Somebody with a terminal can ask for those too, with `--plain` or by setting
+// CHROMA_PLAIN. That is the escape hatch for the whole selector layer: a
+// terminal that draws it badly, a multiplexer that redraws it wrongly, a
+// preference. It is deliberately not a switch between two installers — it picks
+// which of the two adapters puts the questions, and everything after the last
+// answer is the same code either way, tables included.
+func asking(in io.Reader, out io.Writer, plain bool) adapter {
+	if plain || plainly() {
+		return overLines
+	}
 	if isTerminal(in) && isTerminal(out) {
 		return onScreen
 	}
 	return overLines
+}
+
+// plainly reports whether the environment asks for the printed questions.
+//
+// Set to anything but empty or `0`, so `CHROMA_PLAIN=1`, `=true` and `=yes` all
+// work and `CHROMA_PLAIN=0` is not a way of accidentally asking for the thing
+// it names. An environment variable as well as a flag because the commands that
+// ask are not the only place this is wanted: a dotfile, a CI job and a `sudo -E`
+// can all set it once instead of remembering the flag.
+func plainly() bool {
+	switch os.Getenv("CHROMA_PLAIN") {
+	case "", "0":
+		return false
+	default:
+		return true
+	}
 }
 
 // isTerminal is the predicate below, in a variable.

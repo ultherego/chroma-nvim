@@ -198,6 +198,33 @@ Terraform · Terragrunt · Helm · Docker · Kubernetes · YAML · Ansible
   component contract in `components/`. Nothing in `lua/` imports Go and nothing
   in `cli/` parses Lua. Rule #1 applies to the Go ecosystem in full.
 
+### What the CLI may depend on
+
+The Go module went from zero dependencies to a handful, deliberately and once.
+The rule that replaced "none" is not "whatever helps": **minimal reviewed
+libraries, confined to the packages that face a person.**
+
+| | |
+|---|---|
+| **Where** | `internal/tui` (the questions) and `internal/report` (the printing), and nowhere else. Nothing that decides anything may import them. |
+| **What** | `charm.land/huh/v2` for selectors, `charm.land/lipgloss/v2` for tables, and what those two pull in. |
+| **How pinned** | Exact versions in `go.mod`, hashes in `go.sum`. CI runs `go mod verify` and then `go mod tidy` against a clean diff, so a dependency cannot arrive inside a commit about something else. |
+| **What it may not cost** | The binary stays static and single-file, and the CLI keeps working with no terminal at all. |
+
+The last line is the test of the whole arrangement, and it is a real one: delete
+both packages and every command still installs, updates and reports — over a
+pipe, in CI, into a file, with the printed questions that are the correct
+implementation for those and not a fallback. A dependency that could not be
+deleted this way would be a dependency in the wrong place.
+
+`--plain`, or `CHROMA_PLAIN=1`, forces that path on a terminal too. It exists so
+the two can be compared on one machine, and so a terminal that draws the
+selectors badly is an inconvenience rather than a blocked installation.
+
+Adding one is a contract change with a row in the table below, and the questions
+are Rule #1's: what does it cost in modules and owners, what breaks if it is
+abandoned, and what does the CLI do when it is deleted.
+
 ---
 
 ## Development
@@ -407,3 +434,4 @@ not an inconvenience.
 | 2026-08-08 | `chroma-vault.nvim` and `chroma-terraform.nvim` promoted from beta to stable | fifth external audit closed, every finding dispositioned; release gate met on 97050e1 with CI green |
 | 2026-08-08 | Renamed DevOps nVim → Chroma Neovim: repository, `$NVIM_APPNAME`, help file and tag prefix, `:checkhealth chroma`, and the own modules to `chroma-vault` / `chroma-terraform` / `chroma-aws` | owner decision; the project has a name and a logo of its own rather than a description |
 | 2026-08-08 | Added a Go module in `cli/` for the installer and CLI, and a `components/` contract read by both languages | distribution is the next stage; the component list must exist once, not once per consumer |
+| 2026-08-11 | The CLI may take third-party libraries, in `internal/tui` and `internal/report` only: `huh` for the selectors, `lipgloss` for the tables | owner decision; a full-screen interface needs raw mode, cursor addressing and a redraw loop, and the standard library has none of the three. The boundary is what keeps it honest — both packages can be deleted and every command still works over a pipe |
