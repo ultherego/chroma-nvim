@@ -146,16 +146,20 @@ end
 T["project tasks"] = new_set({
   hooks = {
     post_case = function()
-      require("chroma.health").version = vim.version
+      require("chroma.tasks.availability").version = vim.version
     end,
   },
 })
 
 ---The report as seen by an editor claiming to be `version`.
+---
+---The floor lives in `chroma.tasks.availability`, which is also what Run Task
+---refuses on, so this replaces the version there rather than in health: two
+---copies of a floor are two floors.
 ---@param version string
 ---@return string
 local function report_on(version)
-  require("chroma.health").version = function()
+  require("chroma.tasks.availability").version = function()
     return vim.version.parse(version)
   end
   return report()

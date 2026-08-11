@@ -334,6 +334,7 @@ In a diff split, `]h` and `[h` defer to Neovim's own `]c` and `[c`.
 
 Tools ~
 >
+    <leader>xr   Run a task this project declares
     <leader>xs   Shell — a terminal at the bottom, toggled
     <leader>xf   Format buffer or selection   (also works in visual mode)
     <leader>xF   Toggle format on save

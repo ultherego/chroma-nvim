@@ -9,6 +9,14 @@ local map = vim.keymap.set
 -- :FindFile in config/commands.lua for why they are two different questions.
 map("n", "<leader>fp", ":FindFile ", { desc = "Find path" })
 
+-- Tools --------------------------------------------------------------------
+-- Run Task. Core rather than a plugin, and reached the same way in every
+-- project: what a task is belongs to `.chroma/tasks.json`, and nothing here
+-- knows what any of them do.
+map("n", "<leader>xr", function()
+  require("chroma.tasks").run()
+end, { desc = "Run task" })
+
 -- Buffers ------------------------------------------------------------------
 map("n", "<leader>bd", "<cmd>bdelete<cr>", { desc = "Delete buffer" })
 map("n", "<leader>bD", "<cmd>bdelete!<cr>", { desc = "Delete buffer (force)" })
