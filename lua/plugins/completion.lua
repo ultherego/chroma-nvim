@@ -4,7 +4,20 @@ return {
   {
     "saghen/blink.cmp",
     dependencies = { "rafamadriz/friendly-snippets" },
-    version = "1.*",
+
+    -- The tag, not a range and not a bare commit. Upstream moved `main` to v2,
+    -- which requires Neovim 0.12+ and a second plugin, `saghen/blink.lib`;
+    -- adopting that is a decision of its own and not something to arrive at
+    -- because a clone resolved differently one morning.
+    --
+    -- Measured, and the reason this is a tag: v1.10.2 is commit 78336bc, which
+    -- the lockfile pins — and that commit is **not an ancestor of `main`**, so
+    -- it exists only as the tip of the v1 line. A ref that a clone always
+    -- brings with it is a pin that cannot be missed; a commit off the default
+    -- branch is one a narrower fetch can fail to find, and what stays on disk
+    -- then is `main`, which is v2. That is what CI hit: one profile in three
+    -- started v2 and failed with `module 'blink.lib' not found`.
+    tag = "v1.10.2",
     ---@module 'blink.cmp'
     ---@type blink.cmp.Config
     opts = {
