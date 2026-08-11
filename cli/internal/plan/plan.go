@@ -6,8 +6,6 @@
 package plan
 
 import (
-	"fmt"
-	"io"
 	"sort"
 	"strings"
 
@@ -61,19 +59,12 @@ type Plan struct {
 // kubectl" — so an absent kubectl is a fact about the machine, not an
 // incomplete plan, and the features that shell out to it say so when used.
 // Without git, by contrast, there are no plugins and there is no installation.
+//
+// The rule itself is `detect.Blocking`, and is not restated here. It used to be,
+// word for word, next to the same rule in `doctor` — two copies of "what stops
+// an installation" that nothing made agree.
 func (p Plan) Complete() bool {
-	for _, tool := range p.Tools {
-		// Present, not merely found. A required tool below the floor its
-		// component states is exactly as unusable as an absent one, and this is
-		// the only place that decides whether an installation may proceed.
-		//
-		// Only required, and only Chroma's own: a recommended tool that is too
-		// old is a fact about the machine, reported and not in the way.
-		if !tool.External && tool.Level == "required" && tool.Status != detect.Present {
-			return false
-		}
-	}
-	return true
+	return !detect.Blocking(p.Tools)
 }
 
 // External returns the user's own tools, in plan order. This is a report, not
@@ -180,65 +171,8 @@ func Build(set component.Set, requested []string, describe Detector) Plan {
 	return plan
 }
 
-// Render writes the plan in the shape cli/DESIGN.md shows: what will be
-// enabled, what that added, and which tools are missing.
-func (p Plan) Render(w io.Writer) {
-	if len(p.Unknown) > 0 {
-		fmt.Fprintf(w, "Unknown components: %s\n\n", strings.Join(p.Unknown, ", "))
-	}
-
-	if len(p.Components) == 0 {
-		// Saying "nothing is missing" about a plan that would install nothing is
-		// technically true and completely misleading.
-		fmt.Fprint(w, "  Components    none — nothing would be installed\n")
-		return
-	}
-
-	fmt.Fprintf(w, "  Components    %s\n", strings.Join(p.Components, ", "))
-	if len(p.Added) > 0 {
-		fmt.Fprintf(w, "                %s pulled in as a dependency\n", strings.Join(p.Added, ", "))
-	}
-
-	// Chroma's own tooling: the half of this that can stop an installation.
-	var missing, present []string
-	for _, tool := range p.Tools {
-		if tool.External {
-			continue
-		}
-		name := strings.Join(tool.Names, " or ")
-		if tool.Status == detect.Present {
-			present = append(present, name)
-		} else {
-			missing = append(missing, fmt.Sprintf("%s (%s)", name, tool.Level))
-		}
-	}
-
-	if len(present) > 0 {
-		fmt.Fprintf(w, "  Present       %s\n", strings.Join(present, ", "))
-	}
-	switch {
-	case len(missing) > 0:
-		fmt.Fprintf(w, "  Missing       %s\n", strings.Join(missing, ", "))
-	case len(p.Components) > 0:
-		fmt.Fprint(w, "  Missing       nothing\n")
-	}
-
-	// The user's own tools, named but not counted. Listing them here would read
-	// as a checklist to satisfy before installing, which is exactly what they
-	// are not — so this says how many and where the full report is.
-	if absent := p.absentExternal(); len(absent) > 0 {
-		fmt.Fprintf(w, "  External      %s not on PATH; Chroma does not install these,\n", strings.Join(absent, ", "))
-		fmt.Fprint(w, "                and installing without them changes nothing here\n")
-	}
-}
-
-// absentExternal names the user's own tools that are not on PATH.
-func (p Plan) absentExternal() []string {
-	var out []string
-	for _, tool := range p.External() {
-		if tool.Status != detect.Present {
-			out = append(out, strings.Join(tool.Names, "/"))
-		}
-	}
-	return out
-}
+// Printing a plan is `report.Plan`, and is deliberately not a method here.
+//
+// A plan is a value that several commands build and one package draws, and a
+// package that both works out what would happen and decides how it looks is a
+// package where a change to the second can quietly change the first.

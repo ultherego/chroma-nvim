@@ -14,6 +14,7 @@ import (
 	"github.com/ultherego/chroma-nvim/cli/internal/detect"
 	"github.com/ultherego/chroma-nvim/cli/internal/install"
 	"github.com/ultherego/chroma-nvim/cli/internal/plan"
+	"github.com/ultherego/chroma-nvim/cli/internal/report"
 )
 
 // cmdComponents changes which parts of an installation are enabled.
@@ -123,7 +124,7 @@ func cmdComponents(args []string, out, errOut *os.File) int {
 		fmt.Fprintf(out, "  - %s\n", name(loaded, id))
 	}
 	fmt.Fprint(out, "\n")
-	built.Render(out)
+	report.Plan(out, built)
 
 	if !built.Complete() {
 		fmt.Fprint(errOut, "\nSomething Chroma itself needs is missing. Install it and try again.\n")
@@ -153,7 +154,7 @@ func cmdComponents(args []string, out, errOut *os.File) int {
 	fmt.Fprintf(out, "The installation is still %s; changing components does not change the release.\n", current.Version)
 
 	_, external := detect.Split(detect.Tools(loaded, result.Enabled, nil, nil))
-	detect.RenderExternal(out, external)
+	report.External(out, external)
 
 	return exitOK
 }

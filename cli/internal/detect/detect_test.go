@@ -1,9 +1,7 @@
 package detect
 
 import (
-	"bytes"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/ultherego/chroma-nvim/cli/internal/component"
@@ -248,28 +246,26 @@ func TestSplitPutsEachToolOnOneSide(t *testing.T) {
 	}
 }
 
-// The wording is the substance: an absent kubectl is a fact about the machine,
-// and a report that shouts about it says the installation is broken when it is
-// not.
-func TestTheReportDoesNotCallAMissingToolAFailure(t *testing.T) {
+// How any of this reads is measured in internal/report, which is where the
+// printing went.
+
+// Blocking over a list is the rule `doctor` exits on and the rule a plan calls
+// complete. One list with one absent required tool of Chroma's own is enough to
+// tell it apart from the same list without one.
+func TestBlockingAsksTheWholeList(t *testing.T) {
 	set := shipped(t)
 
+	// kubectl is the user's, and absent: a list of nothing but external tools
+	// never blocks, however much of it is missing.
 	_, external := Split(Tools(set, []string{"core", "kubernetes"}, present(), says(nil)))
-
-	var buffer bytes.Buffer
-	RenderExternal(&buffer, external)
-	text := buffer.String()
-
-	if !strings.Contains(text, "not found") {
-		t.Errorf("the report does not say what is not found:\n%s", text)
+	if Blocking(external) {
+		t.Errorf("external tools blocked an installation: %v", external)
 	}
-	if !strings.Contains(text, "does not install") {
-		t.Errorf("the report does not say Chroma will not install these:\n%s", text)
-	}
-	for _, shouted := range []string{"ERROR", "FAIL", "missing dependency", "required but"} {
-		if strings.Contains(text, shouted) {
-			t.Errorf("the report says %q about a tool that is simply the user's to install:\n%s", shouted, text)
-		}
+
+	// git is Chroma's own, required, and absent.
+	own, _ := Split(Tools(set, []string{"core"}, present(), says(nil)))
+	if !Blocking(own) {
+		t.Errorf("nothing blocked, with none of Chroma's own tooling present: %v", own)
 	}
 }
 

@@ -15,6 +15,7 @@ import (
 	"github.com/ultherego/chroma-nvim/cli/internal/installstate"
 	"github.com/ultherego/chroma-nvim/cli/internal/plan"
 	"github.com/ultherego/chroma-nvim/cli/internal/release"
+	"github.com/ultherego/chroma-nvim/cli/internal/report"
 	"github.com/ultherego/chroma-nvim/cli/internal/state"
 )
 
@@ -160,7 +161,7 @@ func cmdUpdate(args []string, out, errOut *os.File) int {
 	}
 
 	_, external := detect.Split(detect.Tools(loaded, built.Components, nil, nil))
-	detect.RenderExternal(out, external)
+	report.External(out, external)
 
 	return exitOK
 }
@@ -290,7 +291,7 @@ func renderUpdate(out *os.File, current installstate.State, target string, prepa
 	}
 	fmt.Fprint(out, "\n")
 
-	built.Render(out)
+	report.Plan(out, built)
 
 	fmt.Fprint(out, "\n  The component selection is kept as it is; update does not ask again.\n")
 	fmt.Fprintf(out, "  %s is moved aside first, and stays as the previous generation.\n", current.ConfigDir)

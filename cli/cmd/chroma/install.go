@@ -16,6 +16,7 @@ import (
 	"github.com/ultherego/chroma-nvim/cli/internal/install"
 	"github.com/ultherego/chroma-nvim/cli/internal/plan"
 	"github.com/ultherego/chroma-nvim/cli/internal/release"
+	"github.com/ultherego/chroma-nvim/cli/internal/report"
 )
 
 // cmdInstall places a Chroma Neovim on this machine.
@@ -223,7 +224,7 @@ func cmdInstall(args []string, out, errOut *os.File) int {
 	// already succeeded, so that it reads as what it is: a note about the
 	// machine, not a list of things to fix before Chroma will work.
 	_, external := detect.Split(detect.Tools(loaded, built.Components, nil, nil))
-	detect.RenderExternal(out, external)
+	report.External(out, external)
 
 	fmt.Fprintf(out, "\nRun it with:\n")
 	if paths.AppName != "" {
@@ -304,6 +305,7 @@ type preparer interface {
 
 // renderPlan prints what would happen, before anything does.
 func renderPlan(out *os.File, opts install.Options, paths install.Paths, prepared install.PreparedSource, built plan.Plan) {
+	report.Banner(out)
 	fmt.Fprintf(out, "Chroma Neovim will be installed.\n\n")
 
 	switch {
@@ -324,7 +326,7 @@ func renderPlan(out *os.File, opts install.Options, paths install.Paths, prepare
 	}
 	fmt.Fprintf(out, "  Selection     %s\n", paths.SelectionFile)
 	fmt.Fprintln(out)
-	built.Render(out)
+	report.Plan(out, built)
 }
 
 // confirmed asks, unless it has been told not to.

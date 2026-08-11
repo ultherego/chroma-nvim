@@ -17,13 +17,9 @@
 package detect
 
 import (
-	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"runtime"
-	"sort"
-	"strings"
 
 	"github.com/ultherego/chroma-nvim/cli/internal/component"
 	"github.com/ultherego/chroma-nvim/cli/internal/toolver"
@@ -107,6 +103,21 @@ type Tool struct {
 // accurate statement and the moment it matters.
 func (t Tool) Blocking() bool {
 	return !t.External && t.Level == "required" && t.Status != Present
+}
+
+// Blocking reports whether anything in a list of tools stops an installation.
+//
+// The list form exists because every caller needed it and each was writing the
+// loop again: a plan asking whether it is complete, `doctor` asking whether to
+// exit non-zero. Two loops, one rule — and nothing keeping them the same, which
+// is how a plan once called a machine ready that doctor called broken.
+func Blocking(tools []Tool) bool {
+	for _, tool := range tools {
+		if tool.Blocking() {
+			return true
+		}
+	}
+	return false
 }
 
 // Lookup answers whether a name is on PATH. A parameter so that tests do not
@@ -227,52 +238,9 @@ func Split(tools []Tool) (own, external []Tool) {
 	return own, external
 }
 
-// RenderExternal writes the report on the user's own tools, grouped by the
-// component that wants each one.
+// Printing any of this is `report.External`, and is deliberately not here.
 //
-// One renderer, called by `doctor` and by the end of an installation, because
-// two of them would be two things to keep saying the same. The wording is the
-// substance here: `not found`, never `ERROR` or `missing dependency`, because
-// an installation with no kubectl on the machine is a complete installation.
-func RenderExternal(w io.Writer, tools []Tool) {
-	if len(tools) == 0 {
-		return
-	}
-
-	byComponent := map[string][]Tool{}
-	for _, tool := range tools {
-		byComponent[tool.Component] = append(byComponent[tool.Component], tool)
-	}
-
-	ids := make([]string, 0, len(byComponent))
-	for id := range byComponent {
-		ids = append(ids, id)
-	}
-	sort.Strings(ids)
-
-	fmt.Fprint(w, "\nExternal tools\n")
-	fmt.Fprint(w, "  These belong to your system. Chroma does not install, upgrade or\n")
-	fmt.Fprint(w, "  replace them. A feature that needs one says so when you use it.\n")
-
-	for _, id := range ids {
-		fmt.Fprintf(w, "\n  %s\n", id)
-		for _, tool := range byComponent[id] {
-			names := strings.Join(tool.Names, " or ")
-
-			switch tool.Status {
-			case Present, TooOld:
-				fmt.Fprintf(w, "    found      %-22s %s\n", names, describeFound(tool))
-			case Absent:
-				fmt.Fprintf(w, "    not found  %-22s %s\n", names, tool.Reason)
-			}
-		}
-	}
-}
-
-// describeFound says what answered, and what it said it was.
-func describeFound(tool Tool) string {
-	if tool.Version == "" {
-		return tool.Found
-	}
-	return fmt.Sprintf("%s %s", tool.Found, tool.Version)
-}
+// This package answers what is on the machine. How that reads — a table, a
+// colour, the difference between `not found` and `ERROR` — is one decision made
+// in one place for every command, and a package that both measures and draws is
+// a package where changing the drawing can change the measurement.

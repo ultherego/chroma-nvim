@@ -47,12 +47,12 @@ cli/
   cmd/chroma/            entry point, flag parsing, exit codes
   internal/
     component/           reads and validates the component contract
-    resolve/             dependencies, conflicts, the plan
+    plan/                dependencies, conflicts, the plan
     detect/              what is on this machine: tools and versions. It reports.
     install/             fetch a release, place it, back it up, bootstrap Neovim
     state/               the installed-state file
-    health/             preflight, and `doctor`
-    tui/                 the interactive layer, and nothing else
+    tui/                 the questions, and nothing else
+    report/              how any of it is printed, and nothing else
 ```
 
 `tui/` holds no decisions. Everything it displays comes from the contract, and
@@ -61,13 +61,18 @@ That is what makes `--non-interactive` one implementation rather than two: after
 the last question both paths run the identical code, and a question a flag has
 already answered is not asked.
 
-**It is line-oriented, and that is a decision rather than a stage.** It reads an
-`io.Reader` and writes an `io.Writer`, so every screen is tested without a
-terminal, over a pipe, in CI. There is no raw mode, no cursor addressing and no
-redraw — the Go standard library has none of those, so a full-screen interface
-means a third-party library and its transitive tree. This module still has zero
-dependencies, and acquiring the first one is a maintainer's decision, not
-something to arrive at by accident inside a milestone.
+**Where there is a terminal it asks with selectors, and everywhere else it asks
+in lines.** Both adapters read an `io.Reader` and write an `io.Writer`, both
+fill in the same answers, and one function turns those answers into options — so
+a pipe, a file and CI get the printed questions, which is the correct
+implementation for them rather than a fallback. The line-oriented half has tests
+of its own and would still install everything if the other were deleted.
+
+That is what the dependencies bought, and where they stop: **minimal reviewed
+libraries, confined to the presentation boundary.** `huh` for the selectors and
+`lipgloss` for the tables, in `tui/` and `report/` and nowhere else. Nothing
+below that boundary imports them, nothing they do decides anything, and a
+release still builds to one static binary.
 
 One consequence worth stating: **an exhausted input is a refusal, not a
 default.** A pipe that has run out has not agreed to a location or to a set of
@@ -334,17 +339,28 @@ incomplete. What the installation does is say so, once, at the end:
 
 ```
 External tools
+  These belong to your system. Chroma does not install, upgrade or replace
+  them. A feature that needs one says so when you use it.
 
-  These belong to your system. Chroma does not install, upgrade or
-  replace them. A feature that needs one says so when you use it.
-
-  kubernetes
-    not found  kubectl                views and log tailing
+╭────────────┬─────────────┬───────────┬─────────────────────────────────────╮
+│ Component  │ Tool        │ State     │ Detail                              │
+├────────────┼─────────────┼───────────┼─────────────────────────────────────┤
+│ kubernetes │ kubectl     │ found     │ kubectl 1.36.3                      │
+│ terraform  │ terraform   │ not found │ the runner and the formatter both   │
+│            │ or tofu     │           │ shell out to one of them            │
+╰────────────┴─────────────┴───────────┴─────────────────────────────────────╯
 ```
 
 `not found`, never `ERROR` — an installation on a machine with no kubectl is a
 complete installation. `chroma doctor` prints the same report later, from the
 same renderer, so the two cannot drift.
+
+The state is a word before it is a colour, here and in every table: `ok`, `too
+old`, `found`, `not found`. Colour repeats what the word says and adds nothing
+to it, so a redirected file, a `NO_COLOR` environment and a terminal somebody
+reads in black and white all carry the same report. The colour that a missing
+external tool gets is grey rather than the red a missing `git` gets, for the
+reason this whole section exists.
 
 The moment that actually matters is later still, in the editor: a feature that
 shells out to `kubectl` checks for it and says what is absent, which is both
@@ -363,25 +379,55 @@ and stops. `--non-interactive` requires the plan to contain no question that has
 no answer.
 
 ```
-Chroma Neovim v2.1.0 will be installed.
+█▀▀ █ █ █▀▄ █▀█ █▀▄▀█ ▄▀█
+█   █▀█ █▀▄ █ █ █ ▀ █ █▀█
+▀▀▀ ▀ ▀ ▀ ▀ ▀▀▀ ▀   ▀ ▀ ▀
+█▄ █ █▀▀ █▀█ █ █ █ █▀▄▀█
+█ ▀█ █▀▀ █ █ ▀▄▀ █ █ ▀ █
+▀  ▀ ▀▀▀ ▀▀▀  ▀  ▀ ▀   ▀
 
-  Source        v2.1.0
+Chroma Neovim will be installed.
+
+  Release       v2.1.0
   Location      ~/.config/chroma-nvim
   Run with      NVIM_APPNAME=chroma-nvim nvim
-  Selection     ~/.config/chroma/components.json
+  Selection     ~/.local/state/chroma-nvim/selection.json
 
   Components    core, kubernetes, terraform
-  Present       git, curl, tar, unzip, gzip, cc, tree-sitter, fzf
-  Missing       nothing
+
+╭────────────────────┬─────────────┬───────┬────────────────────╮
+│ Tool               │ Need        │ State │ Detail             │
+├────────────────────┼─────────────┼───────┼────────────────────┤
+│ git                │ required    │ ok    │ git 2.55.0         │
+│ curl               │ required    │ ok    │ curl 8.21.0        │
+│ tar                │ required    │ ok    │ tar 1.35           │
+│ unzip              │ required    │ ok    │ unzip 6.00         │
+│ gzip               │ required    │ ok    │ gzip 1.14          │
+│ cc or gcc or clang │ required    │ ok    │ cc 16.1.1          │
+│ tree-sitter        │ required    │ ok    │ tree-sitter 0.26.9 │
+│ fzf                │ recommended │ ok    │ fzf 0.74.2         │
+│ rg                 │ recommended │ ok    │ rg 15.2.0          │
+│ fd                 │ recommended │ ok    │ fd 10.4.2          │
+│ bat                │ recommended │ ok    │ bat 0.26.1         │
+╰────────────────────┴─────────────┴───────┴────────────────────╯
+
   External      terraform/tofu not on PATH; Chroma does not install these,
                 and installing without them changes nothing here
 
 Proceed? [y/N]
 ```
 
-`Present` and `Missing` are Chroma's own tooling, and `Missing` is the line the
-exit code follows. `External` is named and not counted — see "It is not a
-package manager" above.
+The table is Chroma's own tooling, one row per tool, and a `required` row that
+does not say `ok` is the row the exit code follows. `External` is named and not
+counted — see "It is not a package manager" above.
+
+The table is as wide as its contents and no wider, until the terminal is
+narrower than that, at which point it is squeezed and the cells wrap. Nothing
+about it is decided at the point of printing: the renderer is handed tools that
+already know their own state and whether they block, and chooses how to show
+that and nothing else. It is the same renderer for `install`, `components`,
+`update`, `rollback` and `doctor`, which is the point — two of them would be two
+descriptions of one machine.
 
 Ordering matters and is fixed: **detect → resolve → plan → confirm → back up →
 place → bootstrap → verify → record**. Recording the state happens last, after
@@ -522,13 +568,12 @@ Planned, and deliberately absent until there is something to release: a pinned
 GitHub release. A release job that publishes an installer which cannot install
 anything would be worse than not having one.
 
-`go.mod` carries `go 1.24`, which is a floor rather than a pin — the directive
-states the minimum language and toolchain version, and a newer toolchain will
-happily build it. That is weaker than the pinning this project applies to
-Neovim, Ansible and selene, and it is a deliberate difference for now: the
-module has no dependencies, so what a newer Go changes is its own behaviour
-rather than a resolved graph. When the module grows dependencies, this becomes a
-`toolchain` line and a `go.sum`, and CI stops being allowed to pick.
+`go.mod` carries a `go` directive that is a floor rather than a pin — it states
+the minimum language and toolchain version, and a newer toolchain will happily
+build it. The dependency graph, by contrast, is pinned and authenticated: every
+version is in `go.mod`, every hash in `go.sum`, and CI runs `go mod verify` and
+then `go mod tidy` against a clean diff, so a dependency cannot arrive inside a
+commit about something else.
 
 A cross-cutting check belongs here, and exists: **the components in
 `components/` must resolve** — no unknown `requires`, no cycles, no tool listed with neither `id`

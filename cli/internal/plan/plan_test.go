@@ -1,7 +1,6 @@
 package plan
 
 import (
-	"bytes"
 	"strings"
 	"testing"
 
@@ -224,64 +223,8 @@ func TestRecommendedDoesNotWeakenRequired(t *testing.T) {
 	}
 }
 
-func TestRenderNamesWhatIsMissing(t *testing.T) {
-	var buffer bytes.Buffer
-	on(fixture(), []string{"terraform"}, "git").Render(&buffer)
-	out := buffer.String()
-
-	for _, want := range []string{"core, terraform", "pulled in as a dependency", "fzf (recommended)"} {
-		if !strings.Contains(out, want) {
-			t.Errorf("plan does not mention %q:\n%s", want, out)
-		}
-	}
-}
-
-// The user's own tools are named but not counted, and the plan says which of
-// the two it is doing — otherwise the line reads as a checklist to satisfy
-// before installing, which is exactly what it is not.
-func TestRenderNamesExternalToolsWithoutCountingThem(t *testing.T) {
-	var buffer bytes.Buffer
-	on(fixture(), []string{"terraform"}, "git").Render(&buffer)
-	out := buffer.String()
-
-	for _, want := range []string{"terraform/tofu", "does not install these"} {
-		if !strings.Contains(out, want) {
-			t.Errorf("plan does not mention %q:\n%s", want, out)
-		}
-	}
-	// Which means it must not appear under Missing, where the exit code lives.
-	missing := out[strings.Index(out, "Missing"):]
-	if cut := strings.Index(missing, "External"); cut >= 0 {
-		missing = missing[:cut]
-	}
-	if strings.Contains(missing, "terraform") {
-		t.Errorf("an external tool is reported as missing:\n%s", out)
-	}
-}
-
-// A plan that would install nothing said "Missing nothing", which is true and
-// reads as success. The exit code disagreed with the text.
-func TestRenderSaysWhenNothingWouldBeInstalled(t *testing.T) {
-	var buffer bytes.Buffer
-	on(fixture(), []string{"vault"}).Render(&buffer)
-	out := buffer.String()
-
-	if !strings.Contains(out, "nothing would be installed") {
-		t.Errorf("an empty plan should say so:\n%s", out)
-	}
-	if strings.Contains(out, "Missing       nothing") {
-		t.Errorf("an empty plan should not report a clean tool list:\n%s", out)
-	}
-}
-
-func TestRenderSaysWhenNothingIsMissing(t *testing.T) {
-	var buffer bytes.Buffer
-	on(fixture(), []string{"core"}, "git", "fzf").Render(&buffer)
-
-	if !strings.Contains(buffer.String(), "Missing       nothing") {
-		t.Errorf("a complete plan should say so:\n%s", buffer.String())
-	}
-}
+// How a plan reads is measured in internal/report, which is where the printing
+// went.
 
 func contains(list []string, want string) bool {
 	for _, one := range list {

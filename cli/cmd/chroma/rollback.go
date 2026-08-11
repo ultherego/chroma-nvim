@@ -14,6 +14,7 @@ import (
 	"github.com/ultherego/chroma-nvim/cli/internal/install"
 	"github.com/ultherego/chroma-nvim/cli/internal/installstate"
 	"github.com/ultherego/chroma-nvim/cli/internal/plan"
+	"github.com/ultherego/chroma-nvim/cli/internal/report"
 )
 
 // cmdRollback puts the previous generation back.
@@ -119,7 +120,7 @@ func cmdRollback(args []string, out, errOut *os.File) int {
 	fmt.Fprintf(out, "  Rollback to   %s\n", describeVersionOf(target.Version))
 	fmt.Fprintf(out, "  Kept at       %s\n", target.Path)
 	fmt.Fprintf(out, "  Location      %s\n\n", current.ConfigDir)
-	built.Render(out)
+	report.Plan(out, built)
 	fmt.Fprint(out, "\n  The component selection is kept as it is; a rollback moves the version.\n")
 	fmt.Fprintf(out, "  %s becomes the generation to come back to.\n", describeVersionOf(current.Version))
 
@@ -159,7 +160,7 @@ func cmdRollback(args []string, out, errOut *os.File) int {
 	fmt.Fprint(out, "\nRolling back again returns to where you were.\n")
 
 	_, external := detect.Split(detect.Tools(restored, built.Components, nil, nil))
-	detect.RenderExternal(out, external)
+	report.External(out, external)
 
 	return exitOK
 }

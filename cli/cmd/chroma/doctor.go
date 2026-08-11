@@ -4,12 +4,11 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"strings"
 
 	"path/filepath"
 
-	"github.com/ultherego/chroma-nvim/cli/internal/component"
 	"github.com/ultherego/chroma-nvim/cli/internal/detect"
+	"github.com/ultherego/chroma-nvim/cli/internal/report"
 	"github.com/ultherego/chroma-nvim/cli/internal/state"
 )
 
@@ -48,6 +47,8 @@ func cmdDoctor(args []string, out, errOut *os.File) int {
 		return exitMisuse
 	}
 
+	report.Banner(out)
+
 	dir, enabled, code := subject(*root, out, errOut)
 	if code != exitOK {
 		return code
@@ -80,10 +81,17 @@ func cmdDoctor(args []string, out, errOut *os.File) int {
 
 	own, external := detect.Split(tools)
 
-	broken := reportOwn(out, own)
-	detect.RenderExternal(out, external)
+	if len(own) > 0 {
+		fmt.Fprint(out, "\nChroma\n\n")
+		report.Requirements(out, own)
+	}
+	report.External(out, external)
 
-	if broken {
+	// Asked of the same rule the installer refuses on, rather than worked out
+	// again from what was just printed. A report that decides for itself what
+	// counts as broken is a second opinion, and the exit code is not the place
+	// for one.
+	if detect.Blocking(own) {
 		return exitPreflight
 	}
 	return exitOK
@@ -139,66 +147,4 @@ func subject(root string, out, errOut *os.File) (string, []string, int) {
 	}
 
 	return dir, chosen.Enabled(contract), exitOK
-}
-
-// reportOwn prints Chroma's own tooling and says whether any of it is missing.
-func reportOwn(out *os.File, tools []detect.Tool) bool {
-	if len(tools) == 0 {
-		return false
-	}
-
-	fmt.Fprint(out, "\nChroma\n")
-
-	broken := false
-	for _, tool := range tools {
-		names := strings.Join(tool.Names, " or ")
-
-		switch tool.Status {
-		case detect.Present:
-			fmt.Fprintf(out, "  ok         %-24s %s\n", names, describeVersion(tool))
-
-		case detect.TooOld:
-			broken = broken || tool.Blocking()
-			fmt.Fprintf(out, "  too old    %-24s %s is %s, %s\n",
-				names, tool.Found, describe(tool.Version), want(component.Tool{Version: tool.Want}))
-			fmt.Fprintf(out, "             %s\n", tool.Reason)
-
-		case detect.Absent:
-			broken = broken || tool.Blocking()
-			fmt.Fprintf(out, "  not found  %-24s %s — %s\n", names, tool.Level, tool.Reason)
-		}
-	}
-
-	return broken
-}
-
-// describeVersion says what answered, and what it said.
-func describeVersion(tool detect.Tool) string {
-	if tool.Version == "" {
-		return tool.Found
-	}
-	return fmt.Sprintf("%s %s", tool.Found, tool.Version)
-}
-
-func describe(version string) string {
-	if version == "" {
-		return "a version it would not report"
-	}
-	return version
-}
-
-func want(tool component.Tool) string {
-	v := tool.Version
-	switch {
-	case v == nil:
-		return "and that is enough"
-	case v.Min != "" && v.Max != "":
-		return "and " + v.Min + " to " + v.Max + " is required"
-	case v.Min != "":
-		return "and at least " + v.Min + " is required"
-	case v.Max != "":
-		return "and at most " + v.Max + " is required"
-	default:
-		return "and that is enough"
-	}
 }
