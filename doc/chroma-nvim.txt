@@ -212,11 +212,18 @@ Find ~
     <leader>fw   Word under cursor        <leader>fd   Diagnostics
     <leader>fb   Buffers                  <leader>fr   Resume last picker
     <leader>fo   Recent files
+    <leader>fp   Find path — type it, Tab completes
     <leader>fe   File explorer (oil)
     <leader>fy   Yazi at current file
     <leader>fY   Yazi at working directory
     <leader>ft   Resume last yazi session
 <
+`<leader>ff` and `<leader>fp` answer different questions. The first is the
+fuzzy finder, for when the name is roughly remembered and the location is not.
+The second leaves `:FindFile ` on the command line for a path you already know,
+where Tab completes directory by directory the way it does anywhere else in
+Neovim. Neither replaces the other and `<leader>ff` is unchanged.
+
 Project ~
 >
     <leader>pp   Projects
@@ -328,6 +335,7 @@ In a diff split, `]h` and `[h` defer to Neovim's own `]c` and `[c`.
 
 Tools ~
 >
+    <leader>xs   Shell — a terminal at the bottom, toggled
     <leader>xf   Format buffer or selection   (also works in visual mode)
     <leader>xF   Toggle format on save
     <leader>xi   Formatter info (:ConformInfo)

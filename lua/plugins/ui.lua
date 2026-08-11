@@ -77,6 +77,25 @@ return {
     "folke/snacks.nvim",
     lazy = false,
     priority = 1000,
+    -- Called through require("snacks") rather than the `Snacks` global, as in
+    -- git.lua.
+    keys = {
+      {
+        "<leader>xs",
+        function()
+          -- No command, so this is a shell in a split at the bottom rather than
+          -- a float, and the same one every time: snacks identifies a terminal
+          -- by command, working directory, environment and count, so toggling
+          -- shows and hides the one you left running.
+          --
+          -- `s` for shell. `<leader>xt` is Todo comments and has been since
+          -- before this, and a keymap conflict here is a bug rather than an
+          -- inconvenience.
+          require("snacks").terminal.toggle()
+        end,
+        desc = "Shell",
+      },
+    },
     opts = {
       dashboard = {
         enabled = true,

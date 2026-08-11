@@ -2,6 +2,13 @@
 
 local map = vim.keymap.set
 
+-- Find ---------------------------------------------------------------------
+-- Left on the command line rather than executed: the point of this one is the
+-- typing that follows it, with Tab completing the path. Everything else under
+-- <leader>f is the fuzzy finder, and this does not replace any of it — see
+-- :FindFile in config/commands.lua for why they are two different questions.
+map("n", "<leader>fp", ":FindFile ", { desc = "Find path" })
+
 -- Buffers ------------------------------------------------------------------
 map("n", "<leader>bd", "<cmd>bdelete<cr>", { desc = "Delete buffer" })
 map("n", "<leader>bD", "<cmd>bdelete!<cr>", { desc = "Delete buffer (force)" })
