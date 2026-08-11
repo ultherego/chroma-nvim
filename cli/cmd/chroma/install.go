@@ -84,6 +84,24 @@ func cmdInstall(args []string, out, errOut *os.File) int {
 		opts.Version = release.Latest
 	}
 
+	// One managed installation per user, and the refusal comes before anything
+	// is downloaded, staged or moved.
+	//
+	// A second one was allowed and produced a state this CLI could not get out
+	// of: with an isolated installation and a `--default` one both recorded,
+	// every lifecycle command answered "this cannot tell which you mean" and no
+	// flag existed to say. Measured — the second install reported success and
+	// update, components, rollback and uninstall all refused afterwards.
+	//
+	// The alternative was to add a way of naming which installation each command
+	// is about. That is a larger product for a configuration nobody asked for,
+	// and it would still be wrong in one place the flag cannot reach: the
+	// component selection is one document per user, shared by both, so two
+	// installations were never two independent things anyway.
+	if code := refuseASecondInstallation(errOut); code != exitOK {
+		return code
+	}
+
 	// Ctrl-C between here and the end of the transaction cancels the context,
 	// which stops the child process and rolls the installation back.
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
@@ -250,6 +268,24 @@ func prepareSource(ctx context.Context, opts install.Options, errOut *os.File) (
 		fmt.Fprintf(errOut, "nothing to install: name a release with --version (or --version %s), or a checkout with --source-tree.\n", release.Latest)
 		return install.PreparedSource{}, exitMisuse
 	}
+}
+
+// refuseASecondInstallation stops before a machine can end up with two.
+func refuseASecondInstallation(errOut *os.File) int {
+	found, code := recorded(errOut)
+	if code != exitOK {
+		return code
+	}
+	if len(found) == 0 {
+		return exitOK
+	}
+
+	fmt.Fprint(errOut, "Chroma is already installed on this machine:\n")
+	for _, one := range found {
+		fmt.Fprintf(errOut, "  %s\n", one.state.ConfigDir)
+	}
+	fmt.Fprint(errOut, "There is one managed installation per user. Move that one forward with `chroma update`, change what is in it with `chroma components`, or remove it with `chroma uninstall` and install again.\n")
+	return exitMisuse
 }
 
 // releaseSource turns a version into a tree on this machine.

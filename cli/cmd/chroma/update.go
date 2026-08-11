@@ -48,14 +48,34 @@ func cmdUpdate(args []string, out, errOut *os.File) int {
 		return code
 	}
 
-	held, code := locked(errOut)
-	if code != exitOK {
+	// Read-only, and it runs for every invocation: what a real run would repair
+	// is described here and done below. A dry run must leave this machine
+	// exactly as it found it, and that includes the lock file.
+	if code := foreseen(paths, current, out, errOut); code != exitOK {
 		return code
 	}
-	defer held.Release()
 
-	if code := recovered(paths, current, out, errOut); code != exitOK {
-		return code
+	// A real run takes the lock and repairs before it plans anything, because a
+	// plan built against a topology an interrupted transaction left behind is a
+	// plan about a machine that is about to change. A dry run does neither, and
+	// therefore plans against what is actually there and says so.
+	if !*dryRun {
+		held, code := locked(errOut)
+		if code != exitOK {
+			return code
+		}
+		defer held.Release()
+
+		if code := recovered(paths, current, out, errOut); code != exitOK {
+			return code
+		}
+
+		// Recovery can move a generation and rewrite the record, so what the
+		// rest of this works from is read again rather than remembered.
+		paths, current, code = managed(errOut)
+		if code != exitOK {
+			return code
+		}
 	}
 
 	// A developer installation came from a checkout, and there is no release to
@@ -67,8 +87,7 @@ func cmdUpdate(args []string, out, errOut *os.File) int {
 		return exitMisuse
 	}
 
-	source := release.GitHubSource{Version: *version}
-	target, err := source.Resolve(ctx)
+	target, err := releaseVersion(ctx, *version)
 	if err != nil {
 		fmt.Fprintln(errOut, err)
 		return exitFailed
@@ -82,7 +101,7 @@ func cmdUpdate(args []string, out, errOut *os.File) int {
 		return exitOK
 	}
 
-	prepared, err := release.GitHubSource{Version: target}.Prepare(ctx)
+	prepared, err := releaseSource(target).Prepare(ctx)
 	if err != nil {
 		fmt.Fprintln(errOut, err)
 		return exitFailed
@@ -153,28 +172,62 @@ func cmdUpdate(args []string, out, errOut *os.File) int {
 // not want to remember which of them they chose a year ago. Two of them is the
 // case worth refusing — acting on whichever was checked first would update an
 // installation the user was not thinking of.
-func managed(errOut *os.File) (install.Paths, installstate.State, int) {
-	type candidate struct {
-		paths install.Paths
-		state installstate.State
-	}
+// releaseVersion says which release a request like `latest` names.
+//
+// A package variable for the same reason releaseSource is one: a test about
+// what this command does before it downloads anything should not have to reach
+// the network to get there.
+var releaseVersion = func(ctx context.Context, version string) (string, error) {
+	return release.GitHubSource{Version: version}.Resolve(ctx)
+}
 
-	var found []candidate
+// recorded finds every Chroma installation this user has, in both shapes.
+//
+// Read-only, and it reports rather than judges: what to do about none, one or
+// two of them is the caller's question. `managed` answers it for the commands
+// that act on an installation; `install` asks it to find out whether there is
+// already one.
+func recorded(errOut *os.File) ([]installation, int) {
+	var found []installation
 	for _, useDefault := range []bool{false, true} {
 		paths, err := install.ResolvePaths(useDefault)
 		if err != nil {
 			fmt.Fprintln(errOut, err)
-			return install.Paths{}, installstate.State{}, exitFailed
+			return nil, exitFailed
 		}
 
-		recorded, ok, err := installstate.Load(paths.InstallState)
+		state, ok, err := installstate.Load(paths.InstallState)
 		if err != nil {
 			fmt.Fprintln(errOut, err)
-			return install.Paths{}, installstate.State{}, exitFailed
+			return nil, exitFailed
 		}
 		if ok {
-			found = append(found, candidate{paths, recorded})
+			found = append(found, installation{paths, state})
 		}
+	}
+	return found, exitOK
+}
+
+// installation is one recorded installation and where it lives.
+type installation struct {
+	paths install.Paths
+	state installstate.State
+}
+
+// managed finds the one installation a lifecycle command is about.
+//
+// One, and there is deliberately no way to ask for a particular one of two:
+// `install` refuses to make a second, so two is a state this CLI does not
+// produce. It was produced before that refusal existed — an isolated
+// installation and a `--default` one side by side left every lifecycle command
+// answering "this cannot tell which you mean", with no flag in the product to
+// resolve it. Measured, and the reason the refusal is where it is rather than
+// here: by the time a command needs to know which installation to act on, the
+// wrong one has already been made.
+func managed(errOut *os.File) (install.Paths, installstate.State, int) {
+	found, code := recorded(errOut)
+	if code != exitOK {
+		return install.Paths{}, installstate.State{}, code
 	}
 
 	switch len(found) {
@@ -186,9 +239,9 @@ func managed(errOut *os.File) (install.Paths, installstate.State, int) {
 	default:
 		fmt.Fprint(errOut, "Two Chroma installations are recorded and this cannot tell which you mean:\n")
 		for _, one := range found {
-			fmt.Fprintf(errOut, "  %s (%s)\n", one.state.ConfigDir, one.state.Version)
+			fmt.Fprintf(errOut, "  %s\n", one.state.ConfigDir)
 		}
-		fmt.Fprint(errOut, "Remove one, or run the command against the machine you meant.\n")
+		fmt.Fprint(errOut, "Remove one of them by hand and try again.\n")
 		return install.Paths{}, installstate.State{}, exitMisuse
 	}
 }

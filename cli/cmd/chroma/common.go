@@ -114,3 +114,25 @@ func recovered(paths install.Paths, current installstate.State, out, errOut *os.
 	}
 	return exitOK
 }
+
+// foreseen says, without touching anything, whether an interrupted transaction
+// is in the way and what a real run would do about it first.
+//
+// Read-only on purpose, and it is the half of recovery a dry run is allowed to
+// reach. `--dry-run` means no change to the state of this machine — not "skip
+// the main operation". Measured before this existed: `chroma update --dry-run`
+// on an interrupted topology moved two directories and rewrote the
+// installation, and reported an interrupted rollback as something it had
+// already put back.
+func foreseen(paths install.Paths, current installstate.State, out, errOut *os.File) int {
+	found, err := install.DetectInterruption(paths, current)
+	if err != nil {
+		fmt.Fprintln(errOut, err)
+		fmt.Fprint(errOut, "Nothing was changed. An earlier Chroma operation did not finish and this cannot tell what to put back.\n")
+		return exitFailed
+	}
+	if found != nil {
+		fmt.Fprintf(out, "An earlier Chroma operation did not finish.\n%s\n\nA real run would put that right before doing anything else.\n\n", found.Why)
+	}
+	return exitOK
+}

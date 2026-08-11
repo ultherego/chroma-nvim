@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -13,7 +14,8 @@ import (
 )
 
 // machine gives a test its own XDG tree with one recorded installation in it.
-func machine(t *testing.T) install.Paths {
+// empty confines a test to a directory of its own and records no installation.
+func empty(t *testing.T) install.Paths {
 	t.Helper()
 
 	root := t.TempDir()
@@ -43,6 +45,14 @@ func machine(t *testing.T) install.Paths {
 	if err != nil {
 		t.Fatalf("ResolvePaths: %v", err)
 	}
+	return paths
+}
+
+// machine is a blank one with an installation recorded on it.
+func machine(t *testing.T) install.Paths {
+	t.Helper()
+
+	paths := empty(t)
 
 	// Enough of an installation for `managed` to find it. The commands under
 	// test all stop at the lock, before any of this is read for content.
@@ -101,23 +111,46 @@ func captured(t *testing.T, run func(errOut *os.File) int) (int, string) {
 // that moves a directory or rewrites the record has to be held off by it.
 func TestEveryMutatingCommandTakesTheLock(t *testing.T) {
 	for _, tc := range []struct {
-		name string
-		args []string
-		run  func(args []string, out, errOut *os.File) int
+		name  string
+		setUp func(*testing.T) []string
+		run   func(args []string, out, errOut *os.File) int
 	}{
-		// install locks after it has a tree to install and before it looks at
-		// the target, so a source tree is needed to reach the lock at all.
 		// install takes the lock after the plan and the confirmation, because
 		// until the interactive flow has answered it does not know which
-		// installation it would touch. So this drives it past both.
-		{"install", []string{"--source-tree", bare(t), "--components", "", "--yes"}, cmdInstall},
-		{"update", []string{"--dry-run"}, cmdUpdate},
-		{"components", []string{"--set", "terraform", "--yes"}, cmdComponents},
-		{"rollback", []string{"--dry-run"}, cmdRollback},
-		{"uninstall", []string{"--dry-run"}, cmdUninstall},
+		// installation it would touch. So this drives it past both — and onto a
+		// machine with nothing recorded, since a second installation is refused
+		// long before the lock.
+		{"install", func(t *testing.T) []string {
+			empty(t)
+			return []string{"--source-tree", bare(t), "--components", "", "--yes"}
+		}, cmdInstall},
+
+		// Not --dry-run, for any of these. A dry run deliberately never reaches
+		// the lock now: it must leave the machine exactly as it found it, and a
+		// lock file is a change like any other.
+		{"update", func(t *testing.T) []string {
+			chose(t, machine(t))
+			offline(t)
+			return []string{"--yes"}
+		}, cmdUpdate},
+
+		{"components", func(t *testing.T) []string {
+			machine(t)
+			return []string{"--set", "terraform", "--yes"}
+		}, cmdComponents},
+
+		{"rollback", func(t *testing.T) []string {
+			withGeneration(t, chose(t, machine(t)))
+			return []string{"--yes"}
+		}, cmdRollback},
+
+		{"uninstall", func(t *testing.T) []string {
+			machine(t)
+			return []string{"--yes"}
+		}, cmdUninstall},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			machine(t)
+			args := tc.setUp(t)
 
 			lockPath, err := lock.Path()
 			if err != nil {
@@ -130,7 +163,7 @@ func TestEveryMutatingCommandTakesTheLock(t *testing.T) {
 			defer held.Release()
 
 			code, errOut := captured(t, func(errFile *os.File) int {
-				return tc.run(tc.args, os.Stdout, errFile)
+				return tc.run(args, os.Stdout, errFile)
 			})
 
 			if code == exitOK {
@@ -141,6 +174,81 @@ func TestEveryMutatingCommandTakesTheLock(t *testing.T) {
 			}
 		})
 	}
+}
+
+// offline makes the release lookups answer without a network, so a test about
+// what a command does before it downloads anything does not depend on one.
+func offline(t *testing.T) {
+	t.Helper()
+
+	realVersion, realSource := releaseVersion, releaseSource
+	releaseVersion = func(context.Context, string) (string, error) { return "v9.9.9", nil }
+	releaseSource = func(string) preparer { return localTree{bare(t)} }
+	t.Cleanup(func() { releaseVersion, releaseSource = realVersion, realSource })
+}
+
+// localTree stands in for a release: a directory on this machine, prepared the
+// way `--source-tree` prepares one.
+type localTree struct{ root string }
+
+func (l localTree) Prepare(ctx context.Context) (install.PreparedSource, error) {
+	prepared, err := install.LocalSource{Root: l.root}.Prepare(ctx)
+	if err != nil {
+		return prepared, err
+	}
+	prepared.Version = "v9.9.9"
+	return prepared, nil
+}
+
+// chose gives an installation a component selection, which update and rollback
+// both read before they get anywhere near the lock.
+func chose(t *testing.T, paths install.Paths) install.Paths {
+	t.Helper()
+
+	if err := os.MkdirAll(filepath.Dir(paths.SelectionFile), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(paths.SelectionFile, []byte(`{"schema":1,"selected":[]}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	contractInto(t, paths.ConfigDir)
+	return paths
+}
+
+// withGeneration gives an installation something to roll back to.
+func withGeneration(t *testing.T, paths install.Paths) install.Paths {
+	t.Helper()
+
+	kept := paths.ConfigDir + ".chroma-backup-20260809T000000Z"
+	if err := os.MkdirAll(filepath.Join(kept, "lua", "chroma"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"init.lua", filepath.Join("lua", "chroma", "bootstrap.lua")} {
+		if err := os.WriteFile(filepath.Join(kept, name), []byte("-- v0.9.0\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	contractInto(t, kept)
+
+	identity, err := install.Identify(kept)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	record, found, err := installstate.Load(paths.InstallState)
+	if err != nil || !found {
+		t.Fatalf("Load: %v found=%v", err, found)
+	}
+	record.Previous = &installstate.Generation{
+		Version: "v0.9.0", Contract: 5, Path: kept,
+		Device: identity.Device, Inode: identity.Inode, Mtime: identity.Mtime,
+		Source: installstate.Source{Type: installstate.FromRelease, Ref: "v0.9.0"},
+	}
+	if _, err := installstate.Write(paths.InstallState, record); err != nil {
+		t.Fatal(err)
+	}
+	return paths
 }
 
 // And the reading command is not held off, because it changes nothing.
@@ -232,23 +340,12 @@ func TestTheUninstallPlanDoesNotOfferAHandedBackConfiguration(t *testing.T) {
 	}
 }
 
-// blank gives a test an empty machine: XDG dirs of its own, no installation.
+// blank gives a test an empty machine and both shapes of path on it.
 func blank(t *testing.T) (isolated install.Paths, takeover install.Paths) {
 	t.Helper()
 
-	root := t.TempDir()
-	for _, pair := range [][2]string{
-		{"XDG_CONFIG_HOME", "config"}, {"XDG_DATA_HOME", "data"},
-		{"XDG_STATE_HOME", "state"}, {"XDG_CACHE_HOME", "cache"},
-	} {
-		t.Setenv(pair[0], filepath.Join(root, pair[1]))
-	}
-
-	isolated, err := install.ResolvePaths(false)
-	if err != nil {
-		t.Fatal(err)
-	}
-	takeover, err = install.ResolvePaths(true)
+	isolated = empty(t)
+	takeover, err := install.ResolvePaths(true)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -38,14 +38,34 @@ func cmdUninstall(args []string, out, errOut *os.File) int {
 		return code
 	}
 
-	held, code := locked(errOut)
-	if code != exitOK {
+	// Read-only, and it runs for every invocation: what a real run would repair
+	// is described here and done below. A dry run must leave this machine
+	// exactly as it found it, and that includes the lock file.
+	if code := foreseen(paths, current, out, errOut); code != exitOK {
 		return code
 	}
-	defer held.Release()
 
-	if code := recovered(paths, current, out, errOut); code != exitOK {
-		return code
+	// A real run takes the lock and repairs before it plans anything, because a
+	// plan built against a topology an interrupted transaction left behind is a
+	// plan about a machine that is about to change. A dry run does neither, and
+	// therefore plans against what is actually there and says so.
+	if !*dryRun {
+		held, code := locked(errOut)
+		if code != exitOK {
+			return code
+		}
+		defer held.Release()
+
+		if code := recovered(paths, current, out, errOut); code != exitOK {
+			return code
+		}
+
+		// Recovery can move a generation and rewrite the record, so what the
+		// rest of this works from is read again rather than remembered.
+		paths, current, code = managed(errOut)
+		if code != exitOK {
+			return code
+		}
 	}
 
 	// Before the plan, not after it: a destructive list nobody is going to act

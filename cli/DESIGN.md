@@ -1280,6 +1280,71 @@ moving it, while the subject under test stays exactly the commit the tag names.
 Dispatching the workflow on the old tag instead would bring back the old,
 possibly broken, definition of the gate along with the old code.
 
+## One installation, and what a dry run is allowed to touch
+
+Two findings that turned out to share a shape: both were the CLI doing something
+to the machine that the person running it had not asked for.
+
+### One managed installation per user
+
+A second installation was allowed, and produced a state this CLI could not get
+out of. Measured: with an isolated installation recorded, `chroma install
+--default` reported success, and afterwards every lifecycle command answered
+
+```
+Two Chroma installations are recorded and this cannot tell which you mean:
+```
+
+with no flag in the product to say which. Update, components, rollback and
+uninstall all refused. A dead end the CLI created itself.
+
+`install` now refuses before anything is downloaded, staged or moved, in both
+directions, and the refusal names what is already there and what to do instead.
+
+The alternative was to add a way of naming which installation each command is
+about. That is a larger product for a configuration nobody asked for, and it
+would still be wrong in one place a flag cannot reach: **the component selection
+is one document per user**, shared by both, so two installations were never two
+independent things in the first place.
+
+### `--dry-run` means no change to this machine
+
+Not "skip the main operation". Measured on an interrupted topology, which is the
+only state where recovery has anything to do:
+
+```
+chroma update --dry-run
+  gone:    nvim.chroma-backup-20260810T000000Z/     ← moved
+  created: nvim.chroma-backup-20260809T000000Z/     ← new topology
+  changed: chroma-nvim/
+  created: run/chroma-nvim.lock
+  "An interrupted rollback was found. v1.0.0 is being put back..."
+```
+
+A dry run took the lock, ran recovery, moved two directories and rewrote the
+installation — then said it had written nothing.
+
+The shape now, for `update`, `rollback` and `uninstall`:
+
+```
+load the record
+describe the topology            ← read-only, always
+if dry-run:  plan, render, exit  ← no lock, no recovery, no log
+take the lock
+repair
+re-read the record               ← repair can move a generation
+plan, render, confirm, operate
+```
+
+A dry run still says what a real run would have to put right first — detection is
+a read, and only the repair is a write. The lock and the repair happen together
+and before the plan, because a plan built against a topology an interrupted
+transaction left behind describes a machine that is about to change.
+
+`install` was already clean here: its lock moved after the plan and the
+confirmation when the lock became global, so its dry run never reached one. That
+is now held in place by a test rather than by luck.
+
 ## Implementation order
 
 Done, in this order. Kept because the reasoning for each step is in the commits

@@ -196,7 +196,10 @@ func TestDoctorWithNoInstallationSaysSo(t *testing.T) {
 // **Point 6, on the public entrypoint.** README documents `chroma install`, and
 // it used to refuse: "nothing to install: name a release with --version".
 func TestAPlainInstallAsksForTheLatestRelease(t *testing.T) {
-	machine(t)
+	// Nothing recorded: with an installation already on the machine this would
+	// be refused as a second one, long before it decided which version to ask
+	// for.
+	empty(t)
 
 	var asked string
 	real := releaseSource
