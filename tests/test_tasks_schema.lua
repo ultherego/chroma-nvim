@@ -121,6 +121,20 @@ T["the document"]["refuses a missing tasks array"] = function()
   refuses([[{"schema": 1}]], "no tasks array")
 end
 
+-- The decoder keeps the difference between `[]` and `{}` even when both are
+-- empty, so the validator must ask it rather than count keys. Measured on
+-- 0.12.4 before these existed: `"tasks": {}` was read as an array of no tasks
+-- and `"env": []` as an object of no variables — two JSON types given one
+-- meaning, which is what schema 1 is for.
+
+T["the document"]["refuses an empty object where tasks should be an array"] = function()
+  refuses([[{"schema": 1, "tasks": {}}]], "no tasks array")
+end
+
+T["the document"]["refuses a document that is not an object"] = function()
+  refuses("[]", "not a JSON object")
+end
+
 -- ---------------------------------------------------------------------------
 -- A task
 
@@ -207,6 +221,10 @@ T["cwd"]["refuses no cwd at all"] = function()
   refuses(document({ id = "x", name = "X", argv = { "ls" } }), "cwd is not an object")
 end
 
+T["cwd"]["refuses an array where an object belongs"] = function()
+  refuses([[{"schema": 1, "tasks": [{"id": "x", "name": "X", "cwd": [], "argv": ["ls"]}]}]], "cwd is not an object")
+end
+
 -- ---------------------------------------------------------------------------
 -- argv
 
@@ -237,6 +255,24 @@ T["env"]["refuses a value that is not a string"] = function()
     [[{"schema": 1, "tasks": [{"id": "x", "name": "X", "cwd": {"mode": "project"}, "argv": ["ls"], "env": {"PORT": 8080}}]}]],
     "env.PORT"
   )
+end
+
+T["env"]["refuses an empty array where an object belongs"] = function()
+  refuses(
+    [[{"schema": 1, "tasks": [{"id": "x", "name": "X", "cwd": {"mode": "project"}, "argv": ["ls"], "env": []}]}]],
+    "env is not an object"
+  )
+end
+
+T["env"]["accepts an empty object"] = function()
+  -- The other side of the same distinction: declaring no overrides is legal,
+  -- and only the empty *array* is the mistake.
+  local tasks, problem = schema.read(
+    [[{"schema": 1, "tasks": [{"id": "x", "name": "X", "cwd": {"mode": "project"}, "argv": ["ls"], "env": {}}]}]]
+  )
+
+  eq(problem, nil)
+  eq(vim.tbl_count(tasks[1].env), 0)
 end
 
 T["env"]["refuses a null value"] = function()

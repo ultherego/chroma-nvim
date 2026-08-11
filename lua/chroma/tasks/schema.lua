@@ -46,16 +46,24 @@ local function text(value)
   return type(value) == "string" and value ~= ""
 end
 
----Whether a decoded value is a JSON array.
+---Whether a decoded value is a JSON array, and whether it is a JSON object.
 ---
----An empty array and an empty object both decode to `{}`, so an empty one
----passes as either. That is the single ambiguity Lua's decoder leaves and it
----costs nothing here: an empty `tasks` means no tasks whichever it was written
----as, and an empty `argv` is refused by the rule below regardless.
+---Asked of the decoder rather than guessed from the shape of the table.
+---Measured on Neovim 0.12.4: `[]` decodes to a list and `{}` to `vim.empty_dict`,
+---which `vim.islist` tells apart, so the distinction survives an empty
+---container. Counting keys does not: it read `"tasks": {}` as an array of no
+---tasks and `"env": []` as an object of no variables, which is the exact
+---confusion between JSON types that schema 1 exists to refuse.
 ---@param value any
 ---@return boolean
 local function array(value)
-  return type(value) == "table" and not (next(value) ~= nil and #value == 0)
+  return type(value) == "table" and vim.islist(value)
+end
+
+---@param value any
+---@return boolean
+local function object(value)
+  return type(value) == "table" and not vim.islist(value)
 end
 
 ---The first field name at this level that does not belong.
@@ -75,7 +83,7 @@ end
 ---@param cwd any
 ---@return string|nil problem
 local function cwd_problem(cwd)
-  if type(cwd) ~= "table" or array(cwd) and next(cwd) == nil then
+  if not object(cwd) then
     return "cwd is not an object"
   end
 
@@ -148,7 +156,7 @@ local function env_problem(env)
   if env == nil then
     return nil
   end
-  if type(env) ~= "table" or array(env) and next(env) ~= nil then
+  if not object(env) then
     return "env is not an object"
   end
 
@@ -168,7 +176,7 @@ end
 ---@param task any
 ---@return string|nil problem
 local function task_problem(task)
-  if type(task) ~= "table" then
+  if not object(task) then
     return ("is %s, which is not an object"):format(vim.inspect(task))
   end
 
@@ -216,8 +224,14 @@ function M.read(bytes)
   end
 
   local ok, decoded = pcall(vim.json.decode, bytes)
-  if not ok or type(decoded) ~= "table" then
+  if not ok then
     return nil, "is not valid JSON"
+  end
+  -- Valid JSON and still not a document: a top-level array or a bare string
+  -- parses cleanly and has no schema to check, so it is refused for what it is
+  -- rather than reported as a syntax error somebody will go looking for.
+  if not object(decoded) then
+    return nil, "is not a JSON object"
   end
 
   local unknown = unknown_field(decoded, KNOWN.document)
