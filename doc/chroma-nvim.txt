@@ -24,10 +24,11 @@ CONTENTS                                                 *chroma-nvim-contents*
  14. Ansible Vault ...................... |chroma-nvim-vault|
  15. Terraform .......................... |chroma-nvim-terraform|
  16. AWS and sessions ................... |chroma-nvim-aws|
- 17. Adding a plugin .................... |chroma-nvim-adding|
- 18. Troubleshooting .................... |chroma-nvim-troubleshooting|
- 19. Components ......................... |chroma-nvim-components|
- 20. Rules .............................. |chroma-nvim-rules|
+ 17. Project tasks ...................... |chroma-nvim-tasks|
+ 18. Adding a plugin .................... |chroma-nvim-adding|
+ 19. Troubleshooting .................... |chroma-nvim-troubleshooting|
+ 20. Components ......................... |chroma-nvim-components|
+ 21. Rules .............................. |chroma-nvim-rules|
 
 ==============================================================================
 1. INTRODUCTION                                      *chroma-nvim-introduction*
@@ -347,6 +348,10 @@ Tools ~
     <leader>xq   Quickfix list                 (trouble)
     <leader>xL   Location list                 (trouble)
 <
+`<leader>xr` runs what the repository declares in `.chroma/tasks.json`, and
+infers nothing from the buffer. The first one in a project takes two steps,
+because the file has to be trusted first — see |chroma-nvim-tasks|.
+
 Editing ~
 
 Surrounding pairs, on `gs` rather than the upstream `s`: >
@@ -1494,7 +1499,257 @@ The dashboard is excluded from what gets saved, so a restored session opens
 onto the work rather than onto a stale start screen.
 
 ==============================================================================
-17. ADDING A PLUGIN                                        *chroma-nvim-adding*
+17. PROJECT TASKS                                           *chroma-nvim-tasks*
+
+Chroma does not learn how your infrastructure is run. The repository says it.
+
+`<leader>xr` reads `.chroma/tasks.json`, shows exactly what is about to run,
+and starts it once you agree. Nothing is inferred — not from the buffer, not
+from its filetype, not from where the editor happens to be.
+
+Status: STABLE, schema 1. It is covered by the test suite, and everything below
+describes current behaviour. What schema 1 deliberately leaves out is at the
+end of this section.
+
+Tasks belong to `core`, so they are in every installation and there is no
+component to switch on.
+
+The order of the steps is itself the contract:
+>
+    availability -> discovery -> trust -> schema -> picker
+                 -> cwd -> argv -> preview -> confirmation -> run
+<
+Three of those positions are load-bearing. Trust is asked before the picker,
+because Neovim's modal on top of a picker is a question about a list you can no
+longer see. The directory and the executable are resolved after a task has been
+chosen, so one task naming a command this machine does not have cannot hide
+every other task in the document. The preview and the executor read one
+prepared execution rather than preparing it twice, because a PATH can change
+between the question and the answer.
+
+Anything that is not an explicit yes ends in nothing happening.
+
+The document                                           *chroma-nvim-tasks-file*
+>
+    {
+      "schema": 1,
+      "tasks": [
+        {
+          "id": "plan-staging",
+          "name": "Plan",
+          "group": "staging",
+          "cwd": { "mode": "relative", "path": "envs/staging" },
+          "argv": ["terraform", "plan", "-out=tfplan"],
+          "env": { "TF_IN_AUTOMATION": "1" }
+        }
+      ]
+    }
+<
+The document has two fields, `schema` and `tasks`, and a task has six:
+
+    id         required    unique in the document
+    name       required    what the picker shows
+    group      optional    shown as a prefix: "group / name"
+    cwd        required    where it runs; an object, see below
+    argv       required    a non-empty array of strings
+    env        optional    an object of non-empty strings
+
+The picker answers with the task rather than with its label, because the schema
+requires ids to be unique and says nothing about names: two tasks may be called
+"Plan" and only one of them is the one that was chosen.
+
+`cwd` has two modes in schema 1:
+
+    { "mode": "project" }                    the directory holding .chroma/
+    { "mode": "relative", "path": "envs/x" } that directory, plus a path
+
+A `path` written beside `project` is refused rather than ignored. Somebody
+wrote it expecting it to be used, and the difference between ignored and used
+is which directory an apply runs in.
+
+A document is refused whole, and the refusal names the file, the task and the
+field:
+>
+    .chroma/tasks.json: task "plan-staging": cwd.mode "file" is not supported
+<
+Strict, for the reason `components/*.json` is strict: a file that decides what
+a machine executes is the worst place to be quietly generous. An unknown field
+at any level, a duplicated id, a schema that is not 1, a number where a string
+belongs, a `null`, an absolute `cwd.path`, an empty `argv` — each is an error
+naming itself rather than a task that silently runs something else. `"tasks":
+{}` is refused too: an empty JSON object is not an empty array, and asking the
+decoder rather than counting keys is what keeps the two apart.
+
+Discovery                                         *chroma-nvim-tasks-discovery*
+
+The search starts at the editor's effective working directory — `getcwd()`, so
+a window-local `:lcd` counts — and climbs.
+
+The first entry named `.chroma/tasks.json` ends the search, whatever it turns
+out to be. A directory of that name, a broken symlink, a file this user may not
+read: each is refused by name, and none is a reason to keep climbing. Stepping
+over an unusable entry would hand this project's Run Task to whichever
+repository happens to sit above it.
+
+"There is nothing here" and "I was not allowed to look" are two different
+answers and only the first continues upward, so an unreadable `.chroma/` is
+reported rather than turned into somebody else's tasks running.
+
+Nothing is remembered between runs. A file trusted since the last look, one
+just written, one just deleted and a different project all have to be seen by
+the next `<leader>xr`.
+
+Trust                                                 *chroma-nvim-tasks-trust*
+
+The file is executable content, and the decision about it is Neovim's, not
+Chroma's. The first task in a repository therefore takes two steps.
+
+The prompt that appears is Neovim's own and calls this "exrc: Found untrusted
+code", which names a feature nobody asked for, so Chroma prints a line naming
+the file just before it appears — and only when it is going to appear.
+
+For a file the choices are ignore, view and deny. There is no allow. Trusting
+one means: choose (v)iew, read it, leave the buffer, run `:trust` with no
+argument, and press `<leader>xr` again.
+
+Never `:trust <file>`. Neovim's own documentation warns of a TOCTOU risk there
+and directs you to view the file first.
+
+The decision is a `sha256` of the exact bytes, so editing the file invalidates
+it and the two steps repeat. The trust is in the contents, not in the path.
+
+Deny writes `!` and silences the question. Chroma reports that state rather
+than calling into a prompt that would not appear; `:trust ++remove` on the file
+undoes it.
+
+One snapshot is authoritative. Chroma reads the bytes, hashes them, and parses
+those same bytes — it does not hash a file and then let something read it a
+second time, because the contents can change in between and a trusted answer
+would then authorise one byte string and hand back another.
+
+The database is `$XDG_STATE_HOME/nvim/trust`, one decision per line. One that
+exists and cannot be understood is reported as exactly that: guessing at it
+would mean guessing at a security state.
+
+The working directory                                   *chroma-nvim-tasks-cwd*
+
+One invariant covers both modes:
+>
+    realpath(working directory) is the project root, or inside it
+<
+Both sides are resolved before they are compared, and compared by path
+components. A `..` in the task and a symlink in the repository are covered by
+the first; the second is what a textual prefix would get wrong, since
+`/project` is a prefix of `/project-evil` and the difference between those two
+is the difference between a plan and somebody else's infrastructure.
+
+Neovim's current directory is consulted once, by discovery, to know where to
+start looking. After that it has no influence at all: `:cd`, `:lcd`, `:tcd`,
+a session plugin or a file manager may move the editor between reading a
+preview and agreeing to it, and none of them changes where the task runs.
+
+The command                                         *chroma-nvim-tasks-command*
+
+There is no shell. `argv` is handed to the process as an array, and nothing in
+it is expanded, split, quoted or globbed.
+
+Exactly one element changes: `argv[0]` is resolved to the absolute path it
+names. That is not Chroma reinterpreting the command, it is the only way the
+rest of this holds. Measured on 0.12.4: `jobstart` validates the first element
+before it looks at the `env` and `cwd` it was handed, so a bare name is
+searched in the editor's PATH and `./deploy` against the editor's directory —
+both fail with E475 even when the task's own PATH and working directory hold
+exactly what was asked for.
+
+The lookup uses the PATH the child will have, which is the task's override when
+it declares one. A name containing `/` is taken as a path, relative ones
+against the task's directory. A bare name is searched, and an entry that exists
+without being executable is stepped over rather than accepted, which is what a
+shell would have done. A directory is never the answer: it passes an execute
+check — that is what makes it traversable — so the type is asked as well. An
+empty PATH entry means the task's working directory, the same answer `execvp`
+gives after the chdir.
+
+Everything after `argv[0]` is copied byte for byte.
+`../inventories/dev/hosts.yml` is the program's to interpret against its own
+directory, not Chroma's to tidy.
+
+`env` is added to what Neovim inherited rather than replacing it.
+
+The preview                                         *chroma-nvim-tasks-preview*
+
+What is shown is the prepared execution and nothing else: the task, the
+resolved directory, the overrides sorted by name, and every argument numbered
+from zero as the process will see them — with `argv[0]` as the path that was
+found, because that is what will start.
+
+No line joins them into something that looks like a command line. The array
+never passes through a shell, and a rendering joined with spaces misrepresents
+any argument with a space, a quote or a semicolon in it — and that is the line
+people copy. Control characters are escaped, the backslash included, so one
+argument stays one visible argument.
+
+The question defaults to No. Escape, a dismissed dialog and an answer that
+never arrives are the same answer, and it is the one that runs nothing.
+
+The terminal                                       *chroma-nvim-tasks-terminal*
+
+One Run is one new process, in a terminal of its own.
+
+`<leader>xs` toggles, and finds its terminal by command, directory, environment
+and count. A task does the opposite and always opens: a second Run of the same
+task would otherwise flicker a window instead of running anything. That
+identity has no room for a task id either, so each Run takes the next number of
+the session as its count and two tasks running the same command in the same
+place stay apart.
+
+The terminal survives the process, whatever it exits with. Automatic closing is
+off, because a successful `terraform plan` is precisely the output somebody
+opened this to read. The library keeps its own failure notice inside that same
+switch, so a non-zero exit is reported by Chroma instead — and the window stays
+exactly as it is, with whatever the process printed before it gave up.
+
+Neovim 0.12.3                                       *chroma-nvim-tasks-version*
+
+Chroma's floor is 0.12 and stays there. Project tasks are the one feature that
+asks for more, and they ask because they are the one feature that puts Neovim's
+trust prompt on screen: `vim.secure.read()` reaches the `view` path whose
+command-injection fix landed upstream in 799cbfff8 (2026-05-20). Checked at
+each release — absent from v0.12.0, v0.12.1 and v0.12.2, present from v0.12.3.
+A security boundary is not built on an implementation without the fix.
+
+Below it `<leader>xr` refuses, names the version it found and says why;
+`:checkhealth chroma` reports it before anybody tries. Everything else in
+Chroma works on 0.12.
+
+What schema 1 does not have                          *chroma-nvim-tasks-limits*
+
+Each of these was designed and then left out, so that the first version of the
+execution model could be proved end to end:
+>
+    inputs, and ${input.NAME}
+    ${file} and ${file_dir}
+    cwd.mode = file
+    cwd.mode = nearest, with markers
+    cwd.mode = prompt, with a directory picker
+    global and user-level tasks
+    shell tasks, for a command that genuinely needs one
+    domain shortcuts that open the picker pre-filtered by group
+    run history, and a way back to a previous run
+<
+They are written down because a list of things nobody got round to and a list
+of things somebody decided against look identical six months later.
+
+No task is domain-aware, and that is not on the list. Chroma reads `argv`; it
+does not notice that a word in it is `terraform`. |chroma-nvim-terraform| and
+|chroma-nvim-vault| are separate features with safety models of their own, and
+a task naming the same binary gets none of them.
+
+`CONTRACT.md` beside this file states the invariants, under "The execution
+layer"; `DECISIONS.md` says why each is what it is.
+
+==============================================================================
+18. ADDING A PLUGIN                                        *chroma-nvim-adding*
 
 Before writing any configuration, do the reading. This is rule #1 and it is
 not decorative; see |chroma-nvim-rules|.
@@ -1539,7 +1794,7 @@ that disabled nothing, a rename that ate a symlink, two editors clobbering each
 other. It skips when ansible is not installed.
 
 ==============================================================================
-18. TROUBLESHOOTING                                *chroma-nvim-troubleshooting*
+19. TROUBLESHOOTING                                *chroma-nvim-troubleshooting*
 
 A language server is not attaching ~
 >
@@ -1585,7 +1840,7 @@ Plugins are in a strange state ~
     :Lazy sync        install, clean and update to match the specs
 <
 ==============================================================================
-19. COMPONENTS                                         *chroma-nvim-components*
+20. COMPONENTS                                         *chroma-nvim-components*
 
 Chroma is not all-or-nothing. Everything past the editor itself belongs to a
 component, and a component can be switched off — its language servers, Mason
@@ -1684,7 +1939,7 @@ than asked".
 `cli/DESIGN.md` in the repository documents the format and the reasoning.
 
 ==============================================================================
-20. RULES                                                   *chroma-nvim-rules*
+21. RULES                                                   *chroma-nvim-rules*
 
 Two rules govern this repository. `CONTRACT.md`, in this directory and so in
 this installation, is the full version.

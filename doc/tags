@@ -25,6 +25,16 @@ chroma-nvim-requirements	chroma-nvim.txt	/*chroma-nvim-requirements*
 chroma-nvim-rules	chroma-nvim.txt	/*chroma-nvim-rules*
 chroma-nvim-runtime-dir	chroma-nvim.txt	/*chroma-nvim-runtime-dir*
 chroma-nvim-sessions	chroma-nvim.txt	/*chroma-nvim-sessions*
+chroma-nvim-tasks	chroma-nvim.txt	/*chroma-nvim-tasks*
+chroma-nvim-tasks-command	chroma-nvim.txt	/*chroma-nvim-tasks-command*
+chroma-nvim-tasks-cwd	chroma-nvim.txt	/*chroma-nvim-tasks-cwd*
+chroma-nvim-tasks-discovery	chroma-nvim.txt	/*chroma-nvim-tasks-discovery*
+chroma-nvim-tasks-file	chroma-nvim.txt	/*chroma-nvim-tasks-file*
+chroma-nvim-tasks-limits	chroma-nvim.txt	/*chroma-nvim-tasks-limits*
+chroma-nvim-tasks-preview	chroma-nvim.txt	/*chroma-nvim-tasks-preview*
+chroma-nvim-tasks-terminal	chroma-nvim.txt	/*chroma-nvim-tasks-terminal*
+chroma-nvim-tasks-trust	chroma-nvim.txt	/*chroma-nvim-tasks-trust*
+chroma-nvim-tasks-version	chroma-nvim.txt	/*chroma-nvim-tasks-version*
 chroma-nvim-terraform	chroma-nvim.txt	/*chroma-nvim-terraform*
 chroma-nvim-terraform-arguments	chroma-nvim.txt	/*chroma-nvim-terraform-arguments*
 chroma-nvim-terraform-concurrency	chroma-nvim.txt	/*chroma-nvim-terraform-concurrency*

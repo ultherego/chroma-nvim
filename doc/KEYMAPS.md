@@ -155,8 +155,8 @@ naming it "exrc"; choose *view*, read the file, leave it, run `:trust` with
 **no argument**, and press `<leader>xr` again. Editing the file invalidates the
 decision, so the cycle repeats — the trust is in the bytes, not the path. Never
 run `:trust <file>`: Neovim's own documentation warns of a TOCTOU risk there
-and directs you to view first. The invariants are in `CONTRACT.md`, under
-*The execution layer*; there is no help section yet.
+and directs you to view first. The whole flow is `:help chroma-nvim-tasks`,
+and the invariants behind it are in `CONTRACT.md`, under *The execution layer*.
 
 `<leader>xs` toggles: snacks identifies a terminal by its command, directory,
 environment and count, so the same shell comes back rather than a new one.
