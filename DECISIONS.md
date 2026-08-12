@@ -23,6 +23,7 @@ decision.
 - [Our own modules](#our-own-modules)
 - [Secrets](#secrets)
 - [Infrastructure commands](#infrastructure-commands)
+- [The execution layer](#the-execution-layer)
 - [Testing and CI](#testing-and-ci)
 - [Deliberate omissions](#deliberate-omissions)
 
@@ -739,15 +740,34 @@ without that the guard fires on the next save and the buffer becomes
 unsaveable, which is a worse failure than the one it prevents. That mistake was
 made and caught in testing.
 
-### Registers and `shada` are out of scope, and said so
+### Registers, ShaDa and the clipboard are outside the Vault guarantee
 
-**Decision.** Yanking a revealed secret puts it in a register, and `shada`
-persists registers between sessions. The plugin does not prevent this.
+**Decision.** Say so, rather than build a strict mode that narrows them.
 
-**Why.** A plugin cannot own the user's registers without breaking normal
-editing. What it can do is say so plainly rather than implying a completeness
-it does not have. `:help chroma-nvim-vault-safe` documents it, along with the
-one-line `shada` change that closes it for anyone who wants that trade.
+**Why.** The plugin can keep plaintext out of swap files, persistent undo, its
+own write paths and password staging, because all four are per buffer or per
+operation. `'clipboard'` and `'shada'` are neither: they are global, and this
+configuration sets `clipboard=unnamedplus`, which routes unnamed-register
+operations through the system clipboard. Not only `yy` — `dd`, `dw`, `cw` and
+`x` use that register too, so plaintext can reach the clipboard without anyone
+deciding to copy it, and the default `'shada'` persists register contents
+between sessions.
+
+A per-buffer strict mode would have to track several vault buffers at once,
+nested entry and exit, and restoring global state on every path out, including
+the ones that error. It would be most likely to fail exactly where it was
+trusted most, and clearing registers on `BufLeave` would not help: a clipboard
+manager may already hold a copy, and `:wshada` may already have written one.
+
+So the documentation states the boundary and offers a workflow — `nvim -i NONE`
+without `clipboard=unnamedplus` — instead of an option that would imply more
+than it delivers. `:help chroma-nvim-vault-safe` carries it. README once said
+"Secrets never reach persistent storage", which was not true with this
+configuration's own clipboard setting.
+
+**What would change it.** Buffer-local control over register routing, or a
+reason strong enough to justify a mode with its own state model and tests. It
+would then be a feature in its own right, not a hardening pass.
 
 ---
 
@@ -874,12 +894,115 @@ right mode because terraform replaces it.
 
 ---
 
+## The execution layer
+
+The full contract, and the measurement behind each rule, is `concept.md`; the
+source files cite it by section. These are the four decisions that shaped it.
+
+### A repository declares what to run; Chroma does not infer it
+
+**Decision.** `.chroma/tasks.json` says what a command is, where it runs and
+with what environment. Chroma runs that and adds nothing.
+
+**Why.** There is no correct way to lay out or run infrastructure. Two
+repositories using the same tool put playbooks in `playbooks/`, `plays/` or
+`automation/beta/`, and run them as `ansible-playbook site.yml -i
+inventories/prod`, as eight flags including `--ask-vault-pass`, or as `make
+deploy ENV=prod`. All three are right. Chroma cannot safely guess which
+directory a command belongs in, whether `-K` is wanted, or whether the real
+entry point is a wrapper somebody's employer requires instead of `terraform`.
+
+So the layer implements a *task* — an executable, a directory, an environment —
+and `ansible-playbook`, `terragrunt`, `make` and an internal company CLI are
+the same kind of thing to it. `group` is metadata: a task in group `terraform`
+gets no Terraform behaviour and no default arguments, because the engine has no
+reason to know that `make docs` is a different kind of thing from `terraform
+plan`.
+
+**What would change it.** Nothing about inference. Richer declarations —
+inputs, `${file}`, more `cwd` modes — are `concept.md` §14 and stay
+declarations.
+
+### The Ansible runner went, and the plugin stayed
+
+**Decision.** `<leader>ar` and `require("ansible").run()` were removed in the
+same milestone that added `<leader>xr`. `nvim-ansible` stays for filetype
+detection, `ansible-doc` through `keywordprg`, and `gf` into a role.
+
+**Why.** Shipping both would put the thesis of this layer and its exact
+negation side by side in one editor: one keymap where the project declares what
+to run, one where a plugin infers it from the buffer. Two answers to one
+question is the failure this design exists to remove, and leaving the old one
+in place "for now" is how it becomes permanent.
+
+The required `ansible` executable went with it, because the component required
+it for exactly one stated reason — running a playbook from the buffer — and
+that is the thing that was retired. What remains of the plugin was read at the
+pinned version: it needs `ansible-doc`, guarded by `executable()`, and nothing
+else. So `ansible-doc` arrives as **optional** rather than recommended, which
+is what the level already means: it improves the component when present and
+changes nothing when absent.
+
+**What would change it.** Nothing. A playbook runner is a task somebody writes.
+
+### Project tasks have their own version floor, and below it they fail closed
+
+**Decision.** Chroma's floor stays 0.12. Project tasks need 0.12.3, refuse
+below it, and `:checkhealth chroma` reports that gate as its own line.
+
+**Why.** The floor is upstream's, not a preference: `799cbfff8` (2026-05-20)
+escapes the path before the `view` command in `vim.secure.read()`, and checking
+`runtime/lua/vim/secure.lua` per tag puts it in v0.12.3 and v0.12.4 and absent
+from v0.12.0 to v0.12.2. A security boundary is not built on an unpatched
+implementation, and 0.12.2 is still a correct Chroma — it just has one feature
+it cannot have.
+
+Health had to change with it. It used to end green whenever every editor API
+was present, which on 0.12.2 was a green report about an editor where tasks
+refuse to run. Worse, the threshold lived privately in `health.lua`, so health
+said "unavailable" while the runtime checked nothing at all. Both now ask
+`chroma.tasks.availability`.
+
+**What would change it.** Nothing that keeps the boundary. If the floor ever
+rises again it rises in one module.
+
+### The bytes that were trusted are the bytes that are parsed
+
+**Decision.** The trust adapter takes one snapshot of the file, and that
+snapshot is what is hashed, what is authorised, and what is parsed. Definitions
+are re-read on every Run Task and never cached for a session.
+
+**Why.** Reading the file to hash it and then calling `vim.secure.read()` reads
+it twice, and a file can change in between — the precheck says trusted, the
+contents change, and the modal appears after Chroma has promised there would
+not be one. Reading lines and joining them would produce a second
+representation that can differ in line endings and in a final newline, so
+Chroma would be answering a different question from the one Neovim answered.
+
+Caching is the same mistake in time rather than in representation. The
+component contract is read once per session on purpose, because it is part of
+an immutable release tree; a project's task file is a file somebody is editing.
+Copying that cache here produces a Run Task that still says "untrusted" after
+the user has trusted it, with no error anywhere.
+
+The coupling this buys — Chroma parses Neovim's own trust database — is
+deliberate and carries two obligations: a test pins the format, so an upstream
+change surfaces as a failing test rather than as a wrong sentence about
+security, and a parse failure degrades to a generic refusal rather than to a
+guess.
+
+**What would change it.** Upstream offering a way to ask "is this file trusted,
+and at which contents" without side effects. Then the adapter is deleted, not
+loosened.
+
+---
+
 ## Testing and CI
 
 ### Only our own code is tested
 
-**Decision.** 26 cases covering the modules in `lua/`, and nothing covering
-plugin configuration.
+**Decision.** Around four hundred cases covering the modules in `lua/`, and
+nothing covering plugin configuration.
 
 **Why.** There is no value in testing that conform formats Lua — conform has
 its own tests. What is worth testing is code written here, at the points where
@@ -937,34 +1060,6 @@ for undefined variables, shadowing and unreachable code, which this is enough
 for.
 
 ---
-
-### Registers, ShaDa and the clipboard are outside the Vault guarantee
-
-**Decision.** Say so, rather than build a strict mode that narrows them.
-
-**Why.** The plugin can keep plaintext out of swap files, persistent undo, its
-own write paths and password staging, because all four are per buffer or per
-operation. `'clipboard'` and `'shada'` are neither: they are global, and this
-configuration sets `clipboard=unnamedplus`, which routes unnamed-register
-operations through the system clipboard. Not only `yy` — `dd`, `dw`, `cw` and
-`x` use that register too, so plaintext can reach the clipboard without anyone
-deciding to copy it, and the default `'shada'` persists register contents
-between sessions.
-
-A per-buffer strict mode would have to track several vault buffers at once,
-nested entry and exit, and restoring global state on every path out, including
-the ones that error. It would be most likely to fail exactly where it was
-trusted most, and clearing registers on `BufLeave` would not help: a clipboard
-manager may already hold a copy, and `:wshada` may already have written one.
-
-So the documentation states the boundary and offers a workflow — `nvim -i NONE`
-without `clipboard=unnamedplus` — instead of an option that would imply more
-than it delivers. README said "Secrets never reach persistent storage", which
-was not true with this configuration's own clipboard setting.
-
-**What would change it.** Buffer-local control over register routing, or a
-reason strong enough to justify a mode with its own state model and tests. It
-would then be a feature in its own right, not a hardening pass.
 
 ## Deliberate omissions
 

@@ -1,19 +1,26 @@
 # Chroma Tasks — the execution layer
 
-**Design proposal v2. This document freezes the contract of the first
-implementation; it is not yet `DESIGN.md` or `CONTRACT.md`.**
+**Built. Milestone 1 is `lua/chroma/tasks/`, released in v2.5.0.** This
+document was written before any of it and froze the contract it was written
+against; it is kept because the contract held and the reasoning behind each
+rule is not recoverable from the code.
 
-What is written here as *Milestone 1* is closed: it is the whole of the first
-implementation and nothing in it is left for whoever writes the code to decide.
-Everything else in this document is either the reasoning that produced those
-decisions or, at the end, work deliberately deferred.
+Read it for **why**, not for **what**. The invariants now live in `CONTRACT.md`
+under *The execution layer*, and the four decisions that shaped them are in
+`DECISIONS.md`. What is only here is the argument that produced them, the
+measurements each rests on (§12), and the work deliberately deferred (§14).
 
-When the implementation exists and the contract has held, the invariants below
-belong in `DESIGN.md` and `CONTRACT.md` — the invariants, not fifty sections of
-argument. This file stays a proposal until then.
+**The section numbers are load-bearing.** Seven source files and one test cite
+this document by section — `source.lua` §3, `trust.lua` §4, `cwd.lua` §5,
+`command.lua` §6, `preview.lua` §7, `run.lua` §8, the architecture test §10.
+Sections may be rewritten; they may not be renumbered or removed without
+following those citations.
 
 Where a rule here rests on how another program behaves, it says what was
-measured and on which version. Nothing rests on how an API ought to work.
+measured and on which version. Nothing rests on how an API ought to work. The
+versions are the ones it was measured against — Neovim 0.12.4 and snacks.nvim
+at the pinned `882c996` — and a later measurement supersedes the note, not the
+rule.
 
 ---
 
@@ -236,13 +243,28 @@ the reason and the upstream fix rather than saying the feature is unavailable.
 This is a floor for one feature, not a raise of Chroma's floor, and it is
 stated by upstream rather than by us — see the measured note in §12.
 
-`:checkhealth chroma` reports that gate as its own status. Today health asks
-whether every editor API this configuration calls is present and, when they all
-are, says so and ends the section green — which on 0.12.0 to 0.12.2 would be a
-green report about an editor where project tasks refuse to run. A version of
-Chroma that ships tasks has to say `Project tasks unavailable: Neovim 0.12.3 or
-newer is required, because …` beside the general answer. 0.12.2 stays a correct
-Chroma; health stops claiming that everything in it is available.
+`:checkhealth chroma` reports that gate as its own status. Health used to ask
+only whether every editor API this configuration calls is present and, when
+they all were, end the section green — which on 0.12.0 to 0.12.2 was a green
+report about an editor where project tasks refuse to run. It now carries
+`Project tasks` as a section of its own, and below the floor warns —
+`Project tasks unavailable — Project tasks need Neovim 0.12.3 or newer, and
+this is …` — with the upstream fix named as the advice. A warning rather than
+an error, because Chroma itself supports that editor and one feature does not.
+0.12.2 stays a correct Chroma; health stopped claiming that everything in it is
+available.
+
+Health asks the version and nothing else. It does not look for a
+`.chroma/tasks.json`, read one, or ask the trust database about it: trust is
+evaluated on an explicit Run Task and nowhere else, and a health check that
+raised the modal — or recorded a decision — would be doing the one thing this
+contract forbids it to do.
+
+The floor is owned by `chroma.tasks.availability` rather than by health, and
+that was not tidiness. It had lived privately in `health.lua`, so health
+reported "unavailable" while the runtime checked nothing at all and would have
+run tasks on 0.12.0. Both sides ask the same module now, and the test suite
+substitutes the version there.
 
 ### When trust is evaluated
 
@@ -645,8 +667,9 @@ custom task: the managed model is keyed by one directory holding one plan, and a
 stack run is N units with nothing single to hash or to bind. That is a property
 of the model, not a missing feature.
 
-This boundary is **enforced, not merely declared**. The implementation plan
-carries an architecture test, and its mutation is named:
+This boundary is **enforced, not merely declared**.
+`tests/test_tasks_orchestration.lua` carries the architecture test, and its
+mutation is named:
 
 ```text
 rule      lua/chroma/tasks/** must not depend on Managed Terraform
@@ -674,20 +697,21 @@ user's configuration, and this layer is honest about where its guarantees end.
 
 ---
 
-## 11. The Ansible runner Chroma already has
+## 11. The Ansible runner Chroma had
 
-There is one place where shipping this creates two answers to one question, and
-Milestone 1 has to settle it rather than leave it standing.
+**Done in `568c28e`.** There was one place where shipping this would create two
+answers to one question, and Milestone 1 had to settle it rather than leave it
+standing.
 
-Chroma currently runs Ansible from the buffer. `<leader>ar` calls
-`require("ansible").run()` (`lua/plugins/devops.lua`), and that is not a stray
-keymap: `components/ansible.json` describes the component as *"Playbooks and
-roles: running them, and the language server"* and requires the `ansible`
+Chroma used to run Ansible from the buffer. `<leader>ar` called
+`require("ansible").run()` (`lua/plugins/devops.lua`), and that was not a stray
+keymap: `components/ansible.json` described the component as *"Playbooks and
+roles: running them, and the language server"* and required the `ansible`
 executable *"for running a playbook or a role from the buffer"*, `health.lua`
-reports `ansible` as needed for *"running playbooks (`<leader>ar`)"*, and
-`CONTRACT.md` lists `nvim-ansible` as *"running playbooks and roles"*.
+reported `ansible` as needed for *"running playbooks (`<leader>ar`)"*, and
+`CONTRACT.md` listed `nvim-ansible` as *"running playbooks and roles"*.
 
-Shipping tasks beside it would give one editor two execution models:
+Shipping tasks beside it would have given one editor two execution models:
 
 ```text
 <leader>xr   the project declares exactly what to run
@@ -695,25 +719,25 @@ Shipping tasks beside it would give one editor two execution models:
 ```
 
 which is the thesis of this document and its exact negation, side by side. The
-resolution: **Milestone 1 retires the execution path, not the plugin.**
+resolution: **Milestone 1 retired the execution path, not the plugin.**
 `nvim-ansible` stays for what only it does — filetype detection, `ansible-doc`,
-path helpers — and `<leader>ar` together with `require("ansible").run()` goes.
+path helpers — and `<leader>ar` together with `require("ansible").run()` went.
 Somebody who wants to run a playbook from Chroma writes the task that says how
 their repository does it, which is the entire point.
 
-That is four files, not one: the keymap in `lua/plugins/devops.lua`, the
+That was four files, not one: the keymap in `lua/plugins/devops.lua`, the
 component's description and its required tool in `components/ansible.json`, the
 health line in `lua/chroma/health.lua`, and the sentence in `CONTRACT.md`.
 
-**The required `ansible` goes with it, and `ansible-doc` arrives as optional.**
-The component requires that executable for exactly one stated reason —
-*"running a playbook or a role from the buffer"* — and that is the thing being
-retired. What remains of the plugin was read at the pinned version: its
+**The required `ansible` went with it, and `ansible-doc` arrived as optional.**
+The component required that executable for exactly one stated reason —
+*"running a playbook or a role from the buffer"* — and that is the thing that
+was retired. What remains of the plugin was read at the pinned version: its
 `ftplugin/ansible.lua` sets `keywordprg` to `ansible-doc`, and only when
 `executable('ansible-doc')` says so, and extends `path` for `gf`. Neither needs
 the `ansible` CLI, and the language server is declared separately already.
 
-So the component's tools become exactly this:
+So the component's tools became exactly this:
 
 ```text
 remove   required  ansible      "running a playbook or a role from the buffer"
@@ -763,7 +787,12 @@ reporting off with it, which is why §8 gives the reporting to Chroma.
 
 ---
 
-## 13. Milestone 1, frozen
+## 13. Milestone 1, frozen — and shipped
+
+This is the list the implementation was held to, unchanged from the day it was
+frozen. Every line of it is in `lua/chroma/tasks/`; the same invariants, in the
+form somebody governing the project needs rather than the form somebody
+implementing it needed, are in `CONTRACT.md`.
 
 ```text
 Source        .chroma/tasks.json only
@@ -828,8 +857,31 @@ Architecture  tasks are core, not a component
               enforced by an architecture test
 ```
 
-The implementation order follows from it: schema, loader, trust adapter, cwd
-resolver, preview, executor, tests.
+The implementation order followed from it, and each step is one commit with its
+tests in the same commit:
+
+```text
+ 1  schema        schema.lua        the document, refused field by field
+ 2  discovery     source.lua        upward only, first entry wins
+ 3  trust         trust.lua         five states, one authoritative snapshot
+ 4  cwd           cwd.lua           two modes, containment by path components
+ 5  argv and env  command.lua       resolution before the terminal exists
+ 6  preview       preview.lua       what will run, and the default is no
+ 7  executor      run.lua           one Run, one process, one run_id
+ 8  retirement    devops.lua &c.    §11
+ 9  health gate   health.lua        0.12.3 reported as its own status
+10  orchestration init.lua          trust → picker → cwd/argv → preview → run
+                  availability.lua  the floor, now asked by both sides
+                  keymaps.lua       <leader>xr
+```
+
+Point 10 is where the order became a contract of its own, and the comment at
+the top of `init.lua` carries the three reasons: **trust before the picker**,
+because a modal over a picker is a question about a list nobody can see;
+**cwd and argv after the choice**, because one task without a command must not
+hide the rest of the document; and **one prepared array for both the preview
+and the executor**, because `PATH` can change between the question and the
+answer.
 
 ---
 
@@ -864,9 +916,9 @@ the execution model can be proven without it.
 
 ---
 
-## 15. How to read this before implementing
+## 15. How this was read before implementing, and how to read it now
 
-This document is finished when a reading of it finds none of the following:
+The test the document had to pass before a line was written:
 
 ```text
 a contradiction between two sections
@@ -874,4 +926,13 @@ a fallback that is not defined
 a decision left to whoever writes the code
 ```
 
-Only then: schema, loader, trust adapter, resolvers, preview, executor, tests.
+It passed, and the contract held: nothing in §13 was renegotiated during the
+implementation, which is the only evidence that the freeze was worth doing.
+
+**Reading it now is a different job.** The code is the authority on behaviour
+and the tests are the authority on what is covered; this document is the
+authority on *why*, and on what was measured to get there. Where it and the
+code disagree, the code is right and the section is a bug — say which section,
+because eight files point back at these numbers.
+
+Anything from §14 arrives the same way this did: frozen first, then built.

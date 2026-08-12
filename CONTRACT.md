@@ -66,7 +66,7 @@ saying it may.
 ## Structure
 
 The tree below is what exists. `config/autocmds.lua` is still absent because
-nothing has needed it. `README.md` carries the per-layer status.
+nothing has needed it.
 
 The own-code layout diverged from the original plan on purpose: each module is
 a self-contained plugin in a directory of its own rather than a file in one
@@ -74,8 +74,11 @@ shared namespace, so any of them can be lifted into its own repository without
 edits. They carry the project's name — `chroma-vault`, `chroma-terraform`,
 `chroma-aws` — because they are its modules, not because the name says what
 they do; `:help chroma-nvim-vault` and the module headers do that.
-`lua/chroma/` kept only what is genuinely about this configuration rather than
-about a tool — the health check.
+
+`lua/chroma/` is the opposite category and has grown into it: not a tool, but
+this configuration talking about itself — which components exist, which are
+enabled, what the machine has, how the editor bootstraps, and how a project
+declares what to run.
 
 ```
 ~/.config/nvim
@@ -86,7 +89,8 @@ about a tool — the health check.
 │   │   ├── commands.lua
 │   │   ├── keymaps.lua
 │   │   ├── lazy.lua
-│   │   └── options.lua
+│   │   ├── options.lua
+│   │   └── parsers.lua
 │   ├── plugins
 │   │   ├── navigation.lua
 │   │   ├── ui.lua
@@ -97,15 +101,26 @@ about a tool — the health check.
 │   │   ├── formatting.lua
 │   │   ├── lint.lua
 │   │   ├── editing.lua
+│   │   ├── sessions.lua
 │   │   └── devops.lua
 │   ├── chroma-vault              our own plugin
 │   ├── chroma-terraform          our own runner
 │   ├── chroma-aws                our own profile/region switcher
 │   └── chroma
-│       └── health.lua            :checkhealth chroma
+│       ├── bootstrap.lua         what the CLI drives headlessly
+│       ├── components.lua        reads components/, the Lua half
+│       ├── health.lua            :checkhealth chroma
+│       ├── modules.lua           which of our own modules a selection enables
+│       ├── schemas.lua           logical schema name → URL and file patterns
+│       ├── state.lua             the user's component selection
+│       ├── tools.lua             what a component needs from the machine
+│       └── tasks                 the execution layer, see below
 ├── after
 ├── components                  component contract, read by Lua and by the CLI
 ├── cli                         Go module: the installer and CLI (cli/DESIGN.md)
+├── doc                         `:help chroma-nvim`, tags generated
+├── tests                       mini.test suites and their fixtures
+├── docker                      a machine to test installations onto
 ├── assets
 ├── README.md
 └── LICENSE
@@ -244,6 +259,13 @@ nvim --headless --noplugin -u tests/minimal_init.lua \
 
 It loads mini.test and `lua/` only, not the configuration.
 
+**It needs `XDG_RUNTIME_DIR` set, and a shell that has none fails the vault
+suite wholesale.** That is the modules doing their job — a prompted password
+goes to the private runtime directory or nowhere — but the failure reads like a
+regression rather than like a missing environment, so it is worth knowing
+before the first red run. Session shells that are not logged in through a
+seat manager routinely have no such variable.
+
 **Every new test must be killed by a mutation.** Break the thing it claims to
 cover, watch it fail, put it back. A test that passes either way is worse than
 no test: it is a claim of cover that nobody will check again. Most of what the
@@ -353,11 +375,12 @@ we maintain — unless the gap is genuine.
 Scope set by the survey of 2026-08-06, not by assumption.
 
 Both modules that handle secrets or change infrastructure are **stable**. They
-are in use, covered by the test suite, and have been through five external
-audits, the findings of the last one all answered.
-What they guarantee is written out in `README.md` under *Safety model* and in
-`:help chroma-nvim-vault` and `:help chroma-nvim-terraform`. Nothing there
-describes an intention; every line describes current behaviour.
+are in use, covered by the test suite, and have been through eleven external
+audits — the fifth onwards archived through `audit.md` — with the findings of
+each series dispositioned before the next began.
+What they guarantee is written out in `:help chroma-nvim-vault` and `:help
+chroma-nvim-terraform`, each with a section on what it does **not** cover.
+Nothing there describes an intention; every line describes current behaviour.
 
 ### `chroma-vault.nvim` — stable, in `lua/chroma-vault/`
 The one genuine gap. Every existing candidate is a single-person project with
@@ -401,27 +424,71 @@ Two things accepted deliberately:
 
 ---
 
+## The execution layer
+
+Chroma does not learn the shape of anybody's infrastructure. A repository says,
+in `.chroma/tasks.json`, what a given operation is: **what to run, from which
+directory, with which environment.** `ansible-playbook`, `terragrunt`, `make`
+and an internal company CLI are one kind of thing to it — an executable.
+
+Tasks are **core**, not a component, and live in `lua/chroma/tasks/`. The full
+contract, with the measurements each rule rests on, is `concept.md`; the source
+files cite it by section. The invariants:
+
+| | |
+|---|---|
+| Source | `.chroma/tasks.json`, searched **upward only** from Neovim's working directory; the first entry of that name wins, valid or not. It must resolve to a readable regular file. |
+| Schema | `schema` is required and is `1`. Document is `{schema, tasks}` exactly; a task is `id`, `name`, `cwd`, `argv` required and `group`, `env` optional. Unknown fields, `null`, empty strings, duplicate ids and non-string `argv` elements are all refusals that name the task and the field. |
+| Trust | Evaluated only on an explicit Run Task, never at startup, and never cached for a session. File trust only — never directory trust, and Chroma never tells anybody to run `:trust <file>`. `denied` is reported as denied, not as "no tasks". |
+| Working directory | `project` or a `relative` path below it. `realpath(cwd)` must equal or be a descendant of `realpath(project root)`, compared by path components. After discovery, Neovim's own directory is never consulted again. |
+| Execution | `argv` only, no shell. `argv[0]` is resolved against the task's effective `PATH` and directory and handed over absolute; `argv[1..]` reach the process byte for byte. `env` overrides the inherited environment rather than replacing it. |
+| Gates | The preview shows what will run, and only an explicit affirmative starts it. Escape, dismissal and silence all mean no. |
+| Process | One Run is one new process with its own `run_id`, in a terminal that survives every exit status. |
+
+**Project tasks need Neovim >= 0.12.3** — one feature's floor, not a raise of
+Chroma's. It is upstream's: `799cbfff8` fixes a command injection in
+`vim.secure.read()`'s `view` path and is absent from 0.12.0–0.12.2. Below it
+tasks fail closed and `:checkhealth chroma` reports that gate as its own line.
+
+**There is no bridge to Managed Terraform.** A custom task running `terraform
+plan` produces nothing `:TerraformApply` may accept; the managed lifecycle is
+keyed by one directory holding one hashed plan. `lua/chroma/tasks/**` may not
+depend on Managed Terraform, and an architecture test enforces it.
+
+There is exactly one way to run something, and it is declared. That is why
+`<leader>ar` and `require("ansible").run()` were removed rather than shipped
+beside this: an editor with one declared and one inferred way of running things
+has two.
+
+---
+
 ## Keymaps
 
 Nothing accidental. Everything grouped under `<Space>`.
 
-| Group | Scope |
-|---|---|
-| Find | search |
-| Project | projects |
-| Git | git |
-| LSP | LSP |
-| Terraform | terraform |
-| Kubernetes | kubernetes |
-| Ansible | ansible |
-| AWS | aws |
-| Buffers | buffers |
-| Windows | windows |
-| Sessions | sessions |
-| Tools | tools |
+| Prefix | Group | Shown |
+|---|---|---|
+| `f` | Find | always |
+| `p` | Project | always |
+| `g` | Git | always |
+| `l` | LSP | always |
+| `b` | Buffers | always |
+| `w` | Windows | always |
+| `s` | Sessions | always |
+| `x` | Tools | always |
+| `t` | Terraform | with the component |
+| `k` | Kubernetes | with the component |
+| `a` | Ansible | with the component |
+| `A` | AWS | with the component |
 
 Letter prefixes are assigned once, globally — a keymap conflict is a bug,
-not an inconvenience.
+not an inconvenience. The four domain groups are registered only when their
+component is enabled, so which-key describes the editor somebody has rather
+than the one they could have had.
+
+Run Task is `<leader>xr`, under Tools rather than under a domain: a task is not
+a Terraform thing or an Ansible thing, and putting it beside `<leader>tp` would
+say it was.
 
 ---
 
@@ -439,3 +506,5 @@ not an inconvenience.
 | 2026-08-08 | Renamed DevOps nVim → Chroma Neovim: repository, `$NVIM_APPNAME`, help file and tag prefix, `:checkhealth chroma`, and the own modules to `chroma-vault` / `chroma-terraform` / `chroma-aws` | owner decision; the project has a name and a logo of its own rather than a description |
 | 2026-08-08 | Added a Go module in `cli/` for the installer and CLI, and a `components/` contract read by both languages | distribution is the next stage; the component list must exist once, not once per consumer |
 | 2026-08-11 | The CLI may take third-party libraries, in `internal/tui` and `internal/report` only: `huh` for the selectors, `lipgloss` for the tables | owner decision; a full-screen interface needs raw mode, cursor addressing and a redraw loop, and the standard library has none of the three. The boundary is what keeps it honest — both packages can be deleted and every command still works over a pipe |
+| 2026-08-11 | Added the execution layer: `.chroma/tasks.json`, `<leader>xr`, and a second version floor of 0.12.3 for that one feature | there is no correct way to lay out or run infrastructure, so Chroma stops inferring and lets a repository declare. The floor is upstream's fix to `vim.secure.read()`, not a preference |
+| 2026-08-11 | Retired the Ansible execution path: `<leader>ar` and `require("ansible").run()` removed, the required `ansible` tool replaced by an optional `ansible-doc`; `nvim-ansible` stays for filetype detection, `ansible-doc` and `gf` | one editor may not have both a declared and an inferred way of running the same thing. The tool was required for exactly the reason that was retired |

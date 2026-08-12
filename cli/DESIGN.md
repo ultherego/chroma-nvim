@@ -44,16 +44,27 @@ component contract below and nowhere else.
 ```
 cli/
   go.mod  go.sum
-  cmd/chroma/            entry point, flag parsing, exit codes
+  cmd/chroma/            entry point, flags, exit codes. One command per file.
   internal/
     component/           reads and validates the component contract
     plan/                dependencies, conflicts, the plan
     detect/              what is on this machine: tools and versions. It reports.
-    install/             fetch a release, place it, back it up, bootstrap Neovim
-    state/               the installed-state file
+    toolver/             how to ask a given executable what version it is
+    install/             stage, place, back up, bootstrap, borrow, give back
+    installstate/        install.json: generations, borrowing, handover
+    state/               the user's component selection
+    lock/                one mutating operation at a time, through flock
+    atomicfile/          write, fsync, rename, fsync the directory
+    release/             fetch, verify and unpack one; build one with `package`
     tui/                 the questions, and nothing else
     report/              how any of it is printed, and nothing else
 ```
+
+Two of those are worth telling apart by name. `state/` is the *selection* — what
+the user ticked, one document per user. `installstate/` is `install.json` — what
+is installed, where it came from and what was borrowed to make room for it.
+They have different lifetimes and different schema numbers on purpose, and a
+package called `state` holding both is how they stop having them.
 
 `tui/` holds no decisions. Everything it displays comes from the contract, and
 everything it produces is an `install.Options` — the same value the flags build.
@@ -270,7 +281,7 @@ core             the editor: pickers, treesitter, yaml/json/shell/lua
 terraform        Terraform or OpenTofu, terraformls, tflint
 kubernetes       kubectl and the cluster views
 helm             charts: helm, helm_ls, filetype detection
-ansible          playbooks and roles
+ansible          playbooks and roles: the language server, linting, docs
 vault            editing vault-encrypted files
 aws              profile and region for the session
 docker           Dockerfiles and compose
@@ -310,9 +321,9 @@ configuration loads that layer. We install it, we own it, and it either works or
 it is a bug.
 
 **External tools** are the machine's. `terraform`, `kubectl`, `helm`, `aws` may
-already be there, at versions the user chose. The installer detects them,
-reports them, and offers to install only what is missing — and only what it can
-install safely.
+already be there, at versions the user chose. The installer detects them and
+reports them. It does not offer to install them — see "It is not a package
+manager" below, which is the same claim stated at full strength.
 
 ```
 Terraform support
@@ -324,13 +335,15 @@ Terraform support
     ✓ terraform      1.14.3
     ✓ terraform-ls   0.38.5
     ! tflint         not installed
-
-  Install missing recommended tools?
-    [x] tflint
 ```
 
 A required tool that is absent is a warning, never a silent skip: the component
 is enabled, and the thing it drives is not there. `doctor` says the same later.
+
+The one thing the installer *does* fetch is Chroma's own runtime — plugins,
+Mason packages, treesitter parsers — because those are Chroma's, pinned by
+`lazy-lock.json`, and installed into Chroma's own data directory. The boundary
+is ownership, not the act of downloading.
 
 ---
 
@@ -545,14 +558,34 @@ up wrong.
 ```
 chroma install     fetch a release and place it          --version --components
                                                          --profile --default
-                                                         --dry-run --non-interactive
-chroma update      to the next release, same components  --dry-run
-chroma components  edit the enabled set (TUI)            --add --remove
-chroma doctor      is the installation on this machine healthy
-chroma rollback    restore the backup this made
-chroma uninstall   remove what this installed            --keep-state
+                                                         --source-tree
+chroma update      to the next release, same components  --version
+chroma components  edit the enabled set                  --set --tree
+chroma doctor      is the installation on this machine healthy   --tree
+chroma rollback    put the previous generation back
+chroma uninstall   remove what this made, give back what it borrowed
 chroma version     CLI version, installed version, contract
+
+chroma package     build a release archive and its sums    --tree --version
+                   (developer-only)                        --out --allow-dirty
 ```
+
+Every mutating command takes `--yes` and `--non-interactive`, and the four that
+move a directory — `install`, `update`, `rollback`, `uninstall` — also take
+`--dry-run`. `components` does not: it writes one document and brings the
+editor to it, and the plan it would print is the selection it was handed.
+`install` and `components` are the two that ask a component question, so they
+are the two that take `--plain`.
+
+`components` has `--set` and deliberately no `--add` or `--remove`: `--set`
+names a target state, mutations name a delta, and a delta cannot be built on
+without knowing what came before. `uninstall` has no `--keep-state` either —
+see "One operation, no levels" below.
+
+`--source-tree` and `doctor --tree` are developer-only and say so in their own
+help. `components --tree` is the same flag doing a different job — it lists
+what a tree offers and changes nothing — which is the ambiguity "Three small
+ones" below had to settle once.
 
 Profiles are named component sets shipped with the release — `minimal`,
 `terraform`, `kubernetes`, `everything`. They are a shortcut for `--components`,
@@ -569,17 +602,17 @@ refused.
 One tag, one release, two kinds of artefact. The existing Lua jobs are
 untouched; Go gets its own, and the release job runs only when both are green.
 
-Implemented now:
+`ci.yml` holds six jobs — `lua`, `tests` and `startup` for the configuration,
+`cli-lint` (`gofmt -l` as a check rather than a rewrite, plus `go vet`),
+`cli-test` (`go test ./...`, which reads the shipped contract) and `cli-build`
+(cross-compiling for `linux/amd64`, `linux/arm64` and `darwin/arm64`).
+`release.yml` calls all of them and then packages and publishes; see
+"Releasing" below.
 
-- `cli-lint` — `gofmt -l` as a check rather than a rewrite, and `go vet`
-- `cli-test` — `go test ./...`, which reads the shipped contract
-- `cli-build` — cross-compiles for `linux/amd64`, `linux/arm64` and
-  `darwin/arm64`
-
-Planned, and deliberately absent until there is something to release: a pinned
-`golangci-lint`, `darwin/amd64`, and attaching binaries plus a `SHA256SUMS` to a
-GitHub release. A release job that publishes an installer which cannot install
-anything would be worse than not having one.
+Still deliberately absent: a pinned `golangci-lint` and a `darwin/amd64` target.
+Neither has been the thing that caught a defect here, and the cross-compile gate
+that has — `stat.Mtim` on Linux is `Mtimespec` on Darwin — is already in the
+matrix.
 
 `go.mod` carries a `go` directive that is a floor rather than a pin — it states
 the minimum language and toolchain version, and a newer toolchain will happily
@@ -597,8 +630,9 @@ nor `any`. That is a Go test, and it protects the Lua side as much as the CLI.
 ## V1 boundaries, stated so they are not mistaken for oversights
 
 - **Linux first.** macOS is in the build matrix because it costs nothing to
-  produce, but the package-manager layer targets `pacman`, `apt`, `dnf` and
-  `zypper`; `brew` is best-effort and says so.
+  produce and because cross-compiling catches a class of defect nothing else
+  does, but nothing here is exercised on it. The XDG layout the paths assume is
+  a Linux convention that macOS tolerates rather than uses.
 - **No self-update.** The CLI updates the configuration, not itself. Downloading
   and replacing a running binary is a separate problem with its own failure
   modes.
@@ -1506,11 +1540,13 @@ Done, in this order. Kept because the reasoning for each step is in the commits
 that carried it out, and because the order itself is the argument: nothing that
 writes to a disk was built before the thing that could put it back.
 
-The audit series is closed. Two of them ran back to back over the component
-layer and both are archived; the third would find something, because a third
-always does, and it would not be the thing standing between this repository and
-a product. **The installer is the active track.** Audits become a gate inside a
-stage rather than a stage of their own: run one before a public release, and
+**Audits are a gate inside a stage, not a stage of their own.** Eleven external
+series have run; the fifth onwards passed through `audit.md`, which is an inbox
+rather than a document — an audit is pasted in, archived in one commit, and
+cleared in the next, so the file is empty between rounds and the history holds
+every round. They kept earning their place: no series has yet come back empty,
+and the ones that found the most were the ones aimed at a layer that had just
+been declared finished. The rule is to run one before a public release, and
 after touching anything on the list below.
 
 **What blocks a milestone.** Only a finding that can:
@@ -1546,7 +1582,8 @@ Everything else is a backlog entry, and the work continues.
 15  components                              a selection is not a generation
 16  rollback                                one slot, two directions
 17  uninstall                               made vs borrowed
-18  completions, packaging, signing
+    ----------------------------------------- everything above is built
+18  completions, signing                    not started; `package` shipped at 13
 ```
 
 `record` stays last, always. `install.json` must never describe an installation
@@ -1579,11 +1616,14 @@ has to be rolled back. A release from before it existed is refused by name.
 
 **3. The selection is global; the installation is not.** `components.json` lives
 at `$XDG_CONFIG_HOME/chroma/components.json`, one file, while `--default` and
-the isolated install are two different targets. V1 does not support two parallel
-installations, which is a fine limit — but the second install currently
-overwrites the first one's selection without saying so, and `uninstall
---purge-selection` would remove a selection another installation is still
-reading. *Needed by stage 4.*
+the isolated install are two different targets. *Settled by refusing the
+premise:* there is one managed installation per user, and `install` refuses a
+second one before anything is downloaded — see "One managed installation per
+user". That is the honest resolution rather than a workaround, because the
+selection being one document per user means two installations were never two
+independent things. With one installation there is nothing for an uninstall to
+strand, so the selection simply goes with it and there is no
+`--purge-selection` to reason about.
 
 **4. Profiles have nowhere to live.** *Settled at stage 4:* CLI knowledge, in
 `internal/install/profiles.go`, the same shape as `toolver` and the package-name
@@ -1595,18 +1635,31 @@ installed, so a profile that has gone stale fails loudly instead of quietly
 installing less than it promised; `everything` is derived from the contract
 rather than listed, so it cannot fall behind a new component.
 
-**5. The minimum Neovim version is not in the contract.** It is stated in three
-places that cannot check each other: prose in README, `has("nvim-0.12")` in
-`lua/chroma/health.lua`, and `NEOVIM_VERSION` in CI. Preflight needs it before
-it can bootstrap anything, and hardcoding it in Go makes a fourth copy — which
-is the duplication `components/` exists to prevent. *Needed by stage 11.*
+**5. The minimum Neovim version is not in the contract.** *Still open, and now
+overdue: stage 11 shipped without it.* It is stated in places that cannot check
+each other — prose in `README.md` and `CONTRACT.md`, the API list in
+`lua/chroma/health.lua`, and `NEOVIM_VERSION` in CI — and the CLI has no floor
+at all, so a preflight on 0.11 gets as far as the bootstrap before Neovim says
+what is wrong. Hardcoding it in Go makes another copy, which is the duplication
+`components/` exists to prevent.
+
+The execution layer added a second floor rather than a fourth copy of the
+first: `chroma.tasks.availability` holds 0.12.3 for project tasks, and both
+health and the runtime ask it. That is the shape the answer wants — one module
+owns a floor and everyone asks it — but it does not cross into Go, and the
+contract is the only place that can.
 
 **6. Rollback does not bootstrap, and update does.** `lazy-lock.json` ships
-inside the configuration tree, so restoring a generation of configuration leaves
-the previous lockfile beside plugins installed for the newer one. A headless
-verify would pass on that, and the user would be told the rollback succeeded.
-Either rollback ends with a bootstrap, as update does, or the data directory
-becomes part of what a generation means. *Needed by stage 16.*
+inside the configuration tree, so restoring a generation of configuration would
+leave the previous lockfile beside plugins installed for the newer one, and a
+headless verify would pass on that while the user was told the rollback
+succeeded. *Settled at stage 16:* rollback bootstraps and verifies, in the same
+transaction and through the same code an install uses. The data directory did
+**not** become part of what a generation means — one directory of plugins is
+brought to whatever the restored lockfile says, which is the only reading under
+which "the previous generation" describes an editor rather than a directory.
+It is bootstrapped to the selection *in force*, not to the one that generation
+was installed with: a rollback moves the version and does not undo a choice.
 
 **7. `latest` and rate limits.** *Settled at stage 10:* a 403 carrying
 `X-RateLimit-Remaining: 0` is reported as what it is — this address is being
