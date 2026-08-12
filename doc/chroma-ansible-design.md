@@ -1,11 +1,15 @@
 # chroma-ansible — design
 
-**Status: frozen, not implemented.** Nothing in this document is left for
-whoever writes the code to decide. The owner's architectural decision was taken
-on 2026-08-12: Ansible gets a first-class domain module beside
-`chroma-terraform`, `chroma-vault` and `chroma-aws`, and the entry in
-`DECISIONS.md` reading *"What would change it. Nothing. A playbook runner is a
-task somebody writes"* is deliberately withdrawn.
+**Status: signed off, implementation in progress.** Nothing here is left for
+whoever writes the code to decide, and since 2026-08-12 nothing is left for the
+owner to decide either — *Sign-off* at the end carries the five answers and the
+two corrections that came back with them.
+
+The architectural decision behind the module was taken the same day: Ansible
+gets a first-class domain module beside `chroma-terraform`, `chroma-vault` and
+`chroma-aws`, and the entry in `DECISIONS.md` reading *"What would change it.
+Nothing. A playbook runner is a task somebody writes"* is deliberately
+withdrawn.
 
 Where a rule rests on how another program behaves, §20 says what was run and on
 which version. Everything here was measured against **ansible-core 2.21.2**,
@@ -380,6 +384,17 @@ see §5.3.
 One yes opens **every** introspection call belonging to that one planner run.
 It is not cached globally, not cached per directory, and not remembered between
 runs. Cancelling the planner and starting again asks again.
+
+**The consent is bound to the three values the prompt named**: the frozen
+working directory, the playbook list, and the inventory sources in order.
+Changing any of them invalidates it and the gate is asked again — including when
+the change happens by going back a step rather than by starting over.
+
+That is not extra caution, it is the only reading that keeps the prompt honest.
+The gate does not ask "may Chroma run Ansible"; it names a directory, a playbook
+and an inventory source and asks about *those*. A yes that outlived them would
+have been obtained for one execution context and spent on another, which is the
+whole failure the gate exists to prevent.
 
 The consent does not cover the run itself. That has its own confirmation (§15),
 and no yes at this gate implies one there.
@@ -859,6 +874,34 @@ be lifted into its own repository without edits, which is why
 same policy written twice. The cost is that two copies can drift, and the answer
 is the same as there: a test runs the invariants against both (§19.6).
 
+#### 15.5.1 The run counter is one counter for all of Chroma
+
+Two implementations may not mean two counters. A terminal's identity in the
+library is its command, working directory, environment and **count**, and it has
+no room for the module that opened it — so a planner counting `1, 2, 3` beside
+Project Tasks counting `1, 2, 3` can produce two runs with the same identity.
+That is not hypothetical: a Project Task declaring
+`argv: ["ansible-playbook", …]` in the same directory is exactly the case the
+boundary in §2 says a repository is allowed to write, and the first run of each
+would collide.
+
+The counter is therefore **global to Chroma, not per module**, and it is reached
+without requiring another module:
+
+```lua
+local id = (vim.g.chroma_terminal_run_id or 0) + 1
+vim.g.chroma_terminal_run_id = id
+```
+
+A well-known variable rather than a shared Lua module, because a shared module
+would end the self-containment this section just paid thirty lines to keep. A
+module lifted into its own repository still works: it becomes the only writer of
+a counter nobody else increments.
+
+`chroma.tasks.run` moves onto the same variable in the same commit. Its private
+counter was correct while it was the only opener of terminals, and stops being
+correct the moment a second one exists.
+
 ---
 
 ## 16. Failure and degradation
@@ -1095,22 +1138,38 @@ a mandatory `--` before positionals    §15.1 — unmeasured, and not needed yet
 
 ---
 
-## Sign-off needed before implementation
+## Sign-off — given 2026-08-12
 
 Five decisions in this document were taken while writing it rather than handed
-down, and each changes something visible. They are listed here rather than
-buried:
+down. All five were confirmed by the owner, and two corrections came back with
+them.
 
 1. **§15.5** — the planner launches its own terminal instead of calling
-   `chroma.tasks.run`, duplicating roughly thirty lines to keep the module
-   liftable, with an agreement test (19.6). The alternative is a shared helper
-   that ends the self-containment every own module currently has.
+   `chroma.tasks.run`. **Confirmed**, in the owner's words: "moduły mają być
+   self-contained".
 2. **§7.3** — a partially parsed graph is a failure, never a partial list.
+   **Confirmed**: "all or nothing … nigdy nie pokazujemy częściowej listy".
 3. **§6.3** — the gate is shown even when inventory is
-   `Use Ansible configuration`.
+   `Use Ansible configuration`. **Confirmed**, and corrected — see below.
 4. **§4.1** — M1 selects exactly one playbook while the model carries a list.
+   **Confirmed**, and the same shape for inventory sources.
 5. **§4.2** — the buffer suggestion tests only "readable regular file ending in
-   `.yml`/`.yaml`", and never reads the file to guess whether it is a playbook.
+   `.yml`/`.yaml`". **Confirmed**: "Nie czyta YAML-a … To ma rozstrzygnąć
+   Ansible".
+
+**Correction 1 — the consent is pinned to what the prompt named.** §6.4 said one
+yes covers the planner run. It now says the yes is bound to the working
+directory, the playbooks and the inventory sources, and that changing any of
+them asks again. The gate names those three values, so a consent cannot outlive
+them.
+
+**Correction 2 — one terminal run counter for all of Chroma.** §15.5.1 is new.
+Two self-contained implementations may not mean two counters starting at one:
+the library builds a terminal's identity from command, directory, environment
+and count, so a planner run and a Project Task running the same `ansible-playbook`
+in the same directory would collide on their first run each. The counter moves to
+a well-known variable that needs no shared module, and `chroma.tasks.run` moves
+onto it in the same commit.
 
 Two rows are owed to `doc/CONTRACT.md`'s contract-changes table before any code
 lands: the reclaimed `<leader>ar` (§18.1) and the required Ansible tools
@@ -1125,5 +1184,6 @@ description of unwritten code; it was a decision the owner had already taken,
 and leaving it standing would have made this document argue with the one that
 governs it.
 
-Implementation splits into stages only once this document has no "otherwise"
-left in it.
+This document has no "otherwise" left in it, so implementation splits into
+stages. Each stage is one commit closing one invariant, with its tests and its
+mutations in the same commit.
