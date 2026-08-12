@@ -185,7 +185,7 @@ end
 
 T["cwd"] = new_set()
 
-T["cwd"]["refuses a mode Milestone 1 does not have"] = function()
+T["cwd"]["refuses a mode schema 1 does not have"] = function()
   refuses(
     document({ id = "x", name = "X", cwd = { mode = "nearest", markers = { "terragrunt.hcl" } }, argv = { "ls" } }),
     "unknown field"

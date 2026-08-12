@@ -1686,7 +1686,8 @@ than asked".
 ==============================================================================
 20. RULES                                                   *chroma-nvim-rules*
 
-Two rules govern this repository. `CONTRACT.md` is the full version.
+Two rules govern this repository. `CONTRACT.md`, in this directory and so in
+this installation, is the full version.
 
 Rule #1 — zero code from memory ~
 
@@ -1699,7 +1700,7 @@ lspconfig pattern, the treesitter branch split, mason-lspconfig dropping
 been written wrong from memory.
 
 Both rules, and the reasoning behind every other choice in this configuration,
-are written up in `DECISIONS.md` at the repository root — including what is
+are written up in `DECISIONS.md`, beside this file — including what is
 deliberately absent and why. Read that before changing something that looks
 odd; most odd-looking things here are load-bearing.
 

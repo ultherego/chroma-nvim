@@ -4,7 +4,8 @@
 -- that touches nothing: it is handed the bytes of a document and answers with
 -- the tasks it declares, or with one problem naming where the document is
 -- wrong. It does not read files, resolve paths, ask about trust or run
--- anything — see cli/../concept.md §3 for the contract these rules implement.
+-- anything. The contract these rules implement is `doc/CONTRACT.md`, under
+-- "The execution layer".
 --
 -- Strict, in the same way and for the same reason as `chroma.components`: a
 -- `cmd` written for `argv` decodes cleanly and would leave a task that runs
@@ -30,7 +31,7 @@ local KNOWN = {
   cwd = { mode = true, path = true },
 }
 
---- The working directory modes Milestone 1 has. `file`, `nearest` and `prompt`
+--- The working directory modes schema 1 has. `file`, `nearest` and `prompt`
 --- are deferred, and a document naming one of them is refused rather than
 --- half-honoured.
 local MODES = { project = true, relative = true }

@@ -154,7 +154,7 @@ git clone https://github.com/ultherego/chroma-nvim.git ~/.config/chroma-nvim
 NVIM_APPNAME=chroma-nvim nvim
 ```
 
-`CONTRACT.md` covers the test suite, the linters and how installations are
+`doc/CONTRACT.md` covers the test suite, the linters and how installations are
 tested in a container. `chroma install --source-tree .` installs a checkout
 through the real installer, which is how the two are kept honest.
 
@@ -176,10 +176,11 @@ each one turned out to be.
 safety model of the modules that handle secrets and run infrastructure
 commands, and what they do and do not guarantee.
 
-**Why it is like this:** [`DECISIONS.md`](./DECISIONS.md) — the reasoning behind
-every choice, and what is deliberately absent. [`CONTRACT.md`](./CONTRACT.md) —
-the rules this project is built under. [`cli/DESIGN.md`](./cli/DESIGN.md) — the
-installer.
+**Why it is like this:** [`doc/DECISIONS.md`](./doc/DECISIONS.md) — the
+reasoning behind every choice, and what is deliberately absent.
+[`doc/CONTRACT.md`](./doc/CONTRACT.md) — the rules this project is built under.
+[`cli/DESIGN.md`](./cli/DESIGN.md) — the installer. The first two are installed
+with the configuration, so they are beside `:help chroma-nvim` too.
 
 ## License
 

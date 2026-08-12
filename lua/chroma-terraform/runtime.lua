@@ -3,8 +3,8 @@
 -- $XDG_RUNTIME_DIR is validated, not trusted: it is an environment variable,
 -- and anything able to set it can redirect these writes somewhere readable.
 --
--- Duplicated in chroma-vault.nvim on purpose — see DECISIONS.md, "The
--- runtime-directory check is duplicated on purpose".
+-- Duplicated in chroma-vault.nvim on purpose — see `doc/DECISIONS.md`,
+-- "The runtime-directory check is duplicated on purpose".
 
 local M = {}
 

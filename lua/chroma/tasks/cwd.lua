@@ -1,7 +1,7 @@
 -- Which directory a task runs in.
 --
--- Two modes in Milestone 1 and one invariant over both of them, from
--- concept.md §5:
+-- Two modes in schema 1 and one invariant over both of them, from
+-- `doc/CONTRACT.md`, "The execution layer":
 --
 --     realpath(resolved cwd) MUST equal realpath(project root),
 --     or be a descendant of it, compared by path components

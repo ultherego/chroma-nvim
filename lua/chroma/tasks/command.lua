@@ -8,7 +8,8 @@
 --     env         the task's overrides, over what Neovim inherited
 --
 -- Resolving `argv[0]` is not Chroma reinterpreting a command. It is the only
--- way the rules in concept.md §6 can hold at all. Measured on Neovim 0.12.4:
+-- way the execution rules in `doc/CONTRACT.md` can hold at all. Measured on
+-- Neovim 0.12.4:
 -- `jobstart` validates the first element *before* it looks at the `env` and
 -- `cwd` it was handed, so a bare name is searched in the editor's PATH and a
 -- `./script` against the editor's directory — both raise `E475: … is not

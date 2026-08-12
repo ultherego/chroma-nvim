@@ -896,8 +896,13 @@ right mode because terraform replaces it.
 
 ## The execution layer
 
-The full contract, and the measurement behind each rule, is `concept.md`; the
-source files cite it by section. These are the four decisions that shaped it.
+The invariants are in `CONTRACT.md` under the same heading. These are the four
+decisions that shaped them, and — at the end — what each was measured against.
+
+The contract was frozen in writing before a line of it was implemented, and
+nothing in it was renegotiated during the implementation. That is the only
+evidence a freeze is worth doing, and it is the reason anything from the list
+in *Deliberate omissions* arrives the same way.
 
 ### A repository declares what to run; Chroma does not infer it
 
@@ -920,8 +925,8 @@ reason to know that `make docs` is a different kind of thing from `terraform
 plan`.
 
 **What would change it.** Nothing about inference. Richer declarations —
-inputs, `${file}`, more `cwd` modes — are `concept.md` §14 and stay
-declarations.
+inputs, `${file}`, more `cwd` modes — are in *Deliberate omissions* below and
+stay declarations when they arrive.
 
 ### The Ansible runner went, and the plugin stayed
 
@@ -994,6 +999,58 @@ guess.
 **What would change it.** Upstream offering a way to ask "is this file trusted,
 and at which contents" without side effects. Then the adapter is deleted, not
 loosened.
+
+### What was measured, and against which version
+
+Not decoration. Each of the four rules above rests on one of these, and each
+was run rather than read about. A later measurement supersedes the note; it
+does not supersede the rule.
+
+**Neovim 0.12.4, `runtime/lua/vim/secure.lua`.** `vim.secure.read()` offers
+`ignore / view / deny` for a file; `allow` exists only for a directory — which
+is why the source has to be proved a regular file before `read()` is called at
+all, or the decision about directory trust belongs to whoever created the
+directory. `view` opens the file and returns `nil`, so trusting a file means
+viewing it and then running `:trust`. `deny` is recorded as `!` and silences
+every later prompt, which is why *denied* has to be reported as denied rather
+than as "no tasks". The database is `$XDG_STATE_HOME/nvim/trust`, one `hash
+path` per line, keyed by the real path, with file decisions bound to a `sha256`
+of the contents — so editing `tasks.json` invalidates the decision. `:trust`
+documents a TOCTOU risk for `:trust [file]` and directs users to view and then
+run it with no argument, which is why Chroma's instructions never name a path.
+
+**The 0.12.3 floor.** Upstream `799cbfff8` (2026-05-20), *"fix(vim.secure):
+read() command injection vulnerability"*, escapes the path before the `view`
+command. Checked in `runtime/lua/vim/secure.lua` at each release: absent in
+v0.12.0, v0.12.1 and v0.12.2; present in v0.12.3 and v0.12.4. Schema 1 hands
+`read()` a path whose variable part is the user's own clone location, so the
+exposure is small — but it is small by accident of this design, and the first
+change that discovers task files in repository-controlled subdirectories would
+make it real. A security boundary is not built on an unpatched implementation.
+
+**snacks.nvim at the pinned `882c996`.** `terminal.open()` starts a new
+terminal and passes the command to `jobstart` with `cwd`, `env` and `term =
+true`; a table command therefore runs without a shell, and `env` extends the
+inherited environment rather than replacing it. A terminal's identity is its
+command, directory, environment and count — the task id is not among them, so
+two different tasks running `terraform plan` in one directory would collide,
+and each run needs its own count. `auto_close` defaults on through
+`interactive`: it closes a terminal whose process exited 0 and keeps one that
+failed, reporting the status. Task execution sets `auto_close = false` so a
+successful run stays readable — and that same switch is what installs the
+failure notice, since the `TermClose` handler that reports a non-zero status
+lives *inside* the `auto_close` branch. Turning the closing off turns the
+reporting off with it, which is why Chroma installs a `TermClose` of its own
+that reports and closes nothing.
+
+**`jobstart` validates `argv[0]` before it looks at `env` and `cwd`.** Measured
+on 0.12.4 with an executable present only in the task's `PATH`, and again with
+one present only in the task's working directory: both give `E475: … is not
+executable`, and inside the terminal library that happens after the window
+already exists. It raises rather than returning an error. That is the whole
+reason `argv[0]` is resolved to an absolute path before a terminal is opened,
+and why the preview shows the resolved path — the preview and the executor read
+one prepared array, so they cannot describe different commands.
 
 ---
 
@@ -1192,7 +1249,8 @@ Switching off `github-actions` removes actionlint. It does not reach into the
 SchemaStore catalogue and remove GitHub's workflow schema, because that
 catalogue is a Core capability that recognises documents on its own: a disabled
 component takes away what Chroma switched on for that domain, and does not make
-Core pretend it cannot read a file. The rule is written down in `cli/DESIGN.md`
+Core pretend it cannot read a file. The rule is written down in
+`../cli/DESIGN.md`
 because it is the kind of line that gets redrawn by accident.
 
 **What would change it.** A component whose only sensible contribution is a
@@ -1206,3 +1264,43 @@ have never been run against a cluster, because the machine this was built on
 has no kubeconfig. This is stated rather than implied by silence.
 
 **What would change it.** A throwaway account and a cluster worth breaking.
+
+### What schema 1 of a task deliberately does not have
+
+Each of these was designed and then left out, so that the first version of the
+execution model could be proved end to end. They are recorded because a list of
+things nobody got round to and a list of things somebody decided against look
+identical six months later.
+
+```text
+inputs (text, select, path) and ${input.NAME}
+${file}, ${file_dir}, and the definition of a file-backed buffer
+cwd.mode = file
+cwd.mode = nearest, with markers
+cwd.mode = prompt, with a directory picker
+global and user-level tasks, and their provenance in the picker
+shell tasks, for a command that genuinely needs a shell
+domain shortcuts that open the picker pre-filtered by group
+task run history and a UI for returning to a run
+```
+
+`file` and `nearest` both depend on what the current buffer is, and schema 1
+has no current-file semantics at all — deliberately, because the first vertical
+slice is then testable without oil buffers, dashboards, terminals and unnamed
+buffers. When they arrive they bring their own definition with them: a buffer
+whose name is a local path that exists and is a regular file, and `nearest`
+searching upward from that file's directory, stopping at the project root
+inclusive, and refusing when no marker is found.
+
+`inputs` went because the example that motivated it — one Ansible task with a
+choice of inventory — is two tasks today, and nothing about the execution model
+is left unproven by writing it that way.
+
+The one that cannot be retrofitted was therefore built in from the first day:
+every run gets a `run_id` from a single counter per Neovim session, so two
+parallel runs of one task never share a terminal identity. There is no run
+history and no way back to an earlier run — only the identity that a history
+would need.
+
+**What would change it.** Each on its own evidence, and each frozen in writing
+before it is built, which is how schema 1 was done.

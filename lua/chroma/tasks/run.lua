@@ -3,7 +3,8 @@
 -- The last step, and the shortest: everything has already been decided. The
 -- directory is resolved, the argument vector is prepared, the overrides are
 -- known, and somebody has said yes. This opens a terminal and starts the
--- process in it, and takes two decisions of its own — both from concept.md §8.
+-- process in it, and takes two decisions of its own — both from
+-- `doc/CONTRACT.md`, "The execution layer".
 --
 --     one Run = one new process, with an identity of its own
 --     the terminal survives the process, whatever it exits with

@@ -13,8 +13,8 @@
 -- **There is no shell rendering.** No line joins the arguments into something
 -- that looks like a command line, because the array never passes through a
 -- shell and a rendering joined with spaces misrepresents any argument with a
--- space, a quote or a semicolon in it — and that is the line people copy. See
--- concept.md §7.
+-- space, a quote or a semicolon in it — and that is the line people copy.
+-- Presentation may not distort what it presents.
 
 local M = {}
 

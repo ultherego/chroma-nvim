@@ -12,9 +12,9 @@
 --     missing    neither; this project has no tasks, which is not an error
 --     refused    no source, and a problem naming the path and the reason
 --
--- The rules are the frozen ones from concept.md §3: search upward from where
--- the editor is, stop at the first entry with that name whatever it turns out
--- to be, and require a readable regular file.
+-- The rules are the ones in `doc/CONTRACT.md`, "The execution layer": search
+-- upward from where the editor is, stop at the first entry with that name
+-- whatever it turns out to be, and require a readable regular file.
 
 local M = {}
 

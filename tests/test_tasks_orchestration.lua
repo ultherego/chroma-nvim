@@ -497,7 +497,7 @@ end
 T["isolation"] = new_set()
 
 T["isolation"]["nothing under tasks/ reaches Managed Terraform"] = function()
-  -- Declared in concept.md §10 and enforced here, now that tasks/ is a whole
+  -- Declared in doc/CONTRACT.md and enforced here, now that tasks/ is a whole
   -- subsystem. A custom task running `terraform plan` produces nothing Managed
   -- Apply may accept, and the way to keep that true is for these two never to
   -- know about each other.

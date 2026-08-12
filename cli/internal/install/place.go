@@ -23,12 +23,16 @@ import (
 // at today. README, LICENSE and the asset it references are in because somebody
 // looking at the installed directory should be able to tell what it is.
 //
+// doc/ carries CONTRACT.md and DECISIONS.md as well as the help file, so the
+// governing documents ship. That is deliberate: what this configuration
+// promises, and why each part of it is the way it is, is worth having beside
+// an installation rather than only in a clone. `:helptags` ignores them.
+//
 // Out: cli/ is the installer, not the configuration; tests/ and .github/ are
-// how it is developed; CONTRACT.md, DECISIONS.md and audit.md are how it is
-// governed; selene.toml and stylua.toml configure tools no user runs. And .git
-// is out for a reason worth stating: an installed configuration that is a
-// checkout invites `git pull` on top of a managed installation, which is a way
-// to arrive at a version no install state describes.
+// how it is developed; selene.toml and stylua.toml configure tools no user
+// runs. And .git is out for a reason worth stating: an installed configuration
+// that is a checkout invites `git pull` on top of a managed installation, which
+// is a way to arrive at a version no install state describes.
 var RuntimeEntries = []string{
 	"init.lua",
 	"lua",

@@ -667,10 +667,18 @@ when it stages a checkout, so an installation from a release and one from a tree
 are the same files. Two lists would be two products with one version number.
 
 Out of it, therefore: `cli/` — the installer is not the configuration —
-`tests/`, `.github/`, the governance documents, the linter configuration, and
-`.git`, which is out for a reason of its own: an installed configuration that is
-a checkout invites `git pull` on top of a managed installation, which arrives at
-a version no install state describes.
+`tests/`, `.github/`, the linter configuration, and `.git`, which is out for a
+reason of its own: an installed configuration that is a checkout invites `git
+pull` on top of a managed installation, which arrives at a version no install
+state describes.
+
+**The governing documents are in**, because they live in `doc/` and `doc/` is
+the help directory. `CONTRACT.md` and `DECISIONS.md` ship beside
+`chroma-nvim.txt`, so an installed Chroma can say what it promises and why
+without a clone. Two tests hold the line in both directions: one asserts those
+two entries are in the archive, so moving them back to the root is a failing
+test rather than a quiet change to what a release contains, and one asserts the
+linter configuration is not.
 
 **The archive is reproducible.** Entries are sorted, ownership is nobody, and
 modification times are fixed, so packaging one tree twice produces one checksum.
@@ -1541,10 +1549,11 @@ that carried it out, and because the order itself is the argument: nothing that
 writes to a disk was built before the thing that could put it back.
 
 **Audits are a gate inside a stage, not a stage of their own.** Eleven external
-series have run; the fifth onwards passed through `audit.md`, which is an inbox
-rather than a document — an audit is pasted in, archived in one commit, and
-cleared in the next, so the file is empty between rounds and the history holds
-every round. They kept earning their place: no series has yet come back empty,
+series have run. The fifth onwards were archived one commit at a time —
+`docs(audit): archive … project audit` — through a root file that has since
+been removed, so the history holds every round and the working tree holds none:
+a round in progress lives outside the repository until it is archived. They
+kept earning their place: no series has yet come back empty,
 and the ones that found the most were the ones aimed at a layer that had just
 been declared finished. The rule is to run one before a public release, and
 after touching anything on the list below.
@@ -1637,7 +1646,7 @@ rather than listed, so it cannot fall behind a new component.
 
 **5. The minimum Neovim version is not in the contract.** *Still open, and now
 overdue: stage 11 shipped without it.* It is stated in places that cannot check
-each other — prose in `README.md` and `CONTRACT.md`, the API list in
+each other — prose in `README.md` and `doc/CONTRACT.md`, the API list in
 `lua/chroma/health.lua`, and `NEOVIM_VERSION` in CI — and the CLI has no floor
 at all, so a preflight on 0.11 gets as far as the bootstrap before Neovim says
 what is wrong. Hardcoding it in Go makes another copy, which is the duplication

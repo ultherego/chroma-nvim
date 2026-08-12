@@ -19,7 +19,8 @@
 -- then letting `vim.secure.read()` read it again leaves a window in which the
 -- contents change between the two, so a trusted answer would authorise one
 -- byte string and hand back another. The bytes hashed, the bytes authorised
--- and the bytes parsed are the same bytes — see concept.md §4.
+-- and the bytes parsed are the same bytes — see `doc/DECISIONS.md`, "The bytes
+-- that were trusted are the bytes that are parsed".
 --
 -- Measured on Neovim 0.12.4, `runtime/lua/vim/secure.lua`: the database is
 -- `$XDG_STATE_HOME/nvim/trust`, one entry per line as a token, a space and the

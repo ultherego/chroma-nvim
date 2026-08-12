@@ -31,6 +31,8 @@ func tree(t *testing.T) string {
 		{"components/core.json", `{"contract": 5, "id": "core"}` + "\n"},
 		{"after/lsp/yamlls.lua", "return {}\n"},
 		{"doc/chroma-nvim.txt", "help\n"},
+		{"doc/CONTRACT.md", "rules\n"},
+		{"doc/DECISIONS.md", "reasons\n"},
 		{"assets/logo.png", "not really a png\n"},
 
 		// Everything a release is not.
@@ -38,10 +40,8 @@ func tree(t *testing.T) string {
 		{"tests/test_state.lua", "return {}\n"},
 		{".github/workflows/ci.yml", "name: CI\n"},
 		{".git/HEAD", "ref: refs/heads/main\n"},
-		{"CONTRACT.md", "rules\n"},
-		{"DECISIONS.md", "reasons\n"},
-		{"audit.md", "an audit\n"},
 		{"selene.toml", "std = \"lua51\"\n"},
+		{"stylua.toml", "column_width = 100\n"},
 	} {
 		full := filepath.Join(root, filepath.FromSlash(file.path))
 		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
@@ -104,6 +104,14 @@ func TestAnArchiveHoldsTheRuntimeAndNothingElse(t *testing.T) {
 		"chroma-nvim-v1.0.0/after/lsp/yamlls.lua",
 		"chroma-nvim-v1.0.0/doc/chroma-nvim.txt",
 		"chroma-nvim-v1.0.0/lazy-lock.json",
+
+		// The governing documents live under doc/ and therefore ship. That is
+		// a decision, not a side effect of the path: somebody reading an
+		// installed Chroma can find out what it promises and why, without a
+		// clone. Asserted here so that moving them back out is a failing test
+		// rather than a quiet change to what a release contains.
+		"chroma-nvim-v1.0.0/doc/CONTRACT.md",
+		"chroma-nvim-v1.0.0/doc/DECISIONS.md",
 	} {
 		if !strings.Contains(joined, wanted) {
 			t.Errorf("the archive has no %s", wanted)
@@ -112,7 +120,7 @@ func TestAnArchiveHoldsTheRuntimeAndNothingElse(t *testing.T) {
 
 	// What a release is not. `.git` in particular: an installed configuration
 	// that is a checkout invites `git pull` over a managed installation.
-	for _, unwanted := range []string{"/cli/", "/tests/", "/.github/", "/.git/", "CONTRACT.md", "audit.md", "selene.toml"} {
+	for _, unwanted := range []string{"/cli/", "/tests/", "/.github/", "/.git/", "selene.toml", "stylua.toml"} {
 		if strings.Contains(joined, unwanted) {
 			t.Errorf("the archive carries %s", unwanted)
 		}
@@ -408,7 +416,7 @@ func TestAttributeReportsTheCommitAndWhatDiffersFromIt(t *testing.T) {
 	}
 
 	// And a file that is not in the archive does not make it unattributable.
-	if err := os.WriteFile(filepath.Join(root, "CONTRACT.md"), []byte("changed\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(root, "selene.toml"), []byte("std = \"lua52\"\n"), 0o644); err != nil {
 		t.Fatalf("changing a file outside the archive: %v", err)
 	}
 	stillOne, err := Attribute(root)

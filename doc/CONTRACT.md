@@ -118,13 +118,23 @@ declares what to run.
 ├── after
 ├── components                  component contract, read by Lua and by the CLI
 ├── cli                         Go module: the installer and CLI (cli/DESIGN.md)
-├── doc                         `:help chroma-nvim`, tags generated
+├── doc
+│   ├── chroma-nvim.txt         `:help chroma-nvim`
+│   ├── tags                    generated, and CI fails if it is stale
+│   ├── CONTRACT.md             this file
+│   └── DECISIONS.md            why each of it is the way it is
 ├── tests                       mini.test suites and their fixtures
 ├── docker                      a machine to test installations onto
 ├── assets
 ├── README.md
 └── LICENSE
 ```
+
+`doc/` is the only documentation directory, and everything in it is installed
+along with the configuration. The two governing documents are there rather than
+at the root on purpose: what this thing promises, and why, is worth having
+beside an installation and not only in a clone. `:helptags` reads `*.txt` and
+ignores them.
 
 One `plugins/*.lua` file = one domain. No junk-drawer files.
 
@@ -376,8 +386,10 @@ Scope set by the survey of 2026-08-06, not by assumption.
 
 Both modules that handle secrets or change infrastructure are **stable**. They
 are in use, covered by the test suite, and have been through eleven external
-audits — the fifth onwards archived through `audit.md` — with the findings of
-each series dispositioned before the next began.
+audits, with the findings of each series dispositioned before the next began.
+The archived rounds are in the history, under `docs(audit): archive … project
+audit`; there is no inbox file at the root any more, and a round in progress
+lives outside the repository until it is archived.
 What they guarantee is written out in `:help chroma-nvim-vault` and `:help
 chroma-nvim-terraform`, each with a section on what it does **not** cover.
 Nothing there describes an intention; every line describes current behaviour.
@@ -431,9 +443,9 @@ in `.chroma/tasks.json`, what a given operation is: **what to run, from which
 directory, with which environment.** `ansible-playbook`, `terragrunt`, `make`
 and an internal company CLI are one kind of thing to it — an executable.
 
-Tasks are **core**, not a component, and live in `lua/chroma/tasks/`. The full
-contract, with the measurements each rule rests on, is `concept.md`; the source
-files cite it by section. The invariants:
+Tasks are **core**, not a component, and live in `lua/chroma/tasks/`. The
+reasoning, and the measurements each rule rests on, are in `DECISIONS.md` under
+the same heading. The invariants:
 
 | | |
 |---|---|
