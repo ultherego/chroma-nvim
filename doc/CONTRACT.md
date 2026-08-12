@@ -123,7 +123,8 @@ declares what to run.
 │   ├── tags                    generated, and CI fails if it is stale
 │   ├── KEYMAPS.md              every mapping, on one page
 │   ├── CONTRACT.md             this file
-│   └── DECISIONS.md            why each of it is the way it is
+│   ├── DECISIONS.md            why each of it is the way it is
+│   └── chroma-ansible-design.md  frozen, not yet implemented
 ├── tests                       mini.test suites and their fixtures
 ├── docker                      a machine to test installations onto
 ├── assets
