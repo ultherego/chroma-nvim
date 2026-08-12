@@ -29,7 +29,7 @@ editor. `<leader>?` lists what the current buffer adds.
 | `<leader>x` | Tools | always |
 | `<leader>t` | Terraform | component `terraform` |
 | `<leader>k` | Kubernetes | component `kubernetes` |
-| `<leader>a` | Ansible | see the note under *Ansible Vault* |
+| `<leader>a` | Ansible | component `ansible` or `vault` — see the note under *Ansible Vault* |
 | `<leader>A` | AWS | component `aws` |
 
 A prefix is assigned once, globally. A collision is a bug, not an
@@ -318,6 +318,35 @@ records the profile it was made under and refuses an apply under another.
 
 ---
 
+## Ansible
+
+Component `ansible`, which requires only `core`.
+
+| Key | Mode | Does |
+|---|---|---|
+| `<leader>ar` | n | Plan and run an Ansible playbook |
+| `<leader>aR` | n | Repeat the last Ansible invocation |
+
+`<leader>ar` asks for the playbook, the working directory, the inventory
+sources, tags, a limit and the CLI overrides, then shows the exact argument
+vector and asks once. Nothing runs before that yes, and Ansible is only started
+after a separate consent naming the directory, playbook and inventory it is
+about to use.
+
+`<leader>aR` goes straight to that final preview with the last invocation's
+decisions and still asks. It re-resolves `ansible-playbook` and re-checks the
+paths, and it never repeats the previous run's host count — an inventory can
+have changed since.
+
+Both are also `:AnsibleRun` and `:AnsibleRepeat`.
+
+**`<leader>ar` was removed once, in `568c28e`, and this is not that key coming
+back.** The old one inferred the playbook and the command from the current
+buffer. This one infers nothing: the buffer is offered as one row in a picker,
+and every part of the invocation is chosen and then shown before it runs.
+
+---
+
 ## Ansible Vault
 
 Component `vault`, which requires only `core`.
@@ -334,12 +363,15 @@ Component `vault`, which requires only `core`.
 
 `q` or <kbd>Esc</kbd> closes a revealed value.
 
-**The group heading follows `vault`, not `ansible`.** These seven keys belong to
-`vault`, so that is the component the heading is gated on, even though it is
-labelled *Ansible* — Ansible Vault is Ansible's. It used to follow `ansible`,
-which was wrong in both directions at once, since the two components are
-independent: `vault` on and `ansible` off gave seven working keys and no
-heading, and the reverse gave a heading over nothing.
+**The group heading follows either component.** These seven keys belong to
+`vault` and the two above belong to `ansible`, and the two components are
+independent, so the heading appears when either is enabled — labelled *Ansible*
+either way, because Ansible Vault is Ansible's. It used to follow `ansible`
+alone while every key under it came from `vault`, which was wrong in both
+directions: `vault` on and `ansible` off gave seven working keys and no
+heading, and the reverse gave a heading over nothing. It was then gated on
+`vault` alone, which was right for exactly as long as `ansible` contributed no
+key of its own.
 
 ---
 

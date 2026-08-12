@@ -2,11 +2,21 @@
   "contract": 5,
   "id": "ansible",
   "name": "Ansible",
-  "description": "Playbooks and roles: the language server, linting and documentation.",
+  "description": "Playbooks and roles: the execution planner, the language server, linting and documentation.",
   "requires": [
     "core"
   ],
   "tools": {
+    "required": [
+      {
+        "id": "ansible-playbook",
+        "reason": "running a playbook the operator has composed"
+      },
+      {
+        "id": "ansible-inventory",
+        "reason": "listing the groups and hosts an inventory declares"
+      }
+    ],
     "optional": [
       {
         "id": "ansible-doc",
@@ -26,6 +36,9 @@
     ],
     "linters": [
       "ansible_lint"
+    ],
+    "modules": [
+      "chroma-ansible"
     ]
   }
 }

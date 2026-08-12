@@ -340,24 +340,37 @@ T["shapes"]["vault alone brings no ansible"] = function()
   end)
 end
 
--- The `<leader>a` heading says "Ansible" and every key under it belongs to
--- `vault`, so `vault` is what it has to follow. Both directions are checked,
--- because the heading followed `ansible` for long enough to prove that only one
--- of them being wrong is easy to miss.
+-- The `<leader>a` heading says "Ansible" and both components put keys under it:
+-- seven from `vault`, and `<leader>ar` / `<leader>aR` from the planner. Either
+-- alone earns the heading; neither means there is nothing to head. All three
+-- shapes are checked, because the heading followed `ansible` alone for long
+-- enough to prove that one direction being wrong is easy to miss.
 T["shapes"]["vault alone labels the Ansible group"] = function()
   with({ "vault" }, function()
     eq(vim.tbl_contains(whichkey_groups(), "Ansible"), true)
   end)
 end
 
-T["shapes"]["ansible alone labels no group over vault's keys"] = function()
+T["shapes"]["ansible alone labels the Ansible group too"] = function()
   with({ "ansible" }, function()
-    -- Enabled, and still contributing no key under `<leader>a`: the heading
-    -- would be over an empty list, which reads as a feature that is present and
-    -- broken rather than one that was not selected.
+    -- It did not, until the planner gave `ansible` a key of its own. A heading
+    -- over an empty list reads as a feature that is present and broken.
     eq(state.is_enabled("ansible"), true)
     eq(state.is_enabled("vault"), false)
-    eq(vim.tbl_contains(whichkey_groups(), "Ansible"), false)
+    eq(vim.tbl_contains(whichkey_groups(), "Ansible"), true)
+  end)
+end
+
+T["shapes"]["the two together label it once"] = function()
+  with({ "ansible", "vault" }, function()
+    local headings = 0
+    for _, group in ipairs(whichkey_groups()) do
+      if group == "Ansible" then
+        headings = headings + 1
+      end
+    end
+
+    eq(headings, 1)
   end)
 end
 
@@ -449,7 +462,7 @@ T["legacy"]["no selection leaves every component running"] = function()
     eq(vim.tbl_count(require("chroma.schemas").yaml()), 1)
 
     local names = modules_set_up()
-    eq(names, { "chroma-aws", "chroma-terraform", "chroma-vault" })
+    eq(names, { "chroma-ansible", "chroma-aws", "chroma-terraform", "chroma-vault" })
 
     eq(registered_linters()["yaml.ansible"], { "ansible_lint" })
     eq(registered_linters().dockerfile, { "hadolint" })

@@ -299,10 +299,21 @@ Three of the plugin's defaults are remapped because Zellij eats them: >
 <
 Ansible ~
 >
+    <leader>ar   Plan and run an Ansible playbook
+    <leader>aR   Repeat the last Ansible invocation
     <leader>av   Reveal the encrypted value under the cursor
     <leader>av   Encrypt the selection in place        (visual mode)
     <leader>aV   Show where the vault password comes from
 <
+`<leader>ar` asks for the playbook, the working directory, the inventory, the
+tags, a limit and the CLI overrides, then shows the exact argument vector and
+asks once before anything runs. It infers nothing from the buffer: the buffer
+is offered as one row in a picker. Ansible itself is not started until a
+separate question naming the directory, the playbook and the inventory has been
+answered yes. `<leader>aR` goes straight to that final preview with the last
+invocation's decisions, and still asks. Both are also `:AnsibleRun` and
+`:AnsibleRepeat`.
+
 Vault handling is chroma-vault.nvim, written for this project — see
 |chroma-nvim-vault|.
 

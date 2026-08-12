@@ -47,21 +47,28 @@ return {
 
       -- The component a heading follows is the one that defines the keys under
       -- it, which is not always the one the heading is named after. `<leader>a`
-      -- is Ansible Vault's, and all seven keys under it come from `vault`;
-      -- `ansible` contributes none. It used to follow `ansible` anyway, and
-      -- since the two components are independent that was wrong in both
-      -- directions: `vault` without `ansible` had seven working keys and no
-      -- heading, and `ansible` without `vault` had a heading over nothing.
+      -- used to follow `ansible` while all seven keys under it came from
+      -- `vault`, and since the two components are independent that was wrong in
+      -- both directions: `vault` without `ansible` had seven working keys and
+      -- no heading, and `ansible` without `vault` had a heading over nothing.
+      --
+      -- It is now either of them, which is not where it started: while
+      -- `ansible` contributed no key, an `or` would have fixed the first half
+      -- and kept the second. The planner ended that — `<leader>ar` and
+      -- `<leader>aR` are its keys — so `ansible` earns the heading too.
       --
       -- The name stays Ansible, because Ansible Vault is Ansible's.
       for _, group in ipairs({
-        { component = "terraform", lhs = "<leader>t", name = "Terraform" },
-        { component = "kubernetes", lhs = "<leader>k", name = "Kubernetes" },
-        { component = "vault", lhs = "<leader>a", name = "Ansible" },
-        { component = "aws", lhs = "<leader>A", name = "AWS" },
+        { components = { "terraform" }, lhs = "<leader>t", name = "Terraform" },
+        { components = { "kubernetes" }, lhs = "<leader>k", name = "Kubernetes" },
+        { components = { "ansible", "vault" }, lhs = "<leader>a", name = "Ansible" },
+        { components = { "aws" }, lhs = "<leader>A", name = "AWS" },
       }) do
-        if state.is_enabled(group.component) then
-          table.insert(spec, { group.lhs, group = group.name })
+        for _, component in ipairs(group.components) do
+          if state.is_enabled(component) then
+            table.insert(spec, { group.lhs, group = group.name })
+            break
+          end
         end
       end
 

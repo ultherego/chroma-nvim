@@ -1,13 +1,16 @@
--- The Ansible component after its runner was retired.
+-- The Ansible component, and the runner that may not come back.
 --
--- `nvim-ansible` can run a playbook by inferring the command from the buffer,
--- and Chroma no longer offers that: how a repository runs Ansible is what its
--- own task file says. The plugin stays for what only it does — the
--- `yaml.ansible` filetype, `K` through `ansible-doc`, `gf` into a role.
+-- `nvim-ansible` can run a playbook by inferring the command from the buffer.
+-- That is the execution path Chroma retired, and retiring it is not undone by
+-- `chroma-ansible`: the planner asks for the playbook, the directory and the
+-- inventory, shows the exact array and waits for a yes, which is the opposite
+-- of inferring a command from whatever is open.
 --
--- What is worth testing is not the deletion. It is that the runner cannot come
--- back through a side door: another spec, another keymap, a command somewhere
--- else. So this reads the plugin specs as text as well as as data.
+-- So what these cases guard is unchanged — the plugin must not reach its own
+-- runner, and no plugin spec may bind a key to it — while the component itself
+-- has changed, because the planner is a feature that needs Ansible installed.
+-- The plugin stays for what only it does: the `yaml.ansible` filetype, `K`
+-- through `ansible-doc`, `gf` into a role.
 
 local new_set = MiniTest.new_set
 local eq = MiniTest.expect.equality
@@ -46,10 +49,19 @@ T["the runner"]["is not called from any plugin spec"] = function()
   end
 end
 
-T["the runner"]["has no keymap anywhere"] = function()
+T["the runner"]["has no keymap in any plugin spec"] = function()
+  -- `<leader>ar` exists again and belongs to `chroma-ansible`, which asks for
+  -- everything it runs. A plugin spec binding it would be the buffer-inferred
+  -- runner back under a key that now means something else entirely.
+  --
+  -- Comments are skipped, as in the case above: this repository's comments
+  -- explain the decisions, and the heading gate has to be able to name the two
+  -- keys that earned it.
   for name, source in pairs(specs()) do
-    if source:find("<leader>ar", 1, true) then
-      error(("%s binds <leader>ar, which was the inferred runner"):format(name))
+    for number, line in ipairs(vim.split(source, "\n", { plain = true })) do
+      if not line:match("^%s*%-%-") and line:find("<leader>ar", 1, true) then
+        error(("%s:%d binds <leader>ar, which is the planner's key"):format(name, number))
+      end
     end
   end
 end
@@ -73,14 +85,28 @@ end
 
 T["the component"] = new_set()
 
-T["the component"]["requires no executable at all"] = function()
-  -- The required `ansible` existed for one stated reason — running a playbook
-  -- from the buffer — and that reason has gone. A required tool whose
-  -- justification no longer exists is a preflight failure nobody can act on.
-  local ansible = components.load().ansible
+T["the component"]["requires both tools the planner promises"] = function()
+  -- The required `ansible` was dropped when the buffer-driven runner went,
+  -- because a required tool whose justification has gone is a preflight failure
+  -- nobody can act on. The justification is back and it is a different one:
+  -- `<leader>ar` runs playbooks and lists inventories, so a machine without
+  -- either binary cannot do what the component says it does.
+  --
+  -- Both are required rather than one required and one recommended: both ship
+  -- in ansible-core, so requiring both costs nobody an extra installation and
+  -- stops a partial install from looking healthy.
+  local required = components.load().ansible.tools.required
 
-  eq(ansible.tools.required, {})
-  eq(ansible.tools.recommended, {})
+  eq(#required, 2)
+  eq({ required[1].id, required[2].id }, { "ansible-playbook", "ansible-inventory" })
+  for _, tool in ipairs(required) do
+    eq({ tool.id, tool.reason ~= nil and tool.reason ~= "" }, { tool.id, true })
+  end
+  eq(components.load().ansible.tools.recommended, {})
+end
+
+T["the component"]["brings the planner up"] = function()
+  eq(components.load().ansible.nvim.modules, { "chroma-ansible" })
 end
 
 T["the component"]["asks for ansible-doc, optionally"] = function()
