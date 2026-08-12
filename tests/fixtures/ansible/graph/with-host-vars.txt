@@ -1,0 +1,15 @@
+@all:
+  |--@ungrouped:
+  |  |--standalone
+  |--@webservers:
+  |  |--web01
+  |  |--web02
+  |--@databases:
+  |  |--@dbservers:
+  |  |  |--db01
+  |  |  |  |--{ansible_host = 10.0.0.5}
+  |  |--@redis_servers:
+  |  |  |--redis01
+  |--@empty_group:
+  |--@shared:
+  |  |--web01

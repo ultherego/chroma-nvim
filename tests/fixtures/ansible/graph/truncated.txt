@@ -1,0 +1,6 @@
+@all:
+  |--@ungrouped:
+  |  |--standalone
+  |--@webservers:
+  |  |--web01
+  |  |--dns

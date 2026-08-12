@@ -1,0 +1,14 @@
+@all:
+  |--@ungrouped:
+  |  |--standalone
+  |--@webservers:
+  |  |--web01
+  |  |--web02
+  |--@databases:
+  |  |--@dbservers:
+  |  |  |--db01
+  |  |--@redis_servers:
+  |  |  |--redis01
+  |--@empty_group:
+  |--@shared:
+  |  |--web01

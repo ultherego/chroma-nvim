@@ -450,13 +450,23 @@ inventory, names with unusual characters, and truncated output.
 
 > **A partially parsed graph is a failed inspection.**
 
-Any line the parser does not recognise, any inconsistent indentation, any
-truncation, and the result is discarded whole and reported as an inspection
-failure (§16). Partial results are never shown.
+Any line the parser does not recognise, any indentation deeper than one level
+below the line before it, and any output that does not end in a newline: the
+result is discarded whole and reported as an inspection failure (§16). Partial
+results are never shown.
 
 The reason is not tidiness. A tree that parses to *some* of the groups looks
 exactly like a small inventory, and the operator would choose a limit from a
 list that silently omits the group they wanted.
+
+**What the parser can and cannot see, stated rather than implied.** Measured on
+2.21.2, every graph ends with a newline, including the two-line one an empty
+inventory produces — so output stopping mid-line is detectable, and it has to
+be, because a host name cut in half parses perfectly well as a shorter host
+name. A cut landing exactly on a line boundary is **not** detectable here: it
+is a syntactically complete, smaller tree. That case belongs to the layer that
+ran the subprocess — a non-zero exit or a stderr Ansible wrote — and this parser
+does not pretend to cover it.
 
 ### 7.4 What is kept
 
@@ -1038,8 +1048,9 @@ than declared.
 
 | # | What is covered | Mutation | Expected |
 |---|---|---|---|
-| 19.1 | The `--graph` parser, against captured fixtures | drop the nesting level from a child group | the hierarchy case fails |
-| 19.2 | A truncated or unrecognised graph yields no result | make the parser return what it has so far | the all-or-nothing case fails |
+| 19.1 | The `--graph` parser, against captured fixtures | take a name as the next word rather than the rest of the line | the host-with-a-space case fails |
+| 19.2 | A truncated or unrecognised graph yields no result | drop the trailing-newline check; let an orphan line fall back to `all`; stop clearing the depth stack | three separate all-or-nothing cases fail |
+| 19.2a | A group's variables are never read as a host | remove the `{…}` guard | the group-vars case fails, and a secret reaches a picker |
 | 19.3 | No hostvars are requested | change `--graph` to `--list` in the inspector | the argv case for the inspector fails |
 | 19.4 | The gate precedes every first subprocess | move the gate after the first `--graph` | the ordering case fails |
 | 19.5 | The frozen cwd is not re-read | replace the stored path with `getcwd()` at run time | the freeze case fails after a `:cd` |
@@ -1056,9 +1067,11 @@ than declared.
 | 19.16 | No Ansible output reaches a log | log the inspector's stdout | the logging case fails |
 | 19.17 | The architecture boundary with Project Tasks | `require("chroma.tasks.run")` in this module | the architecture case fails (§2.2) |
 
-Fixtures for 19.1 are captured from a real `ansible-core 2.21.2`, committed
-under `tests/fixtures/ansible-graph/`, and each carries a note saying which
-command produced it.
+Fixtures for 19.1 are captured from a real `ansible-core 2.21.2` and committed
+under `tests/fixtures/ansible/graph/`. The note saying which command produced
+each one is in a `README.md` beside them rather than inside them: a fixture
+here is compared byte for byte, down to the final newline, so a comment header
+would make it stop being the thing it exists to be.
 
 ---
 
