@@ -839,9 +839,10 @@ Tags                   no CLI filter
 Limit                  webservers
 CLI remote-user        deploy
 CLI become override    enabled
-Ask become password    yes
+Ask become password    yes (-K)
 Vault                  inherited
 Mode                   run
+Diff                   off
 Targets reported now   4 hosts
 
 argv
@@ -859,6 +860,17 @@ argv
 
 Run? [y/N]
 ```
+
+Every row appears whether or not the operator chose anything, `Diff` included.
+The example above showed it off by leaving it out, which was wrong for the same
+reason `Vault inherited` is shown: on the screen where somebody decides to go
+ahead, a missing row reads as one they forgot to look at.
+
+`Targets reported now` has three values and never a fourth: a count, `not
+reported` when the listing failed (§16), and `not refreshed` on a repeat that
+did not ask again (§14.5). A count is shown rather than the names, because an
+inventory with thirty thousand hosts must not become thirty thousand lines in
+the dialog being read (§7.5); the names have their own screen (§9.4).
 
 ### 15.1 Order
 
