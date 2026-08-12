@@ -21,6 +21,7 @@
 -- **This lands with the first commit that spawns a subprocess** (§13.3).
 -- Retrofitting it would mean auditing every callback that already exists.
 
+local context = require("chroma-ansible.context")
 local gate = require("chroma-ansible.gate")
 
 local M = {}
@@ -176,6 +177,84 @@ function M.cancel(run)
   pcall(function()
     process:kill("sigterm")
   end)
+end
+
+--- What `<leader>aR` repeats. One slot, in memory, for the session.
+---
+--- Session memory only (§14.3): Neovim restarts to a clean state, and a
+--- persistent form would be an explicit state model with its own design rather
+--- than a side effect of somebody having clicked something.
+local last = nil
+
+---Keeps this run's decisions for a repeat.
+---
+---What is kept is the plan and the directory. What is deliberately absent is
+---the resolved host snapshot — §14.5, because an autoscaling group can make a
+---count false between two runs — and the inspection consent, which belongs to
+---the three values it named and cannot be inherited by a later run (§6.4).
+---
+---No password is kept because none is ever held: `-K` and `--ask-vault-pass`
+---are flags asking Ansible to prompt in its own terminal, and §11 keeps every
+---secret on that side of the boundary.
+---@param run chroma_ansible.Run
+function M.remember(run)
+  last = {
+    directory = run.directory,
+    plan = vim.deepcopy(run.plan),
+  }
+end
+
+---Whether there is anything to repeat.
+---@return boolean
+function M.repeatable()
+  return last ~= nil
+end
+
+---Forgets the last invocation.
+---@return nil
+function M.forget()
+  last = nil
+end
+
+---A fresh run seeded from the last invocation, or the reason there is none.
+---
+---The executable is resolved again rather than reused (§14.4). An absolute path
+---recorded an hour ago may name a program that has been removed, or one that
+---`PATH` no longer chooses — and repeating it would run something nobody
+---picked. The directory and the playbooks are re-checked the same way.
+---
+---The gate is new because the run is new. A repeat that inspects anything asks
+---again, which is what §6.4 means by a consent that cannot outlive what it
+---named.
+---@param resolve fun(name: string): string|nil how `ansible-playbook` is found
+---@return chroma_ansible.Run|nil run, string|nil problem
+function M.recall(resolve)
+  if not last then
+    return nil, "there is no Ansible invocation to repeat yet"
+  end
+
+  local executable = resolve("ansible-playbook")
+  if not executable then
+    return nil, "ansible-playbook is no longer on PATH"
+  end
+  if executable ~= last.plan.executable then
+    return nil,
+      ("ansible-playbook now resolves to %s rather than %s, so the last invocation is not repeated"):format(
+        executable,
+        tostring(last.plan.executable)
+      )
+  end
+
+  local problem = context.runnable(last.directory, last.plan.playbooks)
+  if problem then
+    return nil, problem
+  end
+
+  local run = M.start()
+  run.directory = last.directory
+  run.plan = vim.deepcopy(last.plan)
+
+  return run, nil
 end
 
 ---What the gate is asked about, taken from the run.

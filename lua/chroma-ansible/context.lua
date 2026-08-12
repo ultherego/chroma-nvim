@@ -211,6 +211,45 @@ function M.freeze(path)
   return resolved, nil
 end
 
+---A path as the process will resolve it.
+---
+---Relative paths belong to the frozen working directory, because that is where
+---the process starts. Resolving one against Neovim's directory would answer for
+---a file nobody is about to run — and would pass or fail for the wrong reason.
+---@param directory string
+---@param path string
+---@return string
+function M.under(directory, path)
+  if vim.startswith(path, "/") then
+    return path
+  end
+  return vim.fs.joinpath(directory, path)
+end
+
+---Whether what was chosen can still be run, or why not.
+---
+---Asked twice on purpose: once when a repeat is recalled (§14.4) and once
+---immediately before the terminal opens (§16). Minutes can pass while somebody
+---reads a preview, and an hour can pass between two repeats.
+---@param directory string the frozen working directory
+---@param playbooks string[] as stored, relative or absolute
+---@return string|nil problem
+function M.runnable(directory, playbooks)
+  local gone = M.still_usable(directory)
+  if gone then
+    return gone
+  end
+
+  for _, playbook in ipairs(playbooks) do
+    local _, unreadable = M.playbook(M.under(directory, playbook))
+    if unreadable then
+      return unreadable
+    end
+  end
+
+  return nil
+end
+
 ---Whether a frozen directory is still one, just before a process starts.
 ---
 ---Asked again rather than trusted: freezing happened when the operator chose,

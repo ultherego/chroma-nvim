@@ -259,6 +259,189 @@ T["cancelling"]["with nothing running is not an event"] = function()
   eq(run.process, nil)
 end
 
+-- ---------------------------------------------------------------------------
+-- Repeating
+
+T["repeating"] = new_set({
+  hooks = {
+    pre_case = function()
+      planner.forget()
+    end,
+    post_case = function()
+      planner.forget()
+    end,
+  },
+})
+
+--- A directory and a playbook on disk, because a repeat re-checks both.
+local WORKING, PLAYBOOK = (function()
+  local path = vim.fn.tempname()
+  vim.fn.mkdir(vim.fs.joinpath(path, "plays"), "p")
+  vim.fn.writefile({ "- hosts: all" }, vim.fs.joinpath(path, "plays", "site_upgrade.yml"))
+  return vim.uv.fs_realpath(path), "plays/site_upgrade.yml"
+end)()
+
+--- An executable that exists, standing in for `ansible-playbook`.
+local ANSIBLE = vim.fn.exepath("sh")
+
+---A run whose paths are real.
+---@return chroma_ansible.Run
+local function ran()
+  local run = planner.start()
+  planner.set_executable(run, ANSIBLE)
+  planner.set_directory(run, WORKING)
+  planner.set_playbooks(run, { PLAYBOOK })
+  planner.set_inventory(run, { "inventories/dev/hosts.yml" })
+  planner.set_tags(run, { "common" })
+  planner.set_limit(run, "webservers")
+  run.plan.become = true
+  return run
+end
+
+---Finds `ansible-playbook` where the test says it is.
+---@param where string|nil
+---@return fun(name: string): string|nil
+local function resolver(where)
+  return function()
+    return where
+  end
+end
+
+T["repeating"]["has nothing to repeat before anything ran"] = function()
+  local run, problem = planner.recall(resolver(ANSIBLE))
+
+  eq(planner.repeatable(), false)
+  eq(run, nil)
+  eq(problem ~= nil, true)
+end
+
+T["repeating"]["carries the decisions of the last invocation"] = function()
+  planner.remember(ran())
+
+  local run = assert(planner.recall(resolver(ANSIBLE)))
+
+  eq(run.directory, WORKING)
+  eq(run.plan.playbooks, { PLAYBOOK })
+  eq(run.plan.inventory, { "inventories/dev/hosts.yml" })
+  eq(run.plan.tags, { "common" })
+  eq(run.plan.limit, "webservers")
+  eq(run.plan.become, true)
+end
+
+T["repeating"]["carries no host snapshot"] = function()
+  -- §14.5: the previous preview's `4 hosts` may have been made false by an
+  -- autoscaling group before the repeat. The slot has nowhere to put one, and
+  -- this is the case that keeps it that way.
+  planner.remember(ran())
+  local run = assert(planner.recall(resolver(ANSIBLE)))
+
+  eq(run.plan.targets, nil)
+  eq(run.targets, nil)
+  eq(run.snapshot, nil)
+end
+
+T["repeating"]["asks the gate again"] = function()
+  -- §6.4: a consent is bound to the three values it named, and a repeat is a
+  -- new run. Inheriting the grant would be spending a yes obtained an hour ago
+  -- for a context nobody has been shown since.
+  local first = ran()
+  first.gate.granted = { directory = WORKING, playbooks = { PLAYBOOK }, inventory = {} }
+  planner.remember(first)
+
+  local run = assert(planner.recall(resolver(ANSIBLE)))
+
+  eq(run.gate.granted, nil)
+  eq(run.gate == first.gate, false)
+end
+
+T["repeating"]["is a new run with a generation of its own"] = function()
+  planner.remember(ran())
+
+  local run = assert(planner.recall(resolver(ANSIBLE)))
+
+  eq(run.id ~= ran().id, true)
+  eq(run.process, nil)
+end
+
+T["repeating"]["does not follow later edits to the run it remembered"] = function()
+  local run = ran()
+  planner.remember(run)
+  planner.set_limit(run, "something_else")
+  table.insert(run.plan.tags, "security")
+
+  local recalled = assert(planner.recall(resolver(ANSIBLE)))
+
+  eq(recalled.plan.limit, "webservers")
+  eq(recalled.plan.tags, { "common" })
+end
+
+T["repeating"]["is not edited by the repeat before it"] = function()
+  -- A recalled run is a working copy. Somebody who repeats, changes the limit,
+  -- and repeats again must get what they last ran both times — not the edit
+  -- they made to a run that never started.
+  planner.remember(ran())
+  local first = assert(planner.recall(resolver(ANSIBLE)))
+  planner.set_limit(first, "dbservers")
+  table.insert(first.plan.tags, "security")
+
+  local second = assert(planner.recall(resolver(ANSIBLE)))
+
+  eq(second.plan.limit, "webservers")
+  eq(second.plan.tags, { "common" })
+end
+
+T["repeating"]["refuses when the executable is gone"] = function()
+  planner.remember(ran())
+
+  local run, problem = planner.recall(resolver(nil))
+
+  eq(run, nil)
+  eq(problem:find("PATH", 1, true) ~= nil, true)
+end
+
+T["repeating"]["refuses when PATH now resolves it elsewhere"] = function()
+  -- §14.4: repeating an absolute path recorded an hour ago would run a program
+  -- nobody chose. The lookup is redone, and a different answer ends the repeat.
+  planner.remember(ran())
+
+  local run, problem = planner.recall(resolver("/opt/other/ansible-playbook"))
+
+  eq(run, nil)
+  eq(problem:find("/opt/other/ansible-playbook", 1, true) ~= nil, true)
+end
+
+T["repeating"]["refuses when the working directory is gone"] = function()
+  local run = ran()
+  run.directory = vim.fs.joinpath(WORKING, "removed")
+  planner.set_playbooks(run, { vim.fs.joinpath(WORKING, PLAYBOOK) })
+  planner.remember(run)
+
+  local recalled, problem = planner.recall(resolver(ANSIBLE))
+
+  eq(recalled, nil)
+  eq(problem:find("working directory", 1, true) ~= nil, true)
+end
+
+T["repeating"]["refuses when a playbook can no longer be read"] = function()
+  local run = ran()
+  planner.set_playbooks(run, { "plays/deleted.yml" })
+  planner.remember(run)
+
+  local recalled, problem = planner.recall(resolver(ANSIBLE))
+
+  eq(recalled, nil)
+  eq(problem:find("deleted.yml", 1, true) ~= nil, true)
+end
+
+T["repeating"]["remembers the most recent invocation, not the first"] = function()
+  planner.remember(ran())
+  local second = ran()
+  planner.set_limit(second, "dbservers")
+  planner.remember(second)
+
+  eq(assert(planner.recall(resolver(ANSIBLE))).plan.limit, "dbservers")
+end
+
 T["cancelling"]["survives a process that has already exited"] = function()
   -- The ordinary case: cancel arriving just after the last callback. libuv
   -- raises for a closed handle rather than answering false.
