@@ -673,9 +673,9 @@ pull` on top of a managed installation, which arrives at a version no install
 state describes.
 
 **The governing documents are in**, because they live in `doc/` and `doc/` is
-the help directory. `CONTRACT.md` and `DECISIONS.md` ship beside
-`chroma-nvim.txt`, so an installed Chroma can say what it promises and why
-without a clone. Two tests hold the line in both directions: one asserts those
+the help directory. `CONTRACT.md`, `DECISIONS.md` and `KEYMAPS.md` ship beside
+`chroma-nvim.txt`, so an installed Chroma can say what it promises, why, and
+which key does what, without a clone. Two tests hold the line in both directions: one asserts those
 two entries are in the archive, so moving them back to the root is a failing
 test rather than a quiet change to what a release contains, and one asserts the
 linter configuration is not.

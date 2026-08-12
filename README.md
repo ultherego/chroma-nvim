@@ -172,14 +172,18 @@ each one turned out to be.
 
 ## Documentation
 
-**In the editor:** `:help chroma-nvim` — every keymap, every component, the
-safety model of the modules that handle secrets and run infrastructure
-commands, and what they do and do not guarantee.
+**The keymaps:** [`doc/KEYMAPS.md`](./doc/KEYMAPS.md) — every mapping this
+configuration defines, on one page, with the ones it deliberately leaves to
+Neovim. A test fails if it and the editor stop agreeing.
+
+**In the editor:** `:help chroma-nvim` — the same keymaps with the reasoning
+attached, every component, the safety model of the modules that handle secrets
+and run infrastructure commands, and what they do and do not guarantee.
 
 **Why it is like this:** [`doc/DECISIONS.md`](./doc/DECISIONS.md) — the
 reasoning behind every choice, and what is deliberately absent.
 [`doc/CONTRACT.md`](./doc/CONTRACT.md) — the rules this project is built under.
-[`cli/DESIGN.md`](./cli/DESIGN.md) — the installer. The first two are installed
+[`cli/DESIGN.md`](./cli/DESIGN.md) — the installer. All of these are installed
 with the configuration, so they are beside `:help chroma-nvim` too.
 
 ## License

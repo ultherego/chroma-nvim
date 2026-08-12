@@ -121,6 +121,7 @@ declares what to run.
 ├── doc
 │   ├── chroma-nvim.txt         `:help chroma-nvim`
 │   ├── tags                    generated, and CI fails if it is stale
+│   ├── KEYMAPS.md              every mapping, on one page
 │   ├── CONTRACT.md             this file
 │   └── DECISIONS.md            why each of it is the way it is
 ├── tests                       mini.test suites and their fixtures
