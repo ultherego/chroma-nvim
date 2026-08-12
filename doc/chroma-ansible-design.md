@@ -1,9 +1,13 @@
 # chroma-ansible — design
 
-**Status: signed off, implementation in progress.** Nothing here is left for
-whoever writes the code to decide, and since 2026-08-12 nothing is left for the
-owner to decide either — *Sign-off* at the end carries the five answers and the
-two corrections that came back with them.
+**Status: implemented.** Nothing here was left for whoever wrote the code to
+decide, and since 2026-08-12 nothing was left for the owner to decide either —
+*Sign-off* at the end carries the five answers and the two corrections that came
+back with them. The module shipped the same day, in eleven stages, and this
+document describes what `lua/chroma-ansible/` does rather than what it is going
+to do. Where the code landed differently from the frozen text, the section says
+so and says why: §13.2 on what invalidates a generation, §15 on the `Diff` row,
+§17.1 on the two modules the layout did not name.
 
 The architectural decision behind the module was taken the same day: Ansible
 gets a first-class domain module beside `chroma-terraform`, `chroma-vault` and
