@@ -779,7 +779,7 @@ stars, the most visible untouched since 2023. It depends on nothing else in
 this configuration and can be moved to its own repository unchanged.
 
 Status: STABLE. It is in use, covered by the test suite, and its safety model
-has been through five external audits; the findings of the last one are all
+has been through eleven external audits; the findings of the last one are all
 answered. Everything below describes current behaviour, not intent.
 
 Commands ~
@@ -1172,7 +1172,7 @@ the originally planned scope already covered: formatting is conform's
 missing was running a plan and applying it without leaving the editor.
 
 Status: STABLE. It is in use, covered by the test suite, and its safety model
-has been through five external audits; the findings of the last one are all
+has been through eleven external audits; the findings of the last one are all
 answered. Everything below describes current behaviour, not intent.
 
 The safety model                              *chroma-nvim-terraform-safety*
