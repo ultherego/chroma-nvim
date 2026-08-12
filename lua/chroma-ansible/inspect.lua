@@ -2,7 +2,7 @@
 --
 -- Everything that starts a process for the planner starts it here, under three
 -- rules that hold for every call in this module. The rules are
--- `doc/chroma-ansible-design.md`, sections 3.5, 6, 7, 13 and 16.
+-- `doc/chroma-ansible-design.md`, sections 3.5, 6, 7, 8, 13 and 16.
 --
 -- **Nothing runs before the gate.** `ansible-inventory --graph` is not a file
 -- read: an inventory may be an executable script, a plugin may contact EC2 or a
@@ -30,6 +30,7 @@ local argv = require("chroma-ansible.argv")
 local context = require("chroma-ansible.context")
 local gate = require("chroma-ansible.gate")
 local graph = require("chroma-ansible.graph")
+local listing = require("chroma-ansible.listing")
 local planner = require("chroma-ansible.planner")
 
 local M = {}
@@ -43,7 +44,8 @@ local M = {}
 M.system = vim.system
 
 ---@class chroma_ansible.Answer
----@field graph chroma_ansible.Graph|nil the inventory, when the inspection succeeded
+---@field graph chroma_ansible.Graph|nil the inventory, when that inspection succeeded
+---@field tags string[]|nil the tags Ansible reported, when that inspection succeeded
 ---@field problem string|nil what to show; Ansible's own output where there was any
 ---@field declined boolean|nil the gate was answered No, and nothing was started
 
@@ -131,20 +133,42 @@ local function graph_answer(result)
   return { graph = tree }
 end
 
----Asks Ansible what the chosen inventory sources contain.
+---What one finished `--list-tags` means.
 ---
----`ansible-inventory --graph`, never `--list`: `--list` prints every host
----variable in plaintext and no flag suppresses it (§7.1, measured §20.3).
+---A listing that failed reports what Ansible said and no tags at all. §8.1 is
+---why there is no partial answer to give: the list is what Ansible reported,
+---so a list assembled from a failed report would be a claim nobody made.
+---@param result vim.SystemCompleted
+---@return chroma_ansible.Answer
+local function tags_answer(result)
+  if result.code ~= 0 then
+    return { problem = said(result) }
+  end
+
+  local tags, problem = listing.tags(result.stdout)
+  if not tags then
+    return { problem = problem }
+  end
+
+  return { tags = tags }
+end
+
+---Runs one inspection under the rules that hold for all of them.
 ---
+---Every subprocess this module starts goes through here. That is what makes
+---the gate impossible to skip by adding an inspection: there is one place that
+---spawns, and it asks first.
 ---@param run chroma_ansible.Run
----@param executable string absolute path to `ansible-inventory`
+---@param tool string the name reported when the process cannot be started
+---@param command string[]|nil the prepared array, or nil when it could not be built
+---@param problem string|nil why it could not be built
+---@param interpret fun(result: vim.SystemCompleted): chroma_ansible.Answer
 ---@param on_done fun(answer: chroma_ansible.Answer)
-function M.inventory(run, executable, on_done)
+local function inspection(run, tool, command, problem, interpret, on_done)
   -- Claimed before anything can await, so that every way out of this call —
   -- including the ones that never spawn — belongs to one generation.
   local mine = run.generation
 
-  local command, problem = argv.graph(run.plan, executable)
   if not command then
     return deliver(run, mine, on_done, { problem = problem })
   end
@@ -169,7 +193,7 @@ function M.inventory(run, executable, on_done)
   -- subprocess of one run is started exactly like this, which is how §3.5 is
   -- kept: not by copying an environment around, but by never editing one.
   local started, process = pcall(M.system, command, { cwd = run.directory, text = true }, function(result)
-    deliver(run, mine, on_done, graph_answer(result))
+    deliver(run, mine, on_done, interpret(result))
   end)
 
   if not started then
@@ -177,11 +201,38 @@ function M.inventory(run, executable, on_done)
     -- bad. Raising past the caller here would leave the planner waiting for a
     -- callback that no process will ever produce.
     return deliver(run, mine, on_done, {
-      problem = ("ansible-inventory could not be started in %s: %s"):format(run.directory, tostring(process)),
+      problem = ("%s could not be started in %s: %s"):format(tool, run.directory, tostring(process)),
     })
   end
 
   run.process = process
+end
+
+---Asks Ansible what the chosen inventory sources contain.
+---
+---`ansible-inventory --graph`, never `--list`: `--list` prints every host
+---variable in plaintext and no flag suppresses it (§7.1, measured §20.3).
+---
+---@param run chroma_ansible.Run
+---@param executable string absolute path to `ansible-inventory`
+---@param on_done fun(answer: chroma_ansible.Answer)
+function M.inventory(run, executable, on_done)
+  local command, problem = argv.graph(run.plan, executable)
+  inspection(run, "ansible-inventory", command, problem, graph_answer, on_done)
+end
+
+---Asks Ansible which tags the chosen playbooks report.
+---
+---The same context as every other subprocess of this run (§3.5), minus the
+---flags that would make it prompt where there is no terminal to prompt on —
+---`argv.listing` drops those. An inventory is passed when one was chosen even
+---though tags do not need one: a listing that resolved a different inventory
+---than the run would be a listing of a different question (§8.4).
+---@param run chroma_ansible.Run
+---@param on_done fun(answer: chroma_ansible.Answer)
+function M.tags(run, on_done)
+  local command, problem = argv.listing(run.plan, "tags")
+  inspection(run, "ansible-playbook", command, problem, tags_answer, on_done)
 end
 
 return M

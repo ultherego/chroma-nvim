@@ -87,15 +87,31 @@ local function settle(arrived)
   vim.wait(200, arrived, 5)
 end
 
----Inspects, and answers with whatever the callback was handed.
+---Records what an inspection answered.
+---@return { answer: chroma_ansible.Answer|nil, calls: integer }, fun(answer: chroma_ansible.Answer)
+local function recorder()
+  local seen = { answer = nil, calls = 0 }
+  return seen, function(given)
+    seen.calls = seen.calls + 1
+    seen.answer = given
+  end
+end
+
+---Inspects the inventory, and answers with whatever the callback was handed.
 ---@param run chroma_ansible.Run
 ---@return { answer: chroma_ansible.Answer|nil, calls: integer }
 local function inspecting(run)
-  local seen = { answer = nil, calls = 0 }
-  inspect.inventory(run, "/usr/bin/ansible-inventory", function(given)
-    seen.calls = seen.calls + 1
-    seen.answer = given
-  end)
+  local seen, record = recorder()
+  inspect.inventory(run, "/usr/bin/ansible-inventory", record)
+  return seen
+end
+
+---Asks for the tags, and answers the same way.
+---@param run chroma_ansible.Run
+---@return { answer: chroma_ansible.Answer|nil, calls: integer }
+local function tagging(run)
+  local seen, record = recorder()
+  inspect.tags(run, record)
   return seen
 end
 
@@ -223,6 +239,112 @@ T["the command"]["runs in the frozen directory, not the editor's"] = function()
 
   eq(spawned[1].opts.cwd, WORKING)
   eq(spawned[1].opts.cwd == elsewhere, false)
+end
+
+-- ---------------------------------------------------------------------------
+-- Tags
+
+T["tags"] = new_set()
+
+T["tags"]["are asked of ansible-playbook in the same context"] = function()
+  local run = prepared()
+  planner.set_inventory(run, { "common", "prod" })
+
+  tagging(run)
+
+  -- §3.5 and §8.4: an inventory is passed even though tags do not need one,
+  -- because a listing that resolved a different inventory than the run would be
+  -- a listing of a different question.
+  eq(spawned[1].cmd, {
+    "/usr/bin/ansible-playbook",
+    "-i",
+    "common",
+    "-i",
+    "prod",
+    "--list-tags",
+    "plays/site_upgrade.yml",
+  })
+  eq(spawned[1].opts.cwd, WORKING)
+end
+
+T["tags"]["never carry a flag that would ask for a password"] = function()
+  -- Measured, §3.5: `--list-tags --ask-vault-pass` stops at `Vault password:`
+  -- and ends in `EOFError`, because a `vim.system` child has no terminal.
+  local run = prepared()
+  run.plan.ask_become_pass = true
+  run.plan.vault = { "--ask-vault-pass" }
+
+  tagging(run)
+
+  eq(vim.tbl_contains(spawned[1].cmd, "-K"), false)
+  eq(vim.tbl_contains(spawned[1].cmd, "--ask-vault-pass"), false)
+end
+
+T["tags"]["answer what Ansible reported"] = function()
+  local seen = tagging(prepared())
+  exits({ stdout = "\nplaybook: p.yml\n\n  play #1 (all): all\tTAGS: []\n      TASK TAGS: [common, security]\n" })
+  settle(function()
+    return seen.answer ~= nil
+  end)
+
+  eq(seen.answer.tags, { "common", "security" })
+end
+
+T["tags"]["report Ansible's own words when the listing fails"] = function()
+  local seen = tagging(prepared())
+  exits({ code = 4, stderr = "[ERROR]: couldn't resolve module/action 'bogus'\n" })
+  settle(function()
+    return seen.answer ~= nil
+  end)
+
+  -- §16: a failed listing does not end the planner, and it does not invent a
+  -- reason either. `Custom tag…` is how the operator carries on.
+  eq(seen.answer.tags, nil)
+  eq(seen.answer.problem, "[ERROR]: couldn't resolve module/action 'bogus'")
+end
+
+T["tags"]["are not half-read from a listing that named no plays"] = function()
+  local seen = tagging(prepared())
+  exits({ stdout = "\nplaybook: p.yml\n\n" })
+  settle(function()
+    return seen.answer ~= nil
+  end)
+
+  eq(seen.answer.tags, nil)
+  eq(seen.answer.problem ~= nil, true)
+end
+
+T["tags"]["are covered by the consent the inventory was inspected under"] = function()
+  -- §6.4: one yes opens every introspection call of that run. Asking again for
+  -- the same three values would be a prompt that has stopped meaning anything.
+  local run = prepared()
+  inspecting(run)
+  tagging(run)
+
+  eq(asked, 1)
+  eq(#spawned, 2)
+end
+
+T["tags"]["ask again once the consent no longer covers the run"] = function()
+  local run = prepared()
+  inspecting(run)
+  planner.set_inventory(run, { "inventories/prod/hosts.yml" })
+  tagging(run)
+
+  eq(asked, 2)
+end
+
+T["tags"]["are discarded when the operator has moved on"] = function()
+  local run = prepared()
+  local seen = tagging(run)
+
+  planner.set_playbooks(run, { "plays/other.yml" })
+  exits({ stdout = "      TASK TAGS: [common]\n" })
+  settle(function()
+    return seen.calls > 0
+  end)
+
+  eq(seen.calls, 0)
 end
 
 -- ---------------------------------------------------------------------------

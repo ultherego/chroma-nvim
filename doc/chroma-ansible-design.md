@@ -1013,10 +1013,18 @@ lua/chroma-ansible/
   planner.lua   the run's state, generations, invalidation
   inspect.lua   the subprocesses, and the gate that guards them
   graph.lua     the --graph parser, and nothing else
+  listing.lua   the --list-tags and --list-hosts parsers
   argv.lua      decisions → the prepared array
+  context.lua   the working directory and the playbook paths
   preview.lua   rendering and the confirmation
   run.lua       the terminal
 ```
+
+`listing.lua` and `context.lua` were not in this list when it was frozen. Both
+exist for the reason `graph.lua` does: a parser that can be handed a string, and
+a set of filesystem questions that can be handed a path, are testable without
+starting anything, while `inspect.lua` is about processes and `init.lua` about
+steps.
 
 Set up by `chroma.modules` from the component contract, with `keymaps = true`,
 exactly as the other three own modules are.
@@ -1157,6 +1165,31 @@ inside that branch. This decided §15.5.
 **20.9 Neovim 0.12.4: `vim.ui.input` accepts a `completion` field**, taking a
 `:command-completion` type. This is what §4.3 uses, so path selection needs no
 plugin.
+
+**20.10 `--list-tags` prints one `TASK TAGS` line per play, always.** A play
+with tags and no tasks printed `TASK TAGS: [playonly]`; a play with neither
+printed `TASK TAGS: []`. A play's own tags appear in that line, so it is the
+only line the parser reads. An empty playbook exits 4 instead, so a successful
+listing that names no play at all is output of an unrecognised shape rather
+than a playbook without tags.
+
+**20.11 A play name cannot forge that line.** A name may contain a tab, and
+`name: "deploy\tTAGS: [injected]"` printed a field indistinguishable from the
+real one on the play line — which is a second reason to read only `TASK TAGS`.
+A newline inside a name is flattened to a space before printing, so nothing a
+playbook contains produces a line at that indentation.
+
+**20.12 A tag Chroma cannot recover is a tag Ansible will not take back.**
+Names are joined with a comma and a space and are not trimmed: `[ leading,
+trailing ]` is two tags whose own spaces are part of them. A tag named
+`comma,tag` therefore survives the split intact; a tag named `a, b` prints
+inside `[a, b, c]` and cannot be told from three tags. Neither can be selected:
+`--tags` splits its own argument on commas, and asking for either matched no
+task.
+
+**20.13 Dynamic includes confirm §8.1 in the output itself.** A task tagged
+`outer` that `include_tasks` a file whose task is tagged `inner_hidden` listed
+`outer` only. "Tags reported by Ansible" is the honest heading.
 
 ---
 
