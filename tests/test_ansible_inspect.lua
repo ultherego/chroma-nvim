@@ -348,6 +348,99 @@ T["tags"]["are discarded when the operator has moved on"] = function()
 end
 
 -- ---------------------------------------------------------------------------
+-- Targets
+
+T["targets"] = new_set()
+
+T["targets"]["are asked with the limit the operator chose"] = function()
+  local run = prepared()
+  planner.set_limit(run, "webservers:&production")
+  planner.set_tags(run, { "common", "security" })
+
+  local seen, record = recorder()
+  inspect.targets(run, record)
+
+  -- The pattern reaches Ansible byte for byte: no shell, no quoting, no
+  -- interpretation of `:&` by anything but Ansible (§9.3).
+  eq(spawned[1].cmd, {
+    "/usr/bin/ansible-playbook",
+    "-i",
+    "inventories/dev/hosts.yml",
+    "-l",
+    "webservers:&production",
+    "--tags",
+    "common",
+    "--tags",
+    "security",
+    "--list-hosts",
+    "plays/site_upgrade.yml",
+  })
+  eq(seen.calls, 0)
+end
+
+T["targets"]["ask for nothing when the operator chose No limit"] = function()
+  -- §9.2: `No limit` emits no `-l` at all rather than `-l all`, because the
+  -- playbook's own `hosts:` is the authority and `-l all` would override it.
+  local seen, record = recorder()
+  inspect.targets(prepared(), record)
+
+  eq(vim.tbl_contains(spawned[1].cmd, "-l"), false)
+  eq(vim.tbl_contains(spawned[1].cmd, "all"), false)
+  eq(seen.calls, 0)
+end
+
+T["targets"]["answer the hosts Ansible resolved just now"] = function()
+  local seen, record = recorder()
+  inspect.targets(prepared(), record)
+  exits({
+    stdout = "  play #1 (all): all\tTAGS: []\n    pattern: ['all']\n    hosts (2):\n      web01\n      web02\n",
+  })
+  settle(function()
+    return seen.answer ~= nil
+  end)
+
+  eq(seen.answer.targets, { "web01", "web02" })
+end
+
+T["targets"]["report the failure a pattern matching nothing produces"] = function()
+  local seen, record = recorder()
+  inspect.targets(prepared(), record)
+  exits({
+    code = 1,
+    stderr = "[WARNING]: Could not match supplied host pattern, ignoring: nope\n"
+      .. "[ERROR]: Specified inventory, host pattern and/or --limit leaves us with no hosts to target.\n",
+  })
+  settle(function()
+    return seen.answer ~= nil
+  end)
+
+  -- Measured: that is what a typo in a limit looks like. §16 keeps it out of the
+  -- run's way — the preview omits the snapshot and says so, and the run stands.
+  eq(seen.answer.targets, nil)
+  eq(seen.answer.problem:find("no hosts to target", 1, true) ~= nil, true)
+end
+
+T["targets"]["are not read from output a failing listing left behind"] = function()
+  local seen, record = recorder()
+  inspect.targets(prepared(), record)
+  exits({
+    code = 4,
+    stdout = "  play #1 (all): all\tTAGS: []\n    hosts (1):\n      web01\n",
+    stderr = "[ERROR]: couldn't resolve module/action 'bogus'\n",
+  })
+  settle(function()
+    return seen.answer ~= nil
+  end)
+
+  -- Measured on 2.21.2: a broken playbook among several prints nothing at all
+  -- before exiting 4, so this shape is a wrapper's or a later version's. The
+  -- rule is the same either way — a listing that failed reported nothing, and
+  -- half of what it printed is not a target list.
+  eq(seen.answer.targets, nil)
+  eq(seen.answer.problem:find("bogus", 1, true) ~= nil, true)
+end
+
+-- ---------------------------------------------------------------------------
 -- Answers
 
 T["answers"] = new_set()

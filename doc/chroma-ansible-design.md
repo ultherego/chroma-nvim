@@ -1191,6 +1191,25 @@ task.
 `outer` that `include_tasks` a file whose task is tagged `inner_hidden` listed
 `outer` only. "Tags reported by Ansible" is the honest heading.
 
+**20.14 `--list-hosts` states a count per play, and a limit matching nothing is
+an error.** Each play prints `hosts (N):` followed by N indented names; a play
+whose pattern matched nothing prints `hosts (0):` and no names. The count is
+what the parser checks itself against. `-l nope` exited 1 with an empty stdout
+and `Specified inventory, host pattern and/or --limit leaves us with no hosts
+to target` on stderr — so a typo in a limit is a failed inspection carrying
+Ansible's own words, not a silent empty list. The order of the names is
+Ansible's own and is neither sorted nor the inventory's.
+
+**20.15 A host name cannot forge a line either.** A host whose name contains a
+newline was dropped by Ansible before any output: `--list-hosts` reported
+`hosts (0):` and `--graph` showed the group empty.
+
+**20.16 A broken playbook among several prints nothing before failing.**
+`--list-hosts p.yml broken.yml` exited 4 with an empty stdout — everything is
+parsed before anything is listed. Partial output followed by a non-zero exit is
+therefore not a case 2.21.2 produces, and the planner treats it as a failure
+regardless of what reached stdout.
+
 ---
 
 ## What is deliberately absent

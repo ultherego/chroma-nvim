@@ -150,4 +150,95 @@ T["unrecognised lines"]["do not stop the plays after them"] = function()
   eq(listing.tags(output), { "deploy", "backup" })
 end
 
+-- ---------------------------------------------------------------------------
+-- Targets
+
+T["targets"] = new_set()
+
+---One play's worth of `--list-hosts`.
+---@param name string
+---@param hosts string[]
+---@return string
+local function addressed(name, hosts)
+  local block = ("  play #1 (%s): %s\tTAGS: []\n    pattern: ['%s']\n    hosts (%d):\n"):format(
+    name,
+    name,
+    name,
+    #hosts
+  )
+  for _, host in ipairs(hosts) do
+    block = block .. ("      %s\n"):format(host)
+  end
+  return block
+end
+
+T["targets"]["answer the hosts one play addresses"] = function()
+  local hosts, problem = listing.targets(listed(addressed("webservers", { "web02", "web01" })))
+
+  -- In Ansible's order, which is not sorted and is not the inventory's either.
+  eq(hosts, { "web02", "web01" })
+  eq(problem, nil)
+end
+
+T["targets"]["count a host addressed by two plays once"] = function()
+  local output = listed(addressed("web01", { "web01" }) .. "\n" .. addressed("all", { "web01", "db01" }))
+
+  -- Both plays really do address it; the preview's question is which machines
+  -- the run reaches.
+  eq(listing.targets(output), { "web01", "db01" })
+end
+
+T["targets"]["accept a play that matched nothing"] = function()
+  local output = listed(addressed("web", { "web01" }) .. "\n" .. addressed("nope", {}))
+
+  eq(listing.targets(output), { "web01" })
+end
+
+T["targets"]["keep a host name with a space in it"] = function()
+  eq(listing.targets(listed(addressed("all", { "host with space" }))), { "host with space" })
+end
+
+T["targets"]["refuse a listing that named no play"] = function()
+  eq(listing.targets("\nplaybook: plays/site_upgrade.yml\n\n"), nil)
+end
+
+T["targets"]["refuse a count that does not match the names"] = function()
+  -- All or nothing here, unlike the tags. §9.4 shows the operator a number, and
+  -- a number assembled from output that was only partly understood is a wrong
+  -- answer wearing Ansible's authority. Ansible said two; one arrived.
+  local truncated = listed("  play #1 (all): all\tTAGS: []\n    pattern: ['all']\n    hosts (2):\n      web01\n")
+
+  local hosts, problem = listing.targets(truncated)
+
+  eq(hosts, nil)
+  eq(problem ~= nil, true)
+end
+
+T["targets"]["refuse a count that is short in the last play"] = function()
+  -- The block closed by the output ending rather than by another play, which is
+  -- the case a check written only at the next header would miss.
+  local output = listed(addressed("web", { "web01" }) .. "\n  play #2 (db): db\tTAGS: []\n    hosts (3):\n      db01\n")
+
+  eq(listing.targets(output), nil)
+end
+
+T["targets"]["ignore a warning between the plays"] = function()
+  local output = listed(addressed("web", { "web01" }) .. "[WARNING]: something\n" .. addressed("db", { "db01" }))
+
+  eq(listing.targets(output), { "web01", "db01" })
+end
+
+T["targets"]["refuse anything that is not output"] = function()
+  eq(listing.targets(nil), nil)
+end
+
+T["targets"]["do not read an indented line outside a hosts block as a host"] = function()
+  -- A host is only a host inside the block that promised it. Anything else at
+  -- that indentation — a wrapped warning, a callback plugin's message — is not
+  -- a machine, and counting it would inflate the number §9.4 shows.
+  local output = listed("      not a host at all\n" .. addressed("web", { "web01" }))
+
+  eq(listing.targets(output), { "web01" })
+end
+
 return T

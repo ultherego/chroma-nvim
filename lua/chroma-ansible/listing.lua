@@ -1,4 +1,4 @@
--- What `ansible-playbook --list-tags` printed, read back.
+-- What `ansible-playbook --list-tags` and `--list-hosts` printed, read back.
 --
 -- The second parser for somebody else's text, and it touches nothing: handed
 -- the exact stdout of one subprocess, it answers with names. It starts no
@@ -94,6 +94,90 @@ function M.tags(output)
   end
 
   return tags, nil
+end
+
+--- The header every play prints before the hosts it addresses, carrying the
+--- number of them. Measured on 2.21.2:
+---
+---     play #1 (webservers): webservers	TAGS: [common]
+---       pattern: ['webservers']
+---       hosts (2):
+---         web02
+---         web01
+---
+--- A play whose pattern matched nothing prints `hosts (0):` and no names.
+local HOSTS = "^    hosts %((%d+)%):$"
+
+--- One host, at the only indentation a host is printed at. The name is the rest
+--- of the line: `host with space` is a real inventory answer, and taking the
+--- next word instead would silently rename it — the same property `graph.lua`
+--- is built around.
+local HOST = "^      (.+)$"
+
+---The hosts `--list-hosts` reported, deduplicated, in the order it named them.
+---
+---Unlike the tag listing, this one is all or nothing. §9.4 shows the operator a
+---count, and a count assembled from a listing that was only partly understood
+---is a wrong number wearing the authority of Ansible's own answer. Reporting
+---nothing is honest and §16 allows it; reporting three of four is not.
+---
+---A host addressed by two plays is one target. Ansible prints it under each
+---play, because each play really does address it, but the question the preview
+---asks is which machines this run reaches.
+---@param output string the exact stdout of `ansible-playbook --list-hosts`
+---@return string[]|nil hosts, string|nil problem
+function M.targets(output)
+  if type(output) ~= "string" then
+    return nil, "target inspection produced no output"
+  end
+
+  local hosts, seen, plays = {}, {}, 0
+  local expected, counted = nil, 0
+
+  ---Whether the play just finished named as many hosts as it promised.
+  ---@return boolean
+  local function play_agreed()
+    return expected == nil or expected == counted
+  end
+
+  for _, line in ipairs(vim.split(output, "\n", { plain = true })) do
+    local promised = line:match(HOSTS)
+    local host = expected and line:match(HOST) or nil
+
+    if promised then
+      if not play_agreed() then
+        break
+      end
+      plays = plays + 1
+      expected, counted = tonumber(promised), 0
+    elseif host then
+      counted = counted + 1
+      if not seen[host] then
+        seen[host] = true
+        table.insert(hosts, host)
+      end
+    elseif expected then
+      -- The block ended: anything that is not a host closes it — a blank line,
+      -- the next play's header, a warning a callback plugin wrote. Its promise
+      -- is checked here rather than at the next header, so a listing that stops
+      -- after the block is checked too.
+      if expected ~= counted then
+        break
+      end
+      expected = nil
+    end
+  end
+
+  if plays == 0 then
+    return nil, "the target listing named no plays, so the output could not be read"
+  end
+  if not play_agreed() then
+    -- Ansible said how many it found; this parser found a different number. One
+    -- of the two is wrong about the output, and it is not Ansible.
+    return nil, "the target listing did not name as many hosts as it reported"
+  end
+
+  return hosts, nil
 end
 
 return M

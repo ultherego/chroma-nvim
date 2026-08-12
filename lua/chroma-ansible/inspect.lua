@@ -46,6 +46,7 @@ M.system = vim.system
 ---@class chroma_ansible.Answer
 ---@field graph chroma_ansible.Graph|nil the inventory, when that inspection succeeded
 ---@field tags string[]|nil the tags Ansible reported, when that inspection succeeded
+---@field targets string[]|nil the hosts Ansible resolved just now, never a promise (§9.4)
 ---@field problem string|nil what to show; Ansible's own output where there was any
 ---@field declined boolean|nil the gate was answered No, and nothing was started
 
@@ -153,6 +154,26 @@ local function tags_answer(result)
   return { tags = tags }
 end
 
+---What one finished `--list-hosts` means.
+---
+---§9.4: what this answers is a snapshot taken now, never a promise about the
+---run. Nothing here says otherwise, and nothing here keeps it: the interface
+---shows it and the repeat path is forbidden from carrying it (§14.5).
+---@param result vim.SystemCompleted
+---@return chroma_ansible.Answer
+local function targets_answer(result)
+  if result.code ~= 0 then
+    return { problem = said(result) }
+  end
+
+  local targets, problem = listing.targets(result.stdout)
+  if not targets then
+    return { problem = problem }
+  end
+
+  return { targets = targets }
+end
+
 ---Runs one inspection under the rules that hold for all of them.
 ---
 ---Every subprocess this module starts goes through here. That is what makes
@@ -233,6 +254,21 @@ end
 function M.tags(run, on_done)
   local command, problem = argv.listing(run.plan, "tags")
   inspection(run, "ansible-playbook", command, problem, tags_answer, on_done)
+end
+
+---Asks Ansible which hosts the run would address as things stand.
+---
+---This is the only honest validation of a limit, because it answers "which
+---hosts will *this* playbook, with *this* inventory, under *this* limit,
+---address" rather than "is this pattern meaningful" — `ansible-inventory
+-----graph` ignores `-l` entirely (§9.4, measured §20.6). A pattern that matches
+---nothing makes Ansible exit non-zero, so the answer to a typo is a failure
+---with Ansible's own words in it, and §16 lets the run continue anyway.
+---@param run chroma_ansible.Run
+---@param on_done fun(answer: chroma_ansible.Answer)
+function M.targets(run, on_done)
+  local command, problem = argv.listing(run.plan, "hosts")
+  inspection(run, "ansible-playbook", command, problem, targets_answer, on_done)
 end
 
 return M
