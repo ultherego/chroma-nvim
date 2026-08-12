@@ -345,9 +345,10 @@ heading, and the reverse gave a heading over nothing.
 
 ## Ansible
 
-`nvim-ansible` has **no mapping for running a playbook**, and that is the
-change rather than an omission — how a repository runs Ansible is what that
-repository says, in `.chroma/tasks.json`, reached with `<leader>xr`.
+`nvim-ansible` has **no mapping for running a playbook**, and that is a removal
+rather than an omission: the one it had inferred the playbook from the buffer.
+Today a playbook runs the way anything else does — the repository declares the
+command in `.chroma/tasks.json` and `<leader>xr` runs it.
 
 What the plugin still provides:
 

@@ -1114,8 +1114,16 @@ buried:
 
 Two rows are owed to `doc/CONTRACT.md`'s contract-changes table before any code
 lands: the reclaimed `<leader>ar` (§18.1) and the required Ansible tools
-(§17). One entry in `doc/DECISIONS.md` — *"A playbook runner is a task somebody
-writes"* — must be replaced rather than left standing beside this.
+(§17). Both describe an editor that does not exist yet, so they land with the
+commit that makes them true rather than ahead of it.
+
+The entry in `doc/DECISIONS.md` is settled and did not wait: *"The Ansible
+runner went, and the plugin stayed"* now records the reversal, keeps every
+reason the old `<leader>ar` was removed, and states what is not reversed — the
+generic layer stays domain-blind in both directions. That one was not a
+description of unwritten code; it was a decision the owner had already taken,
+and leaving it standing would have made this document argue with the one that
+governs it.
 
 Implementation splits into stages only once this document has no "otherwise"
 left in it.

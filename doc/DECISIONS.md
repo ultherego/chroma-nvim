@@ -973,7 +973,28 @@ else. So `ansible-doc` arrives as **optional** rather than recommended, which
 is what the level already means: it improves the component when present and
 changes nothing when absent.
 
-**What would change it.** Nothing. A playbook runner is a task somebody writes.
+**What changed it.** An owner decision on 2026-08-12. This entry keeps its
+reasoning because the reason the old runner went is not the reason it is being
+replaced.
+
+Ansible gets a module of its own, `chroma-ansible`, beside `chroma-terraform`
+rather than inside the task layer. The argument that settled it is symmetry:
+`chroma-terraform` has been a domain runner standing beside generic tasks since
+before generic tasks existed, so Ansible reaching the same standing follows the
+rule instead of carving an exception in it. The sentence this paragraph replaced
+— *"Nothing. A playbook runner is a task somebody writes"* — is withdrawn, and
+withdrawn deliberately rather than quietly overtaken.
+
+Nothing above this paragraph is withdrawn with it. The old `<leader>ar` inferred
+the playbook from the buffer, and that inference is what made it the negation of
+this layer; the planner asks for every part of a run explicitly. The generic
+layer stays domain-blind in both directions: a task declaring
+`argv: ["ansible-playbook", …]` remains an ordinary task, and the module will
+not read `.chroma/tasks.json`.
+
+The design is frozen in `chroma-ansible-design.md`, which ships beside this
+file. No code exists yet, so `<leader>ar` is unmapped today and the contract
+records its removal, not its return.
 
 ### Project tasks have their own version floor, and below it they fail closed
 
