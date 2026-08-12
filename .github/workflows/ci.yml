@@ -357,13 +357,41 @@ jobs:
                 return absent
               end
 
-              require("nvim-treesitter").install(wanted)
+              -- Three rounds, not one, and only ever over what is still absent.
+              --
+              -- Every parser is fetched from a release CDN, and nvim-treesitter
+              -- gives each download five curl attempts before giving up on it
+              -- for good. When that CDN has a bad minute the job used to fail
+              -- for a reason no commit caused: three runs in one afternoon died
+              -- on "Connection died", HTTP 503, and one parser missing out of
+              -- thirty-eight. Re-running the identical commit passed.
+              --
+              -- This does not hide a real failure. A parser that cannot be
+              -- built, or one that has genuinely stopped existing, is absent
+              -- after the third round exactly as it was after the first; what
+              -- the extra rounds remove is a coin toss on infrastructure this
+              -- repository does not own.
+              --
+              -- (No apostrophes in this block: the shell reads it as a
+              -- single-quoted string, and one would end it here.)
+              for round = 1, 3 do
+                local absent = missing()
+                if #absent == 0 then
+                  break
+                end
+                if round > 1 then
+                  io.write(("retrying %d parser(s): %s\n"):format(#absent, table.concat(absent, ", ")))
+                end
 
-              -- Polled rather than awaited. The task install() returns comes back
-              -- while its per-parser jobs are still running — measured: the check
-              -- reported one missing while the log was still installing others.
-              -- vim.wait drives the event loop, so the downloads make progress.
-              vim.wait(900000, function() return #missing() == 0 end, 500)
+                require("nvim-treesitter").install(absent)
+
+                -- Polled rather than awaited. The task install() returns comes
+                -- back while its per-parser jobs are still running — measured:
+                -- the check reported one missing while the log was still
+                -- installing others. vim.wait drives the event loop, so the
+                -- downloads make progress.
+                vim.wait(900000, function() return #missing() == 0 end, 500)
+              end
 
               local absent = missing()
               if #absent > 0 then
