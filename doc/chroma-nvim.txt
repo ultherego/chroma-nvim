@@ -165,23 +165,47 @@ Removing those, and restoring any backup you moved aside, leaves no trace.
     lua/config/
       options.lua               editor options
       keymaps.lua               keymaps that need no plugin
+      commands.lua              commands that need no plugin
+      parsers.lua               which treesitter parsers are installed
       lazy.lua                  plugin manager bootstrap
     lua/plugins/
       <domain>.lua              one file per domain, one domain per file
-    lua/chroma-vault/          our own plugin — :help chroma-nvim-vault
-    lua/chroma-terraform/              our own runner — :help chroma-nvim-terraform
-    lua/chroma-aws/                    our own module — :help chroma-nvim-aws
-    lua/chroma/
+    lua/chroma-vault/           our own plugin  :help chroma-nvim-vault
+    lua/chroma-terraform/       our own runner  :help chroma-nvim-terraform
+    lua/chroma-aws/             our own module  :help chroma-nvim-aws
+    lua/chroma/                 this configuration talking about itself
+      components.lua            which components exist, and which are on
+      tasks/                    the execution layer  :help chroma-nvim-tasks
       health.lua                :checkhealth chroma
-    stylua.toml, selene.toml    lint configuration for our own Lua
-    .github/workflows/ci.yml    formatting, lint and a clean-startup check
     after/lsp/
       <server>.lua              per-server LSP overrides
-    doc/                        this file
+    components/                 the component contract, read here and by
+                                the CLI that installed this
+    doc/                        this file, and the documents beside it
+    lazy-lock.json              the plugin versions this release was tested
+                                against
+    README.md, LICENSE          so the installed directory says what it is
+      assets/                   and the image the README shows
 <
+That is an installation, which is deliberately not a checkout: the installer,
+the test suite and the lint configuration are not copied in, and neither is
+`.git` — an installed configuration that is also a repository invites a
+`git pull` on top of a managed installation, and that arrives at a version no
+install state describes.
+
+Two of the documents in `doc/` govern the rest. `CONTRACT.md` is what this
+configuration promises, including the whole repository tree; `DECISIONS.md` is
+why each part of it is the way it is, and what is deliberately absent.
+`KEYMAPS.md` is every mapping on one page, for reading outside the editor.
+
 The split is deliberate. Anything that belongs to a plugin — its keymaps, its
 options — is defined in that plugin's spec, not in a central keymap file. If
 you remove the plugin, its keys leave with it.
+
+Our own modules are directories rather than files in one shared namespace, and
+each depends on nothing else here, so any of them can be lifted into its own
+repository without edits. `lua/chroma/` is the opposite category: not a tool,
+but the configuration's account of itself.
 
 `after/lsp/` is not decoration; it is how Neovim 0.12 layers LSP settings.
 See |chroma-nvim-lsp|.
