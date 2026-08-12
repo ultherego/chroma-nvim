@@ -18,6 +18,10 @@
 --   * a terminal's identity has no room for a task id, so two tasks running the
 --     same command in the same place would collide. Each Run takes the next
 --     number from one counter for the session, and that number is the count.
+--     The counter is shared with every other Chroma module that opens a
+--     terminal — see `chroma-ansible/run.lua` and its §15.5.1 — because a
+--     second private counter starting at one recreates the collision this
+--     bullet exists to prevent.
 --   * `auto_close` is on by default through `interactive`, and it closes a
 --     terminal whose process exited 0 — which is precisely the output somebody
 --     wanted to read. It is off here, and because the library installs its
@@ -26,11 +30,17 @@
 
 local M = {}
 
---- Runs so far this session. Not per task and not per group: the terminal
---- library builds identity from the command, the directory, the environment
---- and the count, and two tasks that happen to run the same thing in the same
---- place would otherwise share it on their first run each.
-local runs = 0
+--- Where the run counter lives. Not per task, not per group and — since
+--- `chroma-ansible` opens terminals too — not per module either: the library
+--- builds identity from the command, the directory, the environment and the
+--- count, with no room for whoever opened it. Two tasks running the same thing
+--- in the same place would share an identity on their first run each, and so
+--- would a task and a planner run that happened to be `ansible-playbook` in the
+--- same directory, which is a task a repository is allowed to declare.
+---
+--- A well-known variable rather than a shared module, so that neither module
+--- has to require the other to agree with it.
+local COUNTER = "chroma_terminal_run_id"
 
 ---How a terminal is opened.
 ---
@@ -66,8 +76,8 @@ end
 ---@param prepared table the prepared { argv, env } from chroma.tasks.command
 ---@return table terminal, integer run_id
 function M.start(task, directory, prepared)
-  runs = runs + 1
-  local id = runs
+  local id = (vim.g[COUNTER] or 0) + 1
+  vim.g[COUNTER] = id
 
   local terminal = M.open(prepared.argv, {
     cwd = directory,
