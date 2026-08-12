@@ -17,6 +17,19 @@
 #
 # The repository goes in read-only. Nothing the container does can reach back
 # out, and nothing it leaves behind survives the run.
+#
+# The other use is reproducing CI's "Neovim starts clean" without waiting for a
+# runner — the same Lazy sync, parser install, silent-startup and module-load
+# checks against a chosen component profile. That one needs a **writable copy**
+# of the tree inside the container:
+#
+#   tar -C /src --exclude=./.git -cf - . | tar -C "$HOME/chroma" -xf -
+#
+# not the read-only mount, because lazy.nvim writes `lazy-lock.json` while
+# installing and fails with `E5108: … Read-only file system` before anything
+# else has a chance to be wrong. It looks exactly like a startup regression and
+# is not one. CI runs against a checkout it owns; the copy is that arrangement,
+# and the host's working tree still stays untouched.
 FROM ubuntu:24.04
 
 # Versions are pinned and checked. Upstream publishes no checksums for either of
