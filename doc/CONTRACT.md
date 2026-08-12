@@ -386,9 +386,11 @@ we maintain — unless the gap is genuine.
 
 Scope set by the survey of 2026-08-06, not by assumption.
 
-Both modules that handle secrets or change infrastructure are **stable**. They
-are in use, covered by the test suite, and have been through eleven external
-audits, with the findings of each series dispositioned before the next began.
+The two modules that handle secrets or change infrastructure are **stable**.
+They are in use, covered by the test suite, and have been through eleven
+external audits, with the findings of each series dispositioned before the next
+began. `chroma-ansible` also changes infrastructure and is **beta**: it is held
+to the same bar and has not yet met it.
 The archived rounds are in the history, under `docs(audit): archive … project
 audit`; there is no inbox file at the root any more, and a round in progress
 lives outside the repository until it is archived.
@@ -414,6 +416,37 @@ installs anyway:
 What remains is a `plan` / `apply` / `destroy` runner. Existing options were
 rejected: `mvaldes14/terraform.nvim` had no push for a year, and
 `telescope-terraform.nvim` is built on telescope, which this config does not use.
+
+### `chroma-ansible` — beta, in `lua/chroma-ansible/`
+An Ansible execution planner, not a playbook runner. It takes a playbook, a
+working directory and inventory sources chosen by the operator, asks Ansible
+itself what they mean — `ansible-inventory --graph`, `--list-tags`,
+`--list-hosts` — and turns the answers into an exact `argv` that is shown in
+full before anything starts.
+
+Beta rather than stable, by the same standard vault and terraform were held
+to: it is covered by the suite and by mutations, and it has not yet been
+through an external audit or a week of real use. What it guarantees is in
+`doc/chroma-ansible-design.md`, whose twenty sections are written to be cited
+from the source.
+
+The invariants that matter most, each with a section behind it:
+
+| | |
+|---|---|
+| Authority | Ansible is asked what an inventory and a playbook mean; no YAML is parsed here. §10 |
+| Inspection | Never at startup, never in the background, never as a side effect of a selection. One consent, bound to the working directory, the playbooks and the inventory sources it named, before the first subprocess. §6 |
+| Data | `--graph`, never `--list`: `--list` prints every host variable in plaintext and no flag suppresses it. No subprocess output is written to a message, a notification or a file. §7 |
+| Context | One frozen directory, one environment and one set of sources for every subprocess and for the run. `:cd` afterwards cannot move it. §3 |
+| Degradation | A failed inspection offers Ansible's own output and a way to carry on by hand. Failure to inspect is not failure to execute. §16 |
+| Overrides | Inherit or override, never on/off: an omitted flag is not a claim that the behaviour is off. §10 |
+| Credentials | No password is collected, stored, forwarded or logged. `-K` and `--ask-vault-pass` ask Ansible to prompt in its own terminal. §11 |
+| Gates | The exact array is shown, and only an explicit affirmative starts it. §15 |
+| Repeat | `<leader>aR` goes to that same preview, re-resolves the executable, re-checks the paths, and never repeats the previous run's host count. §14 |
+
+**There is no bridge to Project Tasks**, in either direction. A task declaring
+`argv: ["ansible-playbook", …]` is a task, and this planner is not reachable
+from one — the same boundary Managed Terraform has, enforced the same way.
 
 ### `aws` — built, in `lua/chroma-aws/`
 Not in the original plan, but the contract reserved an AWS keymap group and

@@ -21,14 +21,15 @@ CONTENTS                                                 *chroma-nvim-contents*
  11. Formatting ......................... |chroma-nvim-formatting|
  12. Linting ............................ |chroma-nvim-linting|
  13. User interface ..................... |chroma-nvim-ui|
- 14. Ansible Vault ...................... |chroma-nvim-vault|
- 15. Terraform .......................... |chroma-nvim-terraform|
- 16. AWS and sessions ................... |chroma-nvim-aws|
- 17. Project tasks ...................... |chroma-nvim-tasks|
- 18. Adding a plugin .................... |chroma-nvim-adding|
- 19. Troubleshooting .................... |chroma-nvim-troubleshooting|
- 20. Components ......................... |chroma-nvim-components|
- 21. Rules .............................. |chroma-nvim-rules|
+ 14. Ansible ............................ |chroma-nvim-ansible|
+ 15. Ansible Vault ...................... |chroma-nvim-vault|
+ 16. Terraform .......................... |chroma-nvim-terraform|
+ 17. AWS and sessions ................... |chroma-nvim-aws|
+ 18. Project tasks ...................... |chroma-nvim-tasks|
+ 19. Adding a plugin .................... |chroma-nvim-adding|
+ 20. Troubleshooting .................... |chroma-nvim-troubleshooting|
+ 21. Components ......................... |chroma-nvim-components|
+ 22. Rules .............................. |chroma-nvim-rules|
 
 ==============================================================================
 1. INTRODUCTION                                      *chroma-nvim-introduction*
@@ -787,7 +788,156 @@ Markdown files are rendered in the buffer: headings, code blocks, tables and
 lists. Toggle with `:RenderMarkdown`.
 
 ==============================================================================
-14. ANSIBLE VAULT                                           *chroma-nvim-vault*
+14. ANSIBLE                                               *chroma-nvim-ansible*
+
+An execution planner, not a playbook runner. `<leader>ar` asks what to run,
+asks Ansible what your answers mean, shows the exact command, and starts it
+only when you say so.
+
+Status: BETA. It is covered by the test suite and everything below describes
+current behaviour, but it has not been through an external audit. The full
+design, with the measurements each rule rests on, is in
+`doc/chroma-ansible-design.md`.
+
+Component `ansible`. It needs `ansible-playbook` and `ansible-inventory`, both
+of which ship in ansible-core.
+
+Nothing is inferred from the buffer. The buffer is offered as one row in the
+first picker and is never the decision — that distinction is the whole reason
+this key exists again after the old `<leader>ar` was removed.
+
+The steps                                           *chroma-nvim-ansible-steps*
+>
+    playbook -> working directory -> inventory -> tags -> limit
+             -> overrides -> targets -> preview -> confirmation -> run
+<
+Escape, a dismissed picker, an empty answer and a selection you never made all
+end the run. None of them skips a step.
+
+The working directory is asked for, and it matters: Ansible reads `ansible.cfg`
+from the current directory and does not search upward, so that one choice can
+decide `roles_path`, the default inventory, vault settings and become defaults.
+Chroma offers Neovim's directory, the playbook's own and any ancestor holding
+an `ansible.cfg`, marks which of them have one, and freezes what you pick.
+`:cd` afterwards moves the editor and not the run.
+
+Inventory is a list, in your order, never sorted: `-i` may be given several
+times and the order decides which definition of a host wins. `Use Ansible
+configuration` means exactly one thing — no `-i` is passed at all.
+
+Before Ansible runs                                  *chroma-nvim-ansible-gate*
+
+Choosing a file in a picker never starts anything. Before the first Ansible
+subprocess of a run, Chroma names the working directory, the playbooks and the
+inventory sources and asks whether it may inspect them. The default is no.
+
+That question is not ceremony. An inventory may be an executable script, an
+inventory plugin may contact EC2, VMware, LDAP or a CMDB, and an `ansible.cfg`
+in the working directory decides which callback plugins, libraries and roles
+Ansible loads.
+
+One yes covers every introspection call of that run, and nothing else. It is
+bound to the three values the prompt printed: change the directory, the
+playbooks or the sources and you are asked again. It is not remembered between
+runs, and it is not the confirmation that starts the playbook.
+
+What Ansible is asked                          *chroma-nvim-ansible-inspection*
+>
+    ansible-inventory --graph       groups, hosts and who is inside whom
+    ansible-playbook  --list-tags   the tags the playbooks report
+    ansible-playbook  --list-hosts  what this run would address, right now
+<
+Chroma parses no YAML. Ansible is the authority on what an inventory and a
+playbook mean.
+
+`--graph` rather than `--list`, deliberately: `--list` prints every host
+variable in plaintext and no flag suppresses them. What is kept is group names,
+host names and the hierarchy. No output from any of these subprocesses is
+written to a message, a notification or a file.
+
+The tag list is what Ansible reported, which is not the same as every tag: tags
+inside dynamically included files do not appear. `Custom tag...` is always
+offered, and it is how those are reached rather than a fallback.
+
+Failure here does not stop the run. Each failed inspection shows Ansible's own
+output and offers a way to carry on describing the run by hand — retry, no
+filter, a value typed in, or cancel. Only three things end the planner: no
+`ansible-playbook`, a playbook that cannot be read, and a working directory
+that is not one.
+
+Limits and overrides                                *chroma-nvim-ansible-limit*
+
+`No limit` emits nothing. It is not `-l all`: the playbook's own `hosts:` stays
+the authority, and `-l all` would override it. A custom pattern reaches Ansible
+byte for byte — `webservers:&production` is Ansible's to interpret, and there
+is no shell anywhere in this module.
+
+Every CLI option is inherit-or-override, never on or off:
+>
+    Inherit                  nothing is passed
+    Remote user deploy   -u deploy
+    Become enable           -b
+    Ask become password     -K
+    Ask vault password      --ask-vault-pass
+<
+`-b` and `-K` are separate questions, because become may be enabled by the
+playbook and the password still has to be asked for. And the preview says `CLI
+become override`, not `Become = yes`: command-line options do not outrank
+playbook keywords and variables in every case, so a stronger word would be a
+claim Chroma cannot make.
+
+Check mode is Ansible's semantics rather than a guarantee from Chroma — a task
+may set `check_mode: false` and act anyway. Diff mode is off unless you turn it
+on, and the row that turns it on says why: it can print file contents.
+
+Chroma never collects, stores or logs a password. `-K` and `--ask-vault-pass`
+ask Ansible to prompt in the terminal it runs in.
+
+The preview                                       *chroma-nvim-ansible-preview*
+
+The last screen lists every decision and then the argument vector itself, one
+argument per line, numbered from zero, with `argv[0]` resolved to the path that
+will start. Nothing joins them into a command line: the array never passes
+through a shell, and a rendering joined with spaces misrepresents any argument
+holding a space or a quote.
+
+`Targets reported now` is a snapshot and never a promise. With dynamic
+inventory an autoscaling group can change between the preview and the run;
+what Chroma guarantees is the `argv`, the directory and the environment.
+
+The run opens in a terminal that survives every exit status, including zero,
+so a playbook that succeeded is still there to read. Prompts from Ansible —
+`BECOME password:`, an SSH passphrase — are answered in that terminal.
+
+Repeating                                          *chroma-nvim-ansible-repeat*
+
+`<leader>aR` goes straight to the final preview with the last invocation's
+decisions and still asks. It runs nothing by itself.
+
+It re-resolves `ansible-playbook` and re-checks the directory and the
+playbooks, and refuses if any of them has moved: repeating an absolute path
+recorded an hour ago would run a program nobody chose. The previous run's host
+count is never repeated as though it were still true; the row reads `not
+refreshed`.
+
+Session memory only. Neovim restarts to a clean state, and no password, host
+variable or vault content is kept anywhere.
+
+What this is not                                   *chroma-nvim-ansible-limits*
+
+It does not run a wrapper. `make ansible-prod`, `uv run ansible-playbook` or a
+company CLI are what Project Tasks are for (|chroma-nvim-tasks|), and there is
+no bridge in either direction: a task declaring `ansible-playbook` in its
+`argv` is a task, not a plan this planner will accept.
+
+It selects one playbook, though the model carries a list. It offers no
+multi-select of hosts, because combining two hosts means inventing a pattern
+and whether that is a comma or a colon is yours to decide. It offers
+`--ask-vault-pass` but not vault ids yet. It writes nothing to disk, and there
+is no configuration file: configuration may one day make the workflow shorter,
+and may never be what unlocks it.
+==============================================================================
+15. ANSIBLE VAULT                                           *chroma-nvim-vault*
 
 `lua/chroma-vault/` is our own plugin, written because the survey found no
 maintained candidate: every existing one is a single-person project of 0–7
@@ -1180,7 +1330,7 @@ trusted most.
 `:checkhealth chroma-vault` reports which of this applies to your setup.
 
 ==============================================================================
-15. TERRAFORM                                           *chroma-nvim-terraform*
+16. TERRAFORM                                           *chroma-nvim-terraform*
 
 `lua/chroma-terraform/` is our own runner, deliberately thin. The survey found most of
 the originally planned scope already covered: formatting is conform's
@@ -1490,7 +1640,7 @@ plugin spec does not stop the editor loading. The report happens once, when the
 plugin is configured.
 
 ==============================================================================
-16. AWS AND SESSIONS                                          *chroma-nvim-aws*
+17. AWS AND SESSIONS                                          *chroma-nvim-aws*
 
 AWS ~
 
@@ -1539,7 +1689,7 @@ The dashboard is excluded from what gets saved, so a restored session opens
 onto the work rather than onto a stale start screen.
 
 ==============================================================================
-17. PROJECT TASKS                                           *chroma-nvim-tasks*
+18. PROJECT TASKS                                           *chroma-nvim-tasks*
 
 Chroma does not learn how your infrastructure is run. The repository says it.
 
@@ -1789,7 +1939,7 @@ a task naming the same binary gets none of them.
 layer"; `DECISIONS.md` says why each is what it is.
 
 ==============================================================================
-18. ADDING A PLUGIN                                        *chroma-nvim-adding*
+19. ADDING A PLUGIN                                        *chroma-nvim-adding*
 
 Before writing any configuration, do the reading. This is rule #1 and it is
 not decorative; see |chroma-nvim-rules|.
@@ -1834,7 +1984,7 @@ that disabled nothing, a rename that ate a symlink, two editors clobbering each
 other. It skips when ansible is not installed.
 
 ==============================================================================
-19. TROUBLESHOOTING                                *chroma-nvim-troubleshooting*
+20. TROUBLESHOOTING                                *chroma-nvim-troubleshooting*
 
 A language server is not attaching ~
 >
@@ -1880,7 +2030,7 @@ Plugins are in a strange state ~
     :Lazy sync        install, clean and update to match the specs
 <
 ==============================================================================
-20. COMPONENTS                                         *chroma-nvim-components*
+21. COMPONENTS                                         *chroma-nvim-components*
 
 Chroma is not all-or-nothing. Everything past the editor itself belongs to a
 component, and a component can be switched off — its language servers, Mason
@@ -1979,7 +2129,7 @@ than asked".
 `cli/DESIGN.md` in the repository documents the format and the reasoning.
 
 ==============================================================================
-21. RULES                                                   *chroma-nvim-rules*
+22. RULES                                                   *chroma-nvim-rules*
 
 Two rules govern this repository. `CONTRACT.md`, in this directory and so in
 this installation, is the full version.

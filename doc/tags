@@ -1,5 +1,13 @@
 chroma-nvim	chroma-nvim.txt	/*chroma-nvim*
 chroma-nvim-adding	chroma-nvim.txt	/*chroma-nvim-adding*
+chroma-nvim-ansible	chroma-nvim.txt	/*chroma-nvim-ansible*
+chroma-nvim-ansible-gate	chroma-nvim.txt	/*chroma-nvim-ansible-gate*
+chroma-nvim-ansible-inspection	chroma-nvim.txt	/*chroma-nvim-ansible-inspection*
+chroma-nvim-ansible-limit	chroma-nvim.txt	/*chroma-nvim-ansible-limit*
+chroma-nvim-ansible-limits	chroma-nvim.txt	/*chroma-nvim-ansible-limits*
+chroma-nvim-ansible-preview	chroma-nvim.txt	/*chroma-nvim-ansible-preview*
+chroma-nvim-ansible-repeat	chroma-nvim.txt	/*chroma-nvim-ansible-repeat*
+chroma-nvim-ansible-steps	chroma-nvim.txt	/*chroma-nvim-ansible-steps*
 chroma-nvim-aws	chroma-nvim.txt	/*chroma-nvim-aws*
 chroma-nvim-builtin-keys	chroma-nvim.txt	/*chroma-nvim-builtin-keys*
 chroma-nvim-completion	chroma-nvim.txt	/*chroma-nvim-completion*
