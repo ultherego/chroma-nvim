@@ -45,10 +45,19 @@ return {
         { "<leader>x", group = "Tools" },
       }
 
+      -- The component a heading follows is the one that defines the keys under
+      -- it, which is not always the one the heading is named after. `<leader>a`
+      -- is Ansible Vault's, and all seven keys under it come from `vault`;
+      -- `ansible` contributes none. It used to follow `ansible` anyway, and
+      -- since the two components are independent that was wrong in both
+      -- directions: `vault` without `ansible` had seven working keys and no
+      -- heading, and `ansible` without `vault` had a heading over nothing.
+      --
+      -- The name stays Ansible, because Ansible Vault is Ansible's.
       for _, group in ipairs({
         { component = "terraform", lhs = "<leader>t", name = "Terraform" },
         { component = "kubernetes", lhs = "<leader>k", name = "Kubernetes" },
-        { component = "ansible", lhs = "<leader>a", name = "Ansible" },
+        { component = "vault", lhs = "<leader>a", name = "Ansible" },
         { component = "aws", lhs = "<leader>A", name = "AWS" },
       }) do
         if state.is_enabled(group.component) then

@@ -334,12 +334,12 @@ Component `vault`, which requires only `core`.
 
 `q` or <kbd>Esc</kbd> closes a revealed value.
 
-**Known wart in the group heading.** These keys belong to `vault`, but the
-which-key heading for `<leader>a` is registered as *Ansible* and follows the
-`ansible` component. The two are independent, so a machine with `vault` on and
-`ansible` off has seven working keys and no heading, and one with `ansible` on
-and `vault` off gets a heading over nothing. The keys themselves are correct in
-both cases.
+**The group heading follows `vault`, not `ansible`.** These seven keys belong to
+`vault`, so that is the component the heading is gated on, even though it is
+labelled *Ansible* — Ansible Vault is Ansible's. It used to follow `ansible`,
+which was wrong in both directions at once, since the two components are
+independent: `vault` on and `ansible` off gave seven working keys and no
+heading, and the reverse gave a heading over nothing.
 
 ---
 

@@ -340,6 +340,27 @@ T["shapes"]["vault alone brings no ansible"] = function()
   end)
 end
 
+-- The `<leader>a` heading says "Ansible" and every key under it belongs to
+-- `vault`, so `vault` is what it has to follow. Both directions are checked,
+-- because the heading followed `ansible` for long enough to prove that only one
+-- of them being wrong is easy to miss.
+T["shapes"]["vault alone labels the Ansible group"] = function()
+  with({ "vault" }, function()
+    eq(vim.tbl_contains(whichkey_groups(), "Ansible"), true)
+  end)
+end
+
+T["shapes"]["ansible alone labels no group over vault's keys"] = function()
+  with({ "ansible" }, function()
+    -- Enabled, and still contributing no key under `<leader>a`: the heading
+    -- would be over an empty list, which reads as a feature that is present and
+    -- broken rather than one that was not selected.
+    eq(state.is_enabled("ansible"), true)
+    eq(state.is_enabled("vault"), false)
+    eq(vim.tbl_contains(whichkey_groups(), "Ansible"), false)
+  end)
+end
+
 T["shapes"]["core alone brings no devops anything"] = function()
   with({}, function()
     local servers = opts_of("plugins.lsp", "mason-org/mason-lspconfig.nvim").automatic_enable

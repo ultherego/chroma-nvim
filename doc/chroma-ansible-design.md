@@ -962,13 +962,23 @@ changed: the key returns, the model does not (§2.4).
 
 ### 18.2 The `<leader>a` group heading
 
-The heading is registered when **`ansible` or `vault`** is enabled, not when
-`ansible` is.
+The heading is registered when **`ansible` or `vault`** is enabled.
 
-This fixes a defect already recorded in `doc/KEYMAPS.md`: today the heading
-follows `ansible` while all seven keys under it belong to `vault`, and the two
-components are independent, so `vault` without `ansible` has working keys and no
-heading while `ansible` without `vault` has a heading over nothing.
+Half of that is already done, and not by this module. The defect this section was
+written against — the heading following `ansible` while all seven keys under it
+belonged to `vault` — was fixed on its own, because it was a defect with or
+without a planner: the gate is `vault`, covered by two cases in
+`tests/test_gating.lua` and recorded in `doc/DECISIONS.md`, "A heading follows
+its keys".
+
+Plain **`ansible` or `vault`** would have been the wrong fix at that moment. With
+no planner, `ansible` alone still contributes no key under `<leader>a`, so an
+`or` would have kept the second half of the defect — a heading over an empty
+list — while claiming to have closed it.
+
+So what this module owes the gate is one component name. When `<leader>ar` and
+`<leader>aR` exist, `ansible` earns its place there and the gate becomes a list
+of the two rather than one name.
 
 The name stays `Ansible`, because Ansible Vault is Ansible's.
 

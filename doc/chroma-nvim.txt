@@ -230,6 +230,11 @@ Groups ~
     <leader>t    Terraform       <leader>k    Kubernetes
     <leader>a    Ansible         <leader>A    AWS
 <
+The last four appear only when the component that defines the keys under them
+is enabled, so which-key describes the editor you have. `<leader>a` follows
+`vault` rather than `ansible`: every key under it is an Ansible Vault key, and
+the two components are independent of each other.
+
 Find ~
 >
     <leader>ff   Files                    <leader>fh   Help tags

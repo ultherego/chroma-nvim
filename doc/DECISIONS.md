@@ -470,6 +470,31 @@ bracket motions upstream suggests.
 source buffers — taking them would remove a core movement everywhere the
 outline is active.
 
+### A heading follows its keys
+
+**Decision.** A which-key group heading is registered when the component that
+defines the keys under it is enabled — not when the component it is named after
+is. `<leader>a` is labelled *Ansible* and follows `vault`.
+
+**Why.** All seven keys under `<leader>a` come from `chroma-vault`, and
+`ansible` contributes none. The heading followed `ansible` anyway, and since the
+two components are independent that produced two wrong editors rather than one:
+`vault` without `ansible` had seven working keys and no heading, and `ansible`
+without `vault` had a heading over an empty list, which reads as a feature that
+is present and broken rather than one that was not selected.
+
+Both directions are covered by a test, because a fix that repaired one of them
+would look complete.
+
+The label stays *Ansible* — Ansible Vault is Ansible's, and naming the group
+after the component would tell somebody the key belongs to a product called
+Vault. This is why the contract's keymap table has a column naming the gating
+component instead of saying "with the component".
+
+**What would change it.** A component that contributes its own keys under
+`<leader>a`. Then the heading follows either of them, and the gate becomes a
+list rather than one name.
+
 ---
 
 ## Our own modules

@@ -490,15 +490,20 @@ Nothing accidental. Everything grouped under `<Space>`.
 | `w` | Windows | always |
 | `s` | Sessions | always |
 | `x` | Tools | always |
-| `t` | Terraform | with the component |
-| `k` | Kubernetes | with the component |
-| `a` | Ansible | with the component |
-| `A` | AWS | with the component |
+| `t` | Terraform | with `terraform` |
+| `k` | Kubernetes | with `kubernetes` |
+| `a` | Ansible | with `vault` |
+| `A` | AWS | with `aws` |
 
 Letter prefixes are assigned once, globally — a keymap conflict is a bug,
-not an inconvenience. The four domain groups are registered only when their
-component is enabled, so which-key describes the editor somebody has rather
-than the one they could have had.
+not an inconvenience. The four domain groups are registered only when the
+component that defines the keys under them is enabled, so which-key describes
+the editor somebody has rather than the one they could have had.
+
+That component is not always the one the heading is named after, which is why
+the column names it. Every key under `a` belongs to `vault`, and `vault` and
+`ansible` are independent, so a heading following `ansible` was wrong in both
+directions at once — see `DECISIONS.md`, "A heading follows its keys".
 
 Run Task is `<leader>xr`, under Tools rather than under a domain: a task is not
 a Terraform thing or an Ansible thing, and putting it beside `<leader>tp` would
@@ -522,3 +527,4 @@ say it was.
 | 2026-08-11 | The CLI may take third-party libraries, in `internal/tui` and `internal/report` only: `huh` for the selectors, `lipgloss` for the tables | owner decision; a full-screen interface needs raw mode, cursor addressing and a redraw loop, and the standard library has none of the three. The boundary is what keeps it honest — both packages can be deleted and every command still works over a pipe |
 | 2026-08-11 | Added the execution layer: `.chroma/tasks.json`, `<leader>xr`, and a second version floor of 0.12.3 for that one feature | there is no correct way to lay out or run infrastructure, so Chroma stops inferring and lets a repository declare. The floor is upstream's fix to `vim.secure.read()`, not a preference |
 | 2026-08-11 | Retired the Ansible execution path: `<leader>ar` and `require("ansible").run()` removed, the required `ansible` tool replaced by an optional `ansible-doc`; `nvim-ansible` stays for filetype detection, `ansible-doc` and `gf` | one editor may not have both a declared and an inferred way of running the same thing. The tool was required for exactly the reason that was retired |
+| 2026-08-12 | The `<leader>a` group heading is gated on `vault` instead of `ansible`; the label stays *Ansible* | every key under it is an Ansible Vault key and the two components are independent, so the old gate was wrong in both directions at once — working keys with no heading, or a heading over an empty list |
