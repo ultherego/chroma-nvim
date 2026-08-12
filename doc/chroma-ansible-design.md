@@ -736,6 +736,14 @@ The generation is invalidated by: changing the playbook selection, changing the
 working directory, changing the inventory sources, cancelling any step, and
 starting a new planner run.
 
+**Every decision invalidates it, not only those five.** Tags and the limit
+decide what `--list-hosts` answers (§9.4), so a target snapshot in flight when
+either changes is the same stale answer this section exists to discard. The
+implementation therefore bumps on every setter and never compares the new value
+with the old one: bumping once too often costs a discarded callback, which the
+paragraph below calls an expected outcome, and bumping once too rarely shows an
+answer to the previous question as an answer to the current one.
+
 ```lua
 if mine ~= state.generation then
   return
