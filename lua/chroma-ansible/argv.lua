@@ -1,36 +1,23 @@
--- Decisions in, an exact argument vector out.
+-- Decisions in, an exact argument vector out. This decides nothing, starts
+-- nothing and reads nothing. The rules are `doc/chroma-ansible-design.md`
+-- §3.5, §9.2, §9.3, §10, §12 and §15.1.
 --
--- Everything the operator chose has already been chosen; this turns it into the
--- array a process is started from, and decides nothing. It starts nothing,
--- reads nothing and asks nothing. The rules are `doc/chroma-ansible-design.md`,
--- sections 3.5, 9.2, 9.3, 10, 12 and 15.1.
+-- **There is no shell**: nothing is joined, quoted, split or expanded, and a
+-- custom host pattern reaches `argv` byte for byte.
 --
--- **There is no shell.** No string is joined, quoted, split or expanded
--- anywhere in this module. A custom host pattern reaches `argv` byte for byte,
--- because `webservers:&production` is Ansible's to interpret and nobody else's.
+-- **Order** is executable, then options, then positional playbooks last.
+-- Ansible does not care; this fixes one so two previews of a plan read
+-- identically, and it is the order of the worked example in §15.
 --
--- **Order.**
---
---     executable → options → positional playbooks last
---
--- Ansible does not care in which order the options arrive; this module fixes
--- one anyway, so that two previews of one plan read identically and a diff
--- between them means something. The order is the one in the worked example in
--- §15, so the document and the code cannot drift into two answers.
---
--- **Inherit emits nothing.** Every option here is inherit-or-override, never
--- on/off — §10. `No limit` is the same rule wearing a different name: it emits
--- no `-l` at all rather than `-l all`, because the playbook's own `hosts:` is
--- the authority and `-l all` would override it.
+-- **Inherit emits nothing** (§10). `No limit` is the same rule: no `-l` at all
+-- rather than `-l all`, because the playbook's own `hosts:` is the authority.
 
 local M = {}
 
---- Flags that make Ansible prompt on a terminal an inspection subprocess does
---- not have. Measured on ansible-core 2.21.2, §3.5: `--list-tags` with
---- `--ask-vault-pass` stops at `Vault password:` and ends in
---- `EOFError (ctrl-d)`, while the same listing with `-K` does not prompt at
---- all. `-K` is excluded regardless: it cannot change what a listing reports,
---- so carrying it buys nothing and costs a hang on the day it starts asking.
+--- Flags that make Ansible prompt on a terminal an inspection does not have.
+--- Measured on 2.21.2, §3.5: `--list-tags` with `--ask-vault-pass` stops at
+--- `Vault password:` and ends in `EOFError`, while `-K` does not prompt at all.
+--- `-K` is excluded regardless, since it cannot change what a listing reports.
 local NEVER_WHEN_LISTING = { ["-K"] = true, ["--ask-vault-pass"] = true }
 
 ---@class chroma_ansible.Plan
@@ -68,12 +55,10 @@ local function texts(list)
   return true
 end
 
----What is wrong with a plan, if anything.
----
----Refusals rather than defaults. A plan missing its playbook is a bug in the
----planner, and emitting `ansible-playbook` with no positional argument would
----turn it into a confusing message from Ansible instead of a clear one from
----here.
+---What is wrong with a plan, if anything. Refusals rather than defaults: a plan
+---missing its playbook is a bug in the planner, and emitting `ansible-playbook`
+---with no positional argument would turn it into a confusing message from
+---Ansible instead of a clear one from here.
 ---@param plan any
 ---@return string|nil problem
 local function plan_problem(plan)
@@ -84,9 +69,8 @@ local function plan_problem(plan)
   if not text(plan.executable) then
     return "the plan has no executable"
   end
-  -- §15.2: `argv[0]` is the absolute path that was resolved, and the preview
-  -- shows it. A bare name here would mean the preview and the process disagree
-  -- about which program runs.
+  -- §15.2: `argv[0]` is the absolute path that was resolved and the preview
+  -- shows it, so a bare name would let the two disagree.
   if not vim.startswith(plan.executable, "/") then
     return "the executable is not an absolute path"
   end
@@ -104,8 +88,8 @@ local function plan_problem(plan)
     return "the vault options are not a list"
   end
 
-  -- `No limit` is `nil`. An empty string would emit `-l ` with an empty
-  -- argument, which is a different question asked of Ansible.
+  -- `No limit` is `nil`; an empty string would emit `-l ` with an empty
+  -- argument, which asks Ansible a different question.
   if plan.limit ~= nil and not text(plan.limit) then
     return "the limit is present and empty"
   end
@@ -142,14 +126,12 @@ local function options(plan, listing)
     emit("-b")
   end
   for _, option in ipairs(plan.vault) do
-    -- Filtered by name, so an option that prompts is dropped from a listing
-    -- while `--vault-id dev@prompt-less` would survive when it arrives.
+    -- By name, so `--vault-id dev@prompt-less` would survive when it arrives.
     emit(option)
   end
 
-  -- Order is the operator's, and it is never sorted: Ansible merges several
-  -- `-i` sources in the order they are given, and sorting them would quietly
-  -- change which definition of a host wins.
+  -- The operator's order, never sorted: Ansible merges `-i` sources in the
+  -- order given, and sorting would change which definition of a host wins.
   for _, source in ipairs(plan.inventory) do
     emit("-i", source)
   end
@@ -158,9 +140,8 @@ local function options(plan, listing)
     emit("-l", plan.limit)
   end
 
-  -- One flag per tag. Measured, §20.2: `--tags` accumulates across repetitions,
-  -- so joining them with a comma would be this module inventing a syntax when
-  -- Ansible already has one.
+  -- One flag per tag. Measured, §20.2: `--tags` accumulates across
+  -- repetitions, so joining with a comma would be inventing a syntax.
   for _, tag in ipairs(plan.tags) do
     emit("--tags", tag)
   end
@@ -187,7 +168,7 @@ function M.execution(plan)
 
   local argv = { plan.executable }
   vim.list_extend(argv, options(plan, false))
-  -- Positional, and last. A playbook name among the flags is accepted by
+  -- Positional, and last: a playbook name among the flags is accepted by
   -- Ansible and reads as a mistake to everyone who checks the preview.
   vim.list_extend(argv, plan.playbooks)
 
@@ -201,10 +182,8 @@ local LISTINGS = {
   tasks = "--list-tasks",
 }
 
----The argument vector for one `ansible-playbook` listing mode.
----
----Same context as the run — §3.5 — minus the flags that would make it prompt
----where there is no terminal to prompt on.
+---The argument vector for one `ansible-playbook` listing mode: the same context
+---as the run (§3.5), minus the flags that would prompt where no terminal is.
 ---@param plan chroma_ansible.Plan
 ---@param kind "tags"|"hosts"|"tasks"
 ---@return string[]|nil argv, string|nil problem
@@ -227,13 +206,10 @@ function M.listing(plan, kind)
   return argv, nil
 end
 
----The argument vector that asks for the inventory graph.
----
----A different program, so it takes the inventory sources and nothing else:
----`-u`, `-b`, tags, limit and check are `ansible-playbook` options, and
----`ansible-inventory` has no use for them. `-l` is accepted and **ignored** by
----`--graph` — measured, §20.6 — which is exactly why it is not passed: an
----argument that looks like it filters and does not is worse than no argument.
+---The argument vector that asks for the inventory graph. A different program,
+---so it takes the sources and nothing else. `-l` is accepted and **ignored** by
+---`--graph` (measured, §20.6), which is why it is not passed: an argument that
+---looks like it filters and does not is worse than none.
 ---@param plan chroma_ansible.Plan
 ---@param executable string absolute path to ansible-inventory
 ---@return string[]|nil argv, string|nil problem
@@ -250,8 +226,8 @@ function M.graph(plan, executable)
   for _, source in ipairs(plan.inventory) do
     vim.list_extend(argv, { "-i", source })
   end
-  -- Never `--vars`: it is the flag that puts host and group variables into this
-  -- output in plaintext (§7.1), and the parser refuses output carrying them.
+  -- Never `--vars`: it puts host and group variables into this output in
+  -- plaintext (§7.1), and the parser refuses output carrying them.
   table.insert(argv, "--graph")
 
   return argv, nil

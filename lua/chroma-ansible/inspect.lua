@@ -1,30 +1,15 @@
--- The Ansible subprocesses, and the gate that guards them.
+-- The Ansible subprocesses, and the gate that guards them. The rules are
+-- `doc/chroma-ansible-design.md` §3.5, §6, §7, §8, §13 and §16.
 --
--- Everything that starts a process for the planner starts it here, under three
--- rules that hold for every call in this module. The rules are
--- `doc/chroma-ansible-design.md`, sections 3.5, 6, 7, 8, 13 and 16.
+-- **Nothing runs before the gate**, asked here rather than by the caller so a
+-- fifth introspection cannot forget it (§6.3, §19.4). **Nothing answers out of
+-- turn**: every call takes the run's generation as it starts and delivers
+-- nothing once that generation is gone (§13.2). **Nothing is logged** — no
+-- stdout, stderr or host name reaches a message or a file from here; failures
+-- hand Ansible's own output to the caller (§7.4, §19.16).
 --
--- **Nothing runs before the gate.** `ansible-inventory --graph` is not a file
--- read: an inventory may be an executable script, a plugin may contact EC2 or a
--- CMDB, and an `ansible.cfg` in the working directory decides which code
--- Ansible loads. The consent is asked here rather than by the caller, so that
--- adding a fifth introspection later cannot forget it (§6.3, §19.4).
---
--- **Nothing answers out of turn.** Every call takes the run's generation as it
--- starts and delivers nothing once that generation is gone. The check runs
--- before the callback touches any state, and a discarded answer is not an error
--- — it is the operator having moved on (§13.2).
---
--- **Nothing is logged.** No stdout, no stderr and no host name from any
--- subprocess is written to a message, a notification or a file by this module.
--- Failures hand Ansible's own output back to the caller to show; where it goes
--- from there is the interface's business, and nowhere is it Chroma's to keep
--- (§7.4, §19.16).
---
--- There is no timeout. Dynamic inventory takes as long as the system it talks
--- to takes, and a deadline invented here would abort a slow answer that was
--- about to arrive. Cancelling is the operator's (§13.4) and belongs to
--- `planner.cancel`.
+-- There is no timeout: dynamic inventory takes as long as the system it talks
+-- to takes. Cancelling is the operator's (§13.4).
 
 local argv = require("chroma-ansible.argv")
 local context = require("chroma-ansible.context")
@@ -35,11 +20,9 @@ local planner = require("chroma-ansible.planner")
 
 local M = {}
 
----How a subprocess is started.
----
----A variable so a test can answer for one without an Ansible on the machine,
----and the single place a process can come from: a second call site would be a
----second place the gate could be skipped.
+---How a subprocess is started. A variable so a test can answer for one without
+---an Ansible on the machine, and the single place a process can come from: a
+---second call site would be a second place the gate could be skipped.
 ---@type fun(cmd: string[], opts: table, on_exit: fun(result: vim.SystemCompleted)): vim.SystemObj
 M.system = vim.system
 
@@ -50,11 +33,8 @@ M.system = vim.system
 ---@field problem string|nil what to show; Ansible's own output where there was any
 ---@field declined boolean|nil the gate was answered No, and nothing was started
 
----The absolute path of an Ansible tool, or nil.
----
----Resolved rather than passed through as a bare name, because the preview and
----the executor read one prepared array and `argv[0]` is what the preview shows
----(§15.2). Idempotent for a path that is already absolute.
+---The absolute path of an Ansible tool, or nil. Resolved rather than passed
+---through as a bare name, because `argv[0]` is what the preview shows (§15.2).
 ---@param name string
 ---@return string|nil
 function M.tool(name)
@@ -70,11 +50,10 @@ function M.tool(name)
   return path
 end
 
----What a finished subprocess said, for showing verbatim.
----
----stderr first: Ansible reports errors and warnings there and prints results to
----stdout, so a failure reads top-down. Only trailing whitespace goes, and that
----is not the truncation §16 forbids — it is the newline every process ends on.
+---What a finished subprocess said, for showing verbatim. stderr first, because
+---Ansible reports errors there and results on stdout. Only trailing whitespace
+---goes, which is the newline every process ends on, not the truncation §16
+---forbids.
 ---@param result vim.SystemCompleted
 ---@return string
 local function said(result)
@@ -83,18 +62,15 @@ local function said(result)
     return out
   end
 
-  -- A non-zero exit with nothing to say still has to be reportable, and the
-  -- status is the only thing there is. Ansible does not do this; a wrapper on
-  -- `PATH` under the same name might.
+  -- A non-zero exit with nothing to say still has to be reportable. Ansible
+  -- does not do this; a wrapper on `PATH` under the same name might.
   return ("the inspection exited with status %s and said nothing"):format(tostring(result.code))
 end
 
----Hands one answer to the caller, unless the operator has moved on.
----
----Every path out of this module goes through here, including the ones that
----fail before a process exists. That is what makes the callback's arrival
----uniform: a caller never has to know whether its `on_done` might have already
----run before the call it passed it to returned.
+---Hands one answer to the caller, unless the operator has moved on. Every path
+---out of this module goes through here, including the ones that fail before a
+---process exists, so a caller never has to know whether its `on_done` already
+---ran before the call returned.
 ---@param run chroma_ansible.Run
 ---@param mine integer the generation the inspection started under
 ---@param on_done fun(answer: chroma_ansible.Answer)
@@ -111,14 +87,10 @@ local function deliver(run, mine, on_done, answer)
   end)
 end
 
----What one finished `--graph` means.
----
----A parse failure reports the parser's own words and **not** the output that
----produced them. The two failures are equally fatal (§7.3) and are shown
----identically by the interface, but a graph line carries host names, and this
----module does not repeat one to explain that it could not read it (§7.4). A
----non-zero exit is different: what Ansible wrote is a diagnosis rather than an
----inventory, and §16 requires showing it.
+---What one finished `--graph` means. A parse failure reports the parser's own
+---words and **not** the output that produced them: a graph line carries host
+---names (§7.4). A non-zero exit is different — what Ansible wrote is a
+---diagnosis rather than an inventory, and §16 requires showing it.
 ---@param result vim.SystemCompleted
 ---@return chroma_ansible.Answer
 local function graph_answer(result)
@@ -134,11 +106,9 @@ local function graph_answer(result)
   return { graph = tree }
 end
 
----What one finished `--list-tags` means.
----
----A listing that failed reports what Ansible said and no tags at all. §8.1 is
----why there is no partial answer to give: the list is what Ansible reported,
----so a list assembled from a failed report would be a claim nobody made.
+---What one finished `--list-tags` means. A failed listing reports what Ansible
+---said and no tags: the list is what Ansible reported, so a partial one would
+---be a claim nobody made (§8.1).
 ---@param result vim.SystemCompleted
 ---@return chroma_ansible.Answer
 local function tags_answer(result)
@@ -154,11 +124,9 @@ local function tags_answer(result)
   return { tags = tags }
 end
 
----What one finished `--list-hosts` means.
----
----§9.4: what this answers is a snapshot taken now, never a promise about the
----run. Nothing here says otherwise, and nothing here keeps it: the interface
----shows it and the repeat path is forbidden from carrying it (§14.5).
+---What one finished `--list-hosts` means. §9.4: a snapshot taken now, never a
+---promise about the run. The interface shows it and the repeat path is
+---forbidden from carrying it (§14.5).
 ---@param result vim.SystemCompleted
 ---@return chroma_ansible.Answer
 local function targets_answer(result)
@@ -174,11 +142,9 @@ local function targets_answer(result)
   return { targets = targets }
 end
 
----Runs one inspection under the rules that hold for all of them.
----
----Every subprocess this module starts goes through here. That is what makes
----the gate impossible to skip by adding an inspection: there is one place that
----spawns, and it asks first.
+---Runs one inspection under the rules that hold for all of them. One place
+---spawns, and it asks the gate first, which is what makes the gate impossible
+---to skip by adding an inspection.
 ---@param run chroma_ansible.Run
 ---@param tool string the name reported when the process cannot be started
 ---@param command string[]|nil the prepared array, or nil when it could not be built
@@ -186,41 +152,37 @@ end
 ---@param interpret fun(result: vim.SystemCompleted): chroma_ansible.Answer
 ---@param on_done fun(answer: chroma_ansible.Answer)
 local function inspection(run, tool, command, problem, interpret, on_done)
-  -- Claimed before anything can await, so that every way out of this call —
-  -- including the ones that never spawn — belongs to one generation.
+  -- Claimed before anything can await, so every way out of this call belongs
+  -- to one generation.
   local mine = run.generation
 
   if not command then
     return deliver(run, mine, on_done, { problem = problem })
   end
 
-  -- Asked again rather than trusted. Freezing happened when the operator chose
-  -- the directory, and a directory can be removed or replaced between then and
-  -- now; `vim.system` would raise for that below, but with libuv's words rather
-  -- than the path that was frozen (§16).
+  -- Asked again rather than trusted: a directory can be removed between the
+  -- choice and now, and `vim.system` would raise for that with libuv's words
+  -- rather than the path that was frozen (§16).
   local gone = context.still_usable(run.directory)
   if gone then
     return deliver(run, mine, on_done, { problem = gone })
   end
 
-  -- The last thing before the process, and the only thing between the picker
-  -- and it. Declining is not a failure and carries no output to show: nothing
-  -- ran, so Ansible said nothing.
+  -- The last thing before the process. Declining is not a failure and carries
+  -- no output to show: nothing ran, so Ansible said nothing.
   if not gate.allow(run.gate, planner.subject(run)) then
     return deliver(run, mine, on_done, { declined = true })
   end
 
-  -- The frozen directory, and the environment inherited unchanged. Every
-  -- subprocess of one run is started exactly like this, which is how §3.5 is
-  -- kept: not by copying an environment around, but by never editing one.
+  -- The frozen directory, and the environment inherited unchanged: §3.5 is
+  -- kept by never editing one rather than by copying one around.
   local started, process = pcall(M.system, command, { cwd = run.directory, text = true }, function(result)
     deliver(run, mine, on_done, interpret(result))
   end)
 
   if not started then
-    -- `vim.system` raises before it spawns anything when the request itself is
-    -- bad. Raising past the caller here would leave the planner waiting for a
-    -- callback that no process will ever produce.
+    -- `vim.system` raises before spawning when the request itself is bad, and
+    -- raising past the caller would leave the planner waiting for a callback.
     return deliver(run, mine, on_done, {
       problem = ("%s could not be started in %s: %s"):format(tool, run.directory, tostring(process)),
     })
@@ -229,10 +191,9 @@ local function inspection(run, tool, command, problem, interpret, on_done)
   run.process = process
 end
 
----Asks Ansible what the chosen inventory sources contain.
----
----`ansible-inventory --graph`, never `--list`: `--list` prints every host
----variable in plaintext and no flag suppresses it (§7.1, measured §20.3).
+---Asks Ansible what the chosen inventory sources contain. `--graph`, never
+---`--list`: `--list` prints every host variable in plaintext and no flag
+---suppresses it (§7.1, measured §20.3).
 ---
 ---@param run chroma_ansible.Run
 ---@param executable string absolute path to `ansible-inventory`
@@ -242,13 +203,11 @@ function M.inventory(run, executable, on_done)
   inspection(run, "ansible-inventory", command, problem, graph_answer, on_done)
 end
 
----Asks Ansible which tags the chosen playbooks report.
----
----The same context as every other subprocess of this run (§3.5), minus the
----flags that would make it prompt where there is no terminal to prompt on —
----`argv.listing` drops those. An inventory is passed when one was chosen even
+---Asks Ansible which tags the chosen playbooks report. The same context as
+---every other subprocess of this run (§3.5), minus the flags that would prompt
+---where there is no terminal. An inventory is passed when one was chosen, even
 ---though tags do not need one: a listing that resolved a different inventory
----than the run would be a listing of a different question (§8.4).
+---would be a listing of a different question (§8.4).
 ---@param run chroma_ansible.Run
 ---@param on_done fun(answer: chroma_ansible.Answer)
 function M.tags(run, on_done)
@@ -256,14 +215,10 @@ function M.tags(run, on_done)
   inspection(run, "ansible-playbook", command, problem, tags_answer, on_done)
 end
 
----Asks Ansible which hosts the run would address as things stand.
----
----This is the only honest validation of a limit, because it answers "which
----hosts will *this* playbook, with *this* inventory, under *this* limit,
----address" rather than "is this pattern meaningful" — `ansible-inventory
------graph` ignores `-l` entirely (§9.4, measured §20.6). A pattern that matches
----nothing makes Ansible exit non-zero, so the answer to a typo is a failure
----with Ansible's own words in it, and §16 lets the run continue anyway.
+---Asks Ansible which hosts the run would address as things stand. The only
+---honest validation of a limit: `ansible-inventory --graph` ignores `-l`
+---entirely (§9.4, measured §20.6). A pattern matching nothing makes Ansible
+---exit non-zero, and §16 lets the run continue anyway.
 ---@param run chroma_ansible.Run
 ---@param on_done fun(answer: chroma_ansible.Answer)
 function M.targets(run, on_done)

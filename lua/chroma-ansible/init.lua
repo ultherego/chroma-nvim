@@ -1,28 +1,21 @@
--- chroma-ansible — the Ansible execution planner.
---
--- The seven modules beside this one each answer one question and none of them
--- knows the order. This is the order: what is asked, when, and what a failure
--- does to the rest of it. The rules are `doc/chroma-ansible-design.md`, and
--- every step below names the section it comes from.
+-- chroma-ansible — the Ansible execution planner. The seven modules beside this
+-- one each answer one question and none of them knows the order. This is the
+-- order, and every step names the section it comes from in
+-- `doc/chroma-ansible-design.md`:
 --
 --     playbook → working directory → inventory → tags → limit → overrides
 --     → target snapshot → preview → explicit yes → terminal
 --
--- **Nothing here decides anything twice.** The steps hand their answers to
--- `planner`, the array comes from `argv`, the screen from `preview`, the
--- process from `run`. A step that worked something out for itself would be a
--- second opinion about a command somebody is agreeing to.
+-- **Nothing here decides anything twice**: the array comes from `argv`, the
+-- screen from `preview`, the process from `run`.
 --
--- **Cancelling is an answer.** Escape, a dismissed picker, an empty input and a
--- selection nobody made all end the run — and end it through `planner.cancel`,
--- so that an inspection still in flight cannot come back and populate a picker
--- for a run that no longer exists (§13.2, §15.4).
+-- **Cancelling is an answer**, and it ends the run through `planner.cancel`, so
+-- an inspection still in flight cannot populate a picker for a run that no
+-- longer exists (§13.2, §15.4).
 --
--- **Failure to inspect is not failure to execute** (§16). Every inspection here
--- is best-effort: its failure offers Ansible's own output and a way to carry on
--- describing the run by hand. The only refusals that end the planner outright
--- are the ones where there is nothing left to describe — no `ansible-playbook`,
--- no readable playbook, no usable directory.
+-- **Failure to inspect is not failure to execute** (§16). The only refusals
+-- that end the planner are the ones with nothing left to describe: no
+-- `ansible-playbook`, no readable playbook, no usable directory.
 
 local argv = require("chroma-ansible.argv")
 local context = require("chroma-ansible.context")
@@ -40,8 +33,7 @@ local defaults = {
 M.options = vim.deepcopy(defaults)
 
 --- The tool that must be there, and the one whose absence only costs discovery
---- (§16). Both are required by the component contract; a machine can still
---- disagree with its manifest.
+--- (§16). Both are required by the contract; a machine can still disagree.
 local PLAYBOOK_TOOL, INVENTORY_TOOL = "ansible-playbook", "ansible-inventory"
 
 ---Says why nothing will happen. Chroma's own words — never a subprocess's
@@ -51,13 +43,10 @@ local function refuse(message)
   vim.notify(message, vim.log.levels.ERROR)
 end
 
---- What goes between a prompt and whatever is typed after it.
----
---- Pickers put `opts.prompt` immediately before the input with nothing in
---- between, so a bare label and a filter run together: `Limit` and `webservers`
---- read as `Limitwebservers`. Every prompt in this module is composed through
---- this, pickers and inputs alike, so there is one place that decides and no
---- step can be missed when the answer is a list somebody searches.
+--- What goes between a prompt and whatever is typed after it. Pickers put
+--- `opts.prompt` immediately before the input, so a bare label and a filter run
+--- together — `Limit` and `webservers` read as `Limitwebservers`. Composed
+--- through one constant so no step can be missed.
 local PROMPT = "%s: "
 
 ---@class chroma_ansible.Choice
@@ -77,20 +66,17 @@ local function choose(run, prompt, choices, chosen)
     end,
   }, function(choice)
     if choice == nil then
-      -- §15.4: a dismissed picker is not a pause. It ends the run, and ending
-      -- it invalidates the generation so a slow inspection cannot answer into
-      -- a planner that is gone.
+      -- §15.4: a dismissed picker is not a pause. Ending the run invalidates
+      -- the generation, so a slow inspection cannot answer into one that is gone.
       return planner.cancel(run)
     end
     chosen(choice.value)
   end)
 end
 
----Asks for a path, ending the run on an empty answer.
----
----`vim.ui.input` with `completion = "file"` — measured, §20.9 — so no plugin is
----needed to type a path. Nothing scans the filesystem for playbooks: a playbook
----need not live in a repository, a project, or anywhere in particular (§4.3).
+---Asks for a path, ending the run on an empty answer. `vim.ui.input` with
+---`completion = "file"` (measured, §20.9), so no plugin is needed. Nothing
+---scans the filesystem: a playbook need not live anywhere in particular (§4.3).
 ---@param run chroma_ansible.Run
 ---@param prompt string
 ---@param default string
@@ -133,8 +119,7 @@ local function ask_playbook(run, picked)
   local choices = {}
 
   -- §4.2: the buffer is a suggestion and never an authority. The old
-  -- `<leader>ar` guessed the playbook from the buffer and that is exactly what
-  -- is not coming back (§2.4).
+  -- `<leader>ar` guessed the playbook from it, and that is not coming back.
   local suggestion = context.suggestion(vim.api.nvim_buf_get_name(0))
   if suggestion then
     table.insert(choices, {
@@ -172,9 +157,8 @@ local function ask_directory(run, playbook, frozen)
   local choices = {}
   for _, candidate in ipairs(context.candidates(playbook, vim.fn.getcwd())) do
     table.insert(choices, {
-      -- `ansible.cfg present` is a `stat` and is worded as one. Ansible does
-      -- not search upward (§3.1, measured §20.1), so the interface may not
-      -- imply it would find any of these by itself.
+      -- `ansible.cfg present` is a `stat` and is worded as one: Ansible does
+      -- not search upward (§3.1, measured §20.1).
       label = ("%s    %s    %s"):format(
         candidate.path,
         candidate.why,
@@ -203,9 +187,9 @@ local function ask_inventory(run, sources, settled)
   local choices = {}
 
   if #sources == 0 then
-    -- §5.3: this means one thing — no `-i` is passed. The planner does not go
-    -- looking for what Ansible's default inventory would be and then pass it
-    -- explicitly, because that replaces Ansible's precedence with a guess at it.
+    -- §5.3: this means one thing — no `-i` is passed. Looking up Ansible's
+    -- default and passing it explicitly would replace its precedence with a
+    -- guess at it.
     table.insert(choices, { label = "Use Ansible configuration", value = "inherit" })
   end
   table.insert(choices, { label = "Add a source…", value = "add" })
@@ -222,24 +206,20 @@ local function ask_inventory(run, sources, settled)
       return settled()
     end
     if value == "add" then
-      -- A file or a directory, and never called a `hosts.yml`: an inventory may
-      -- be a directory, an executable script or a plugin configuration (§5.2).
-      --
-      -- The prompt opens at the frozen directory and the answer is resolved
-      -- against it, so the path that gets completed and the path that reaches
-      -- `-i` are the same path. Completion is Neovim's, anchored at Neovim's
-      -- directory, and the run is anchored at the directory chosen two steps
-      -- ago: with the playbook one level down those differ, and a source typed
-      -- against the wrong one used to arrive as an inventory Ansible could not
-      -- parse — `rc=0`, a warning nothing shows, and a Limit with no hosts in it.
+      -- A file or a directory, and never called a `hosts.yml`: an inventory
+      -- may be a directory, an executable script or a plugin configuration
+      -- (§5.2). The prompt opens at the frozen directory and the answer is
+      -- resolved against it, because completion is anchored at Neovim's
+      -- directory and the run is anchored at the one chosen two steps ago —
+      -- with the playbook one level down, a source typed against the wrong one
+      -- used to arrive as an inventory with no hosts and `rc=0`.
       return ask_path(run, "Inventory source", run.directory .. "/", function(entered)
         local resolved, problem = context.inventory(run.directory, entered)
         if not resolved then
           refuse(problem)
           -- Back to the list rather than out of the run, unlike a refused
-          -- working directory (§3.3): nothing has been frozen by this step, the
-          -- other sources already chosen are still good, and the picker the
-          -- operator came from is the obvious place to try again.
+          -- working directory (§3.3): nothing has been frozen by this step and
+          -- the sources already chosen are still good.
           return ask_inventory(run, sources, settled)
         end
         table.insert(sources, resolved)
@@ -255,11 +235,10 @@ end
 -- ---------------------------------------------------------------------------
 -- §16 What a failed inspection offers
 
----Offers Ansible's own output and the ways onwards.
----
----The output is shown here rather than notified, because a notification is a
----message-history entry and §7.4 keeps subprocess output out of anything that
----keeps it. It is shown whole: not summarised, not rewritten, not truncated.
+---Offers Ansible's own output and the ways onwards. Shown rather than notified,
+---because a notification is a message-history entry and §7.4 keeps subprocess
+---output out of anything that keeps it. Shown whole: not summarised, not
+---truncated.
 ---@param run chroma_ansible.Run
 ---@param headline string
 ---@param answer chroma_ansible.Answer
@@ -282,8 +261,8 @@ local function pick_tags(run, reported, picked, settled)
       table.insert(choices, { label = tag, value = tag })
     end
   end
-  -- §8.1: the list is what Ansible *reported*. Tags inside dynamically included
-  -- files are not in it, so this is how they are reached — not a fallback.
+  -- §8.1: the list is what Ansible *reported*. Tags inside dynamically
+  -- included files are not in it, so this is how they are reached.
   table.insert(choices, { label = "Custom tag…", value = "custom" })
   if #picked > 0 then
     table.insert(choices, { label = ("Done (%s)"):format(table.concat(picked, ", ")), value = "done" })
@@ -355,14 +334,11 @@ local function pick_limit(run, graph, settled)
   local choices = { { label = "No limit", value = false } }
   local prompt = "Limit"
 
-  -- An inventory with no hosts in it is a graph, not a failure: `--graph`
-  -- answers `@all:` and `@ungrouped:` for an empty inventory, for an inventory
-  -- Ansible could not parse, and for a path that is not there — all three with
-  -- `rc=0`. Offering those two groups would put a list in front of somebody
-  -- that is indistinguishable from a working inventory whose groups are simply
-  -- named `all` and `ungrouped`, and neither of them would limit the run to
-  -- anything. So the fact is said out loud instead, in Chroma's own words: no
-  -- part of the subprocess's output is repeated (§7.4).
+  -- An inventory with no hosts is a graph, not a failure: `--graph` answers
+  -- `@all:` and `@ungrouped:` for an empty inventory, an unparseable one and a
+  -- path that is not there, all three with `rc=0`. Offering those two groups
+  -- would be indistinguishable from a working inventory, so the fact is said
+  -- out loud instead, in Chroma's own words (§7.4).
   local discovered = graph
   if graph and #graph.hosts == 0 then
     prompt = "Limit (the inventory reported no hosts)"
@@ -370,8 +346,8 @@ local function pick_limit(run, graph, settled)
   end
 
   if discovered then
-    -- Groups first (§7.5). An inventory with thirty thousand hosts must not
-    -- become thirty thousand rows before anybody has chosen anything.
+    -- Groups first (§7.5): thirty thousand hosts must not become thirty
+    -- thousand rows before anybody has chosen anything.
     for _, group in ipairs(discovered.groups) do
       table.insert(choices, { label = ("Group: %s"):format(group), value = group })
     end
@@ -379,8 +355,8 @@ local function pick_limit(run, graph, settled)
       table.insert(choices, { label = ("Host: %s"):format(host), value = host })
     end
   end
-  -- §9.1: no multi-select of hosts. Combining two hosts means generating a
-  -- pattern, and whether that is a comma or a colon is the operator's decision.
+  -- §9.1: no multi-select of hosts. Combining two means generating a pattern,
+  -- and whether that is a comma or a colon is the operator's decision.
   table.insert(choices, { label = "Custom pattern…", value = "custom" })
 
   choose(run, prompt, choices, function(value)
@@ -405,8 +381,8 @@ end
 ---@param settled fun()
 local function ask_limit(run, inventory_tool, settled)
   if not inventory_tool then
-    -- §16: no discovery, and the run proceeds. `No limit` and `Custom pattern…`
-    -- are still a complete description of a limit.
+    -- §16: no discovery, and the run proceeds. `No limit` and `Custom
+    -- pattern…` are still a complete description of a limit.
     return pick_limit(run, nil, settled)
   end
 
@@ -438,8 +414,8 @@ end
 -- §10, §12 The CLI overrides
 
 --- Every question here is inherit-or-override, never on/off: command-line
---- options do not outrank playbook keywords and variables in every case, so
---- `Become: no` would be a claim about the run that Chroma cannot make (§10).
+--- options do not outrank playbook keywords in every case, so `Become: no`
+--- would be a claim about the run that Chroma cannot make (§10).
 local OVERRIDES = {
   {
     prompt = "Become CLI override",
@@ -559,7 +535,7 @@ local function confirm_and_run(run, snapshot)
     return refuse(refusal)
   end
 
-  -- Remembered only once it started. A plan nobody ran is not the last
+  -- Remembered only once it started: a plan nobody ran is not the last
   -- invocation (§14).
   planner.remember(run)
 end
@@ -570,8 +546,7 @@ local function ask_targets(run)
     if answer.declined then
       return planner.cancel(run)
     end
-    -- §16: a failed `--list-hosts` costs the snapshot and nothing else. The
-    -- preview says `not reported` and the run stands.
+    -- §16: a failed `--list-hosts` costs the snapshot and nothing else.
     confirm_and_run(run, answer.targets and { targets = answer.targets } or nil)
   end)
 end
@@ -579,10 +554,8 @@ end
 -- ---------------------------------------------------------------------------
 -- The entry points
 
----Plans and runs one Ansible invocation.
----
----`<leader>ar`. Every step is a question, the last one is `Run?`, and any of
----them may be answered by walking away.
+---Plans and runs one Ansible invocation — `<leader>ar`. Every step is a
+---question, the last is `Run?`, and any of them may be answered by walking away.
 function M.plan()
   local executable = inspect.tool(PLAYBOOK_TOOL)
   if not executable then
@@ -598,9 +571,8 @@ function M.plan()
     ask_directory(run, playbook, function(directory)
       planner.set_directory(run, directory)
 
-      -- Shown relative to the directory it will run from when it lives inside
-      -- it. Both paths are canonical, so this is a presentation of the same
-      -- file and not a second way of finding it.
+      -- Shown relative to the directory it runs from when it lives inside it.
+      -- Both paths are canonical, so this is presentation, not a second lookup.
       local inside = vim.startswith(playbook, directory .. "/") and playbook:sub(#directory + 2) or playbook
       planner.set_playbooks(run, { inside })
 
@@ -619,19 +591,17 @@ function M.plan()
   end)
 end
 
----Repeats the last invocation, stopping at the preview.
----
----`<leader>aR`. §14.2: it runs nothing by itself. The executable is resolved
----again and the paths re-checked, so a repeat refuses rather than running
----something that has moved since (§14.4).
+---Repeats the last invocation, stopping at the preview. §14.2: it runs nothing
+---by itself, and §14.4 re-resolves the executable and re-checks the paths, so a
+---repeat refuses rather than running something that has moved.
 function M.again()
   local run, problem = planner.recall(inspect.tool)
   if not run then
     return refuse(problem)
   end
 
-  -- §14.5: the previous run's host count is not repeated as though it were
-  -- still true. Refreshing it is an active inspection and passes the gate again.
+  -- §14.5: the previous host count is not repeated as though it were still
+  -- true. Refreshing it is an active inspection and passes the gate again.
   confirm_and_run(run, { refreshed = false })
 end
 

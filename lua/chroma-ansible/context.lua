@@ -1,32 +1,25 @@
--- Where Ansible will run, and which file it will be handed.
---
--- Three questions with one property in common: all are answered from the
--- filesystem and from the operator, never from a guess about what a file
--- contains. This module stats, resolves and refuses. It starts no process,
--- opens no picker and reads the contents of nothing. The rules are
--- `doc/chroma-ansible-design.md`, sections 3, 4 and 5.
+-- Where Ansible will run, and which file it will be handed. This stats,
+-- resolves and refuses: it starts no process, opens no picker and reads the
+-- contents of nothing. The rules are `doc/chroma-ansible-design.md` §3–5.
 --
 -- **The working directory is part of what a command means.** Ansible reads
--- `ansible.cfg` from the current directory and **does not search upward**
--- (§3.1, measured), and that file can decide `roles_path`, `collections_path`,
--- the default inventory, vault settings, callback plugins and become defaults.
--- So the directory is offered as a choice rather than taken from the editor,
--- and once chosen it is frozen: `:cd`, `:lcd`, `:tcd`, a session plugin or a
--- file manager may move Neovim afterwards and none of them may move the run.
+-- `ansible.cfg` from the current directory and does not search upward (§3.1,
+-- measured), and that file can decide roles, collections, the default
+-- inventory, vault settings and become defaults. So it is chosen rather than
+-- taken from the editor, and then frozen: `:cd` and anything like it may move
+-- Neovim afterwards and none of them may move the run.
 --
--- **A playbook is a readable regular file whose name ends in `.yml` or
--- `.yaml`.** That is the whole test (§4.2). Nothing here opens one to decide
--- whether it "looks like a playbook": that is Ansible's judgement, and being
--- wrong in either direction is worse than asking.
+-- **A playbook is a readable regular file ending in `.yml` or `.yaml`**, and
+-- that is the whole test (§4.2). Whether it looks like a playbook is Ansible's
+-- judgement.
 
 local M = {}
 
 --- The file whose presence is reported beside a candidate directory.
 local CONFIG = "ansible.cfg"
 
---- What a playbook's name may end in. Ansible itself is not fussy, so this is
---- only ever used to decide whether to *offer* the current buffer — never to
---- refuse a path the operator typed.
+--- What a playbook's name may end in. Only ever used to decide whether to
+--- *offer* the current buffer, never to refuse a path the operator typed.
 local SUFFIXES = { ".yml", ".yaml" }
 
 ---A path as the filesystem knows it, or nil.
@@ -36,12 +29,10 @@ local function canonical(path)
   return vim.uv.fs_realpath(path)
 end
 
----Whether a resolved path is a readable regular file.
----
----Two questions, not one. `fs_stat` follows symlinks, which is deliberate — a
----symlink to a playbook is a playbook — and the read check is asked of the
----filesystem rather than inferred from the mode bits, because the answer
----depends on who is running.
+---Whether a resolved path is a readable regular file. `fs_stat` follows
+---symlinks deliberately — a symlink to a playbook is a playbook — and the read
+---check is asked of the filesystem, because the answer depends on who is
+---running.
 ---@param resolved string
 ---@return boolean
 local function readable_file(resolved)
@@ -57,9 +48,8 @@ local function usable_directory(resolved)
   if not entry or entry.type ~= "directory" then
     return false
   end
-  -- `X` on a directory is the right to traverse it, `R` the right to list it.
-  -- Ansible needs both, and a directory answering yes to only one produces a
-  -- failure from the subprocess that reads nothing like "you cannot use this".
+  -- Ansible needs both: `X` is the right to traverse a directory, `R` the
+  -- right to list it, and one without the other fails deep inside Ansible.
   return vim.uv.fs_access(resolved, "R") == true and vim.uv.fs_access(resolved, "X") == true
 end
 
@@ -75,20 +65,16 @@ local function suffixed(path)
   return false
 end
 
----Whether a buffer's file is worth offering as the playbook.
----
----A suggestion, and only that. A buffer with no file behind it — a dashboard, a
----terminal, oil, an unnamed buffer — simply has nothing to offer, which is not
----a failure and is not reported as one.
+---Whether a buffer's file is worth offering as the playbook. A suggestion only:
+---a buffer with no file behind it has nothing to offer, which is not a failure.
 ---@param name string the buffer's name, as `vim.api.nvim_buf_get_name` gives it
 ---@return string|nil path the canonical path to offer
 function M.suggestion(name)
   if type(name) ~= "string" or name == "" then
     return nil
   end
-  -- A buffer name can be a URI for a plugin's virtual buffer. Those resolve to
-  -- nothing, so the realpath below is what rejects them; the suffix test alone
-  -- would happily accept `oil:///tmp/x.yml`.
+  -- A buffer name can be a URI for a plugin's virtual buffer, and the suffix
+  -- test alone would accept `oil:///tmp/x.yml`. The realpath is what rejects it.
   if not suffixed(name) then
     return nil
   end
@@ -101,10 +87,8 @@ function M.suggestion(name)
   return resolved
 end
 
----Accepts a playbook path, or says why not.
----
----The contents are not read, not parsed and not validated. A playbook that is
----broken is discovered by Ansible, with Ansible's own error (§4.4).
+---Accepts a playbook path, or says why not. The contents are not read: a broken
+---playbook is discovered by Ansible, with Ansible's own error (§4.4).
 ---@param path string
 ---@return string|nil resolved, string|nil problem
 function M.playbook(path)
@@ -136,16 +120,12 @@ end
 ---@field why string what makes it a candidate, for the picker's second column
 ---@field config boolean whether an ansible.cfg sits in it
 
----The working directories worth offering, in order and deduplicated.
+---The working directories worth offering, in order and deduplicated: Neovim's,
+---the playbook's, then ancestors holding an `ansible.cfg`. Deduplicated by
+---canonical path, keeping the first reason a directory appeared.
 ---
----Order is Neovim's directory, the playbook's directory, then ancestors of the
----playbook holding an `ansible.cfg`. Deduplicated by canonical path, keeping
----the first reason a directory appeared: a directory that is both Neovim's and
----the playbook's is offered once, described as Neovim's.
----
----`config` is a `stat` and nothing more — a fact about the filesystem, not a
----claim that Ansible would find that file. It would not, unless this is the
----directory that gets chosen (§3.1).
+---`config` is a `stat`, not a claim that Ansible would find that file — it
+---would not, unless this is the directory that gets chosen (§3.1).
 ---@param playbook string a canonical playbook path
 ---@param editor string|nil Neovim's working directory
 ---@return chroma_ansible.Candidate[]
@@ -175,9 +155,8 @@ function M.candidates(playbook, editor)
   local directory = vim.fs.dirname(playbook)
   offer(directory, "playbook directory")
 
-  -- Ancestors carrying a config, nearest first. Offered because that is very
-  -- often the directory somebody means, and offered as a *candidate* because
-  -- Ansible would not find any of them by itself.
+  -- Nearest first, and offered as candidates: Ansible would not find any of
+  -- them by itself.
   local parent = vim.fs.dirname(directory)
   while parent and parent ~= directory do
     if vim.uv.fs_stat(vim.fs.joinpath(parent, CONFIG)) then
@@ -189,10 +168,8 @@ function M.candidates(playbook, editor)
   return out
 end
 
----Freezes a chosen working directory.
----
----Resolved once, here, and every later step reads what this returned. Nothing
----in the planner calls `getcwd()` again (§3.4).
+---Freezes a chosen working directory. Resolved once, here; nothing in the
+---planner calls `getcwd()` again (§3.4).
 ---@param path string
 ---@return string|nil frozen canonical, string|nil problem
 function M.freeze(path)
@@ -211,11 +188,8 @@ function M.freeze(path)
   return resolved, nil
 end
 
----A path as the process will resolve it.
----
----Relative paths belong to the frozen working directory, because that is where
----the process starts. Resolving one against Neovim's directory would answer for
----a file nobody is about to run — and would pass or fail for the wrong reason.
+---A path as the process will resolve it: relative paths belong to the frozen
+---working directory, because that is where the process starts.
 ---@param directory string
 ---@param path string
 ---@return string
@@ -226,19 +200,15 @@ function M.under(directory, path)
   return vim.fs.joinpath(directory, path)
 end
 
----Accepts an inventory source, or says why not.
+---Accepts an inventory source, or says why not. A file or a directory (§5.2) —
+---a `hosts.yml`, a directory of them, an executable script or a plugin
+---configuration are all one of those two things on disk.
 ---
----A file or a directory (§5.2) — an inventory may be a `hosts.yml`, a directory
----of them, an executable script or a plugin configuration, and all four are one
----of those two things on disk. What is inside is Ansible's business.
----
----**Resolved here, and stored resolved.** A path typed into the prompt is
----relative to whatever the operator was looking at; a path handed to `-i` is
----relative to the frozen working directory, and the two are not the same place
----when the playbook lives one level down. Resolving at the moment of entry is
----what makes the difference visible — the problem below names the path the
----subprocess would have opened, so a doubled or misanchored prefix can be read
----off the message instead of arriving as an inventory with no hosts in it.
+---**Resolved here, and stored resolved.** A typed path is relative to whatever
+---the operator was looking at; `-i` is relative to the frozen working
+---directory, and the two differ when the playbook lives one level down. The
+---problem below names the path the subprocess would have opened, so a
+---misanchored prefix can be read off the message.
 ---@param directory string the frozen working directory
 ---@param path string as typed
 ---@return string|nil resolved canonical, string|nil problem
@@ -262,8 +232,8 @@ function M.inventory(directory, path)
   end
 
   if not readable_file(resolved) then
-    -- Named by what it is, because a socket or a device answering `-i` fails
-    -- inside Ansible with a message about parsing rather than about the file.
+    -- Named by what it is: a socket or a device answering `-i` fails inside
+    -- Ansible with a message about parsing rather than about the file.
     local kind = entry and entry.type or "unreadable"
     if kind == "file" then
       return nil, ("the inventory source %s cannot be read"):format(target)
@@ -274,17 +244,13 @@ function M.inventory(directory, path)
   return resolved, nil
 end
 
----Whether what was chosen can still be run, or why not.
+---Whether what was chosen can still be run, or why not. Asked when a repeat is
+---recalled (§14.4) and again just before the terminal opens (§16), because an
+---hour can pass between two repeats.
 ---
----Asked twice on purpose: once when a repeat is recalled (§14.4) and once
----immediately before the terminal opens (§16). Minutes can pass while somebody
----reads a preview, and an hour can pass between two repeats.
----The inventory sources are checked alongside the playbooks, and for the same
----reason as everything else about them: a `-i` that has gone is not an error to
----Ansible. It warns, resolves an inventory of nothing, reports `skipping: no
----hosts matched` and exits 0 — so a source removed while somebody read the
----preview would produce a terminal that finished successfully having addressed
----no host at all, which is the one outcome §16 exists to prevent.
+---The sources are checked alongside the playbooks: a `-i` that has gone is not
+---an error to Ansible. It warns, resolves an inventory of nothing, reports
+---`skipping: no hosts matched` and exits 0.
 ---@param directory string the frozen working directory
 ---@param playbooks string[] as stored, relative or absolute
 ---@param inventory string[]|nil the sources, as stored
@@ -312,11 +278,9 @@ function M.runnable(directory, playbooks, inventory)
   return nil
 end
 
----Whether a frozen directory is still one, just before a process starts.
----
----Asked again rather than trusted: freezing happened when the operator chose,
----and a directory can be removed, replaced by a file or have its permissions
----changed between then and the confirmation (§16).
+---Whether a frozen directory is still one, just before a process starts. Asked
+---again rather than trusted: it can be removed, replaced by a file or have its
+---permissions changed between the choice and the confirmation (§16).
 ---@param frozen string
 ---@return string|nil problem
 function M.still_usable(frozen)
@@ -328,9 +292,8 @@ function M.still_usable(frozen)
   if not resolved or not usable_directory(resolved) then
     return ("the working directory %s is no longer usable"):format(frozen)
   end
-  -- Compared, not just re-resolved: if the path now leads somewhere else, this
-  -- is not the directory that was frozen, and running there would be running
-  -- somewhere the operator never agreed to.
+  -- Compared, not just re-resolved: a path that now leads somewhere else is
+  -- not the directory that was frozen.
   if resolved ~= frozen then
     return ("the working directory %s now resolves to %s"):format(frozen, resolved)
   end
