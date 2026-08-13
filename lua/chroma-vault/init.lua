@@ -622,7 +622,7 @@ end
 ---Converts a plaintext buffer into a vault, in place.
 ---
 ---Ordered so no step leaves the buffer half-converted: encryption first, because
----everything after it is destructive; then hardening, the undo file, the remembered
+---everything after it is destructive; then operations, the undo file, the remembered
 ---state and the writer; only then the buffer itself. See
 ---:help chroma-nvim-vault-conversion.
 function M.encrypt_file()
@@ -694,7 +694,7 @@ end
 
 ---Decrypts the whole current buffer in place, leaving it unsaved.
 ---
----Ordered so the plaintext is the last thing to appear: hardening, then the
+---Ordered so the plaintext is the last thing to appear: operations, then the
 ---writer, and only then the contents it protects. See
 ---:help chroma-nvim-vault-transparent.
 function M.decrypt_file()

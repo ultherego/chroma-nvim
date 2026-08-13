@@ -797,7 +797,7 @@ a partial update, and not in the renderer.
 A discarded callback is not an error and is not reported. It is the expected
 outcome of the operator having moved on.
 
-### 13.3 This is not hardening for later
+### 13.3 This is not operations for later
 
 It is part of the concurrency model and lands in the first commit that spawns a
 subprocess. Retrofitting it means auditing every callback that already exists.

@@ -36,8 +36,8 @@ local function build()
   -- Beside the playbook's tree rather than inside it, which is the layout the
   -- inventory cases below are about: `work/operations` runs the playbook and the
   -- sources live one level up.
-  vim.fn.mkdir(vim.fs.joinpath(root, "work", "inventories", "beta"), "p")
-  vim.fn.writefile({ "all:" }, vim.fs.joinpath(root, "work", "inventories", "beta", "hosts.yml"))
+  vim.fn.mkdir(vim.fs.joinpath(root, "work", "inventories", "dev"), "p")
+  vim.fn.writefile({ "all:" }, vim.fs.joinpath(root, "work", "inventories", "dev", "hosts.yml"))
 
   return root
 end
@@ -163,7 +163,7 @@ T["inventory"]["resolves a relative source against the frozen directory"] = func
   local resolved, problem = context.inventory(at("work", "operations"), "../inventories/dev/hosts.yml")
 
   eq(problem, nil)
-  eq(resolved, at("work", "inventories", "beta", "hosts.yml"))
+  eq(resolved, at("work", "inventories", "dev", "hosts.yml"))
 end
 
 T["inventory"]["refuses a source that is not under the frozen directory, naming where it looked"] = function()
@@ -174,7 +174,7 @@ T["inventory"]["refuses a source that is not under the frozen directory, naming 
   local resolved, problem = context.inventory(at("work", "operations"), "inventories/dev/hosts.yml")
 
   eq(resolved, nil)
-  eq(problem:find(at("work", "operations", "inventories", "beta", "hosts.yml"), 1, true) ~= nil, true)
+  eq(problem:find(at("work", "operations", "inventories", "dev", "hosts.yml"), 1, true) ~= nil, true)
   -- And says which of the refusals it is. A path that is not there and a path
   -- that cannot be read are two different mistakes with two different fixes,
   -- and this is the one somebody reads while looking at a doubled prefix.
@@ -187,11 +187,11 @@ T["inventory"]["accepts a directory of sources"] = function()
   local resolved, problem = context.inventory(at("work", "operations"), "../inventories/dev")
 
   eq(problem, nil)
-  eq(resolved, at("work", "inventories", "beta"))
+  eq(resolved, at("work", "inventories", "dev"))
 end
 
 T["inventory"]["takes an absolute source from wherever it is given"] = function()
-  local absolute = at("work", "inventories", "beta", "hosts.yml")
+  local absolute = at("work", "inventories", "dev", "hosts.yml")
 
   eq(context.inventory(at("work", "operations"), absolute), absolute)
   eq(context.inventory(at("work", "operations", "plays"), absolute), absolute)
@@ -202,7 +202,7 @@ T["inventory"]["answers with the canonical path, not the one that was typed"] = 
   -- than a path somebody has to compose in their head.
   local resolved = context.inventory(at("work", "operations"), "../inventories/../inventories/dev/hosts.yml")
 
-  eq(resolved, at("work", "inventories", "beta", "hosts.yml"))
+  eq(resolved, at("work", "inventories", "dev", "hosts.yml"))
 end
 
 T["inventory"]["refuses an empty answer"] = function()
@@ -234,7 +234,7 @@ end
 T["inventory"]["refuses a file it may not read"] = function()
   -- Injected rather than produced with chmod, so the case says the same thing
   -- when the suite runs as root.
-  local target = at("work", "inventories", "beta", "hosts.yml")
+  local target = at("work", "inventories", "dev", "hosts.yml")
   local real = vim.uv.fs_access
   vim.uv.fs_access = function(path, mode)
     if path == target then
@@ -251,7 +251,7 @@ T["inventory"]["refuses a file it may not read"] = function()
 end
 
 T["inventory"]["refuses a directory it may not enter"] = function()
-  local target = at("work", "inventories", "beta")
+  local target = at("work", "inventories", "dev")
   local real = vim.uv.fs_access
   vim.uv.fs_access = function(path, mode)
     if path == target and mode == "X" then
@@ -292,16 +292,16 @@ end
 T["candidates"]["offers an ancestor that holds an ansible.cfg"] = function()
   local found = context.candidates(at("work", "operations", "plays", "site_upgrade.yml"), at("work"))
 
-  local hardening
+  local operations
   for _, candidate in ipairs(found) do
     if candidate.path == at("work", "operations") then
-      hardening = candidate
+      operations = candidate
     end
   end
 
-  eq(hardening ~= nil, true)
-  eq(hardening.why, "ancestor with ansible.cfg")
-  eq(hardening.config, true)
+  eq(operations ~= nil, true)
+  eq(operations.why, "ancestor with ansible.cfg")
+  eq(operations.config, true)
 end
 
 ---The paths a candidate list holds, in order.
@@ -314,7 +314,7 @@ local function paths(found)
 end
 
 T["candidates"]["does not offer an ancestor without one"] = function()
-  -- `work` holds no ansible.cfg. With Neovim sitting in `hardening` it has no
+  -- `work` holds no ansible.cfg. With Neovim sitting in `operations` it has no
   -- other reason to appear, so it must not — and neither must the temporary
   -- root above it.
   local found =

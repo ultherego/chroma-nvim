@@ -684,7 +684,7 @@ T["refusing"]["an inventory source that is not there, and asking again"] = funct
 
   ansible.plan()
 
-  eq(said:find(at("inventories", "beta", "hosts.yml"), 1, true) ~= nil, true)
+  eq(said:find(at("inventories", "dev", "hosts.yml"), 1, true) ~= nil, true)
   eq(started[1].run.plan.inventory, {})
   eq(vim.tbl_contains(started[1].command, "-i"), false)
 
