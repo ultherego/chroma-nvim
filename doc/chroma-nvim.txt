@@ -743,10 +743,20 @@ report every finding twice.
 
 Start screen ~
 
-Opening Neovim with no file shows the snacks dashboard: recent files, recent
-projects, a shortcut list and the startup time. Its shortcuts are written as
-the keymaps this configuration already defines, so they cannot drift apart
-from the real bindings.
+Opening Neovim with no file shows the snacks dashboard: the Chroma Neovim
+wordmark, a shortcut list, recent files, recent projects and the startup time.
+Its shortcuts are written as the keymaps this configuration already defines,
+so they cannot drift apart from the real bindings.
+
+The wordmark is the one `chroma install` prints, in the same two colours, so
+the installer and the editor it installs are recognisably one thing. It is
+drawn in half-block letters rather than shown as an image: six lines and
+twenty-five columns, which leaves the lists below it on the first screen of a
+laptop.
+
+Spacing is one blank line between neighbouring blocks and none inside a list.
+The dashboard's own defaults leave two lines under the header and one between
+every shortcut, which spreads nine shortcuts over seventeen lines.
 
 The contract originally named `alpha` for this. snacks was already a
 dependency for lazygit and ships a dashboard that finds fzf-lua by itself, so

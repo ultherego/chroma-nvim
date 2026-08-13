@@ -1,5 +1,47 @@
 -- UI layer.
 
+-- The wordmark on the start screen: Chroma in mauve, Neovim in peach.
+--
+-- The same half-block letters `chroma install` prints
+-- (cli/internal/report/banner.go), so the installer and the editor it installs
+-- are recognisably one thing. Twenty-five columns and six lines rather than a
+-- full-height font: the dashboard is sixty wide and everything below the
+-- wordmark is a list, and a header taking a third of the window pushes the
+-- recent files under the fold on a laptop.
+--
+-- The Neovim lines carry a trailing space each, which is not decoration. Every
+-- line is centred on its own within the dashboard's width, so a block one
+-- column narrower than the one above it starts one column further in — a
+-- stacked wordmark with a visible step in its left edge. Padded to equal
+-- widths, both halves begin in the same column.
+--
+-- The empty string closing the first block is the newline that ends its last
+-- line: two texts run together on one line otherwise, and the wordmark would
+-- come out as three lines with Neovim printed to the right of Chroma.
+local WORDMARK = {
+  {
+    table.concat({
+      "█▀▀ █ █ █▀▄ █▀█ █▀▄▀█ ▄▀█",
+      "█   █▀█ █▀▄ █ █ █ ▀ █ █▀█",
+      "▀▀▀ ▀ ▀ ▀ ▀ ▀▀▀ ▀   ▀ ▀ ▀",
+      "",
+    }, "\n"),
+    -- Named as syntax groups rather than written as hex. These two are mauve
+    -- and peach under catppuccin-mocha, which is what this configuration sets
+    -- and what the README image is drawn in; under anything else they are
+    -- still two colours that colorscheme chose to sit beside each other.
+    hl = "Statement",
+  },
+  {
+    table.concat({
+      "█▄ █ █▀▀ █▀█ █ █ █ █▀▄▀█ ",
+      "█ ▀█ █▀▀ █ █ ▀▄▀ █ █ ▀ █ ",
+      "▀  ▀ ▀▀▀ ▀▀▀  ▀  ▀ ▀   ▀ ",
+    }, "\n"),
+    hl = "Constant",
+  },
+}
+
 return {
   {
     "catppuccin/nvim",
@@ -115,9 +157,13 @@ return {
     opts = {
       dashboard = {
         enabled = true,
+        -- One blank line between neighbours and none inside a list. The
+        -- built-in header leaves two below itself and the built-in `keys` puts
+        -- one between every shortcut, which spreads nine of them over
+        -- seventeen lines and reads as four loose groups rather than a screen.
         sections = {
-          { section = "header" },
-          { section = "keys", gap = 1, padding = 1 },
+          { text = WORDMARK, align = "center", padding = 1 },
+          { section = "keys", padding = 1 },
           { section = "recent_files", title = "Recent files", indent = 2, padding = 1 },
           { section = "projects", title = "Projects", indent = 2, padding = 1 },
           { section = "startup" },
