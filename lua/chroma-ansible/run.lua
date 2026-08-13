@@ -72,10 +72,11 @@ end
 ---What stands between the confirmation and the process, if anything.
 ---
 ---Asked here rather than trusted from the planning steps: minutes may have
----passed while the operator read the preview, and a directory can be removed or
----a playbook made unreadable in that time (§16). The directory and the
----playbooks are the same question a recalled repeat asks (§14.4), so they are
----asked in the same place and answered the same way.
+---passed while the operator read the preview, and a directory can be removed, a
+---playbook made unreadable or an inventory source deleted in that time (§16).
+---The directory, the playbooks and the sources are the same question a recalled
+---repeat asks (§14.4), so they are asked in the same place and answered the
+---same way.
 ---
 ---`argv[0]` is this module's own addition, for the reason §15.2 gives:
 ---measured on Neovim 0.12.4, `jobstart` validates it after the terminal window
@@ -94,7 +95,7 @@ local function refusal(run, command)
     return ("%s is no longer an executable this user can run"):format(command[1])
   end
 
-  return context.runnable(run.directory, run.plan.playbooks)
+  return context.runnable(run.directory, run.plan.playbooks, run.plan.inventory)
 end
 
 ---Starts the run the preview described.

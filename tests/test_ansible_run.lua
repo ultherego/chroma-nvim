@@ -23,6 +23,8 @@ local tasks_run = require("chroma.tasks.run")
 local WORKING, PLAYBOOK = (function()
   local path = vim.fn.tempname()
   vim.fn.mkdir(vim.fs.joinpath(path, "plays"), "p")
+  vim.fn.mkdir(vim.fs.joinpath(path, "inventories", "dev"), "p")
+  vim.fn.writefile({ "all:" }, vim.fs.joinpath(path, "inventories", "dev", "hosts.yml"))
   local playbook = vim.fs.joinpath(path, "plays", "site_upgrade.yml")
   vim.fn.writefile({ "- hosts: all" }, playbook)
   return vim.uv.fs_realpath(path), "plays/site_upgrade.yml"
@@ -173,6 +175,31 @@ T["refusing"]["a playbook that can no longer be read"] = function()
   eq(terminal_opened, nil)
   eq(problem:find("deleted.yml", 1, true) ~= nil, true)
   eq(#opened, 0)
+end
+
+T["refusing"]["an inventory source that has gone since the preview"] = function()
+  -- The source is checked with the playbook, and for a reason peculiar to it:
+  -- Ansible answers a `-i` that is not there with a warning and exit 0, so an
+  -- unchecked one produces a terminal that finishes successfully having
+  -- addressed no host at all (§20.17).
+  local missing = prepared()
+  planner.set_inventory(missing, { vim.fs.joinpath(WORKING, "inventories", "gone") })
+
+  local terminal_opened, problem = run.start(missing, command())
+
+  eq(terminal_opened, nil)
+  eq(problem:find("inventories/gone", 1, true) ~= nil, true)
+  eq(#opened, 0)
+end
+
+T["refusing"]["nothing when the source is still there"] = function()
+  local ready = prepared()
+  planner.set_inventory(ready, { vim.fs.joinpath(WORKING, "inventories", "dev", "hosts.yml") })
+
+  local terminal_opened, problem = run.start(ready, command())
+
+  eq(problem, nil)
+  eq(terminal_opened ~= nil, true)
 end
 
 T["refusing"]["an argv[0] that is no longer executable"] = function()

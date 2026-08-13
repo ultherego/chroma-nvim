@@ -221,7 +221,8 @@ end
 ---The executable is resolved again rather than reused (§14.4). An absolute path
 ---recorded an hour ago may name a program that has been removed, or one that
 ---`PATH` no longer chooses — and repeating it would run something nobody
----picked. The directory and the playbooks are re-checked the same way.
+---picked. The directory, the playbooks and the inventory sources are
+---re-checked the same way.
 ---
 ---The gate is new because the run is new. A repeat that inspects anything asks
 ---again, which is what §6.4 means by a consent that cannot outlive what it
@@ -245,7 +246,7 @@ function M.recall(resolve)
       )
   end
 
-  local problem = context.runnable(last.directory, last.plan.playbooks)
+  local problem = context.runnable(last.directory, last.plan.playbooks, last.plan.inventory)
   if problem then
     return nil, problem
   end

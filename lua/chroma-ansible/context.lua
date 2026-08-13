@@ -279,10 +279,17 @@ end
 ---Asked twice on purpose: once when a repeat is recalled (§14.4) and once
 ---immediately before the terminal opens (§16). Minutes can pass while somebody
 ---reads a preview, and an hour can pass between two repeats.
+---The inventory sources are checked alongside the playbooks, and for the same
+---reason as everything else about them: a `-i` that has gone is not an error to
+---Ansible. It warns, resolves an inventory of nothing, reports `skipping: no
+---hosts matched` and exits 0 — so a source removed while somebody read the
+---preview would produce a terminal that finished successfully having addressed
+---no host at all, which is the one outcome §16 exists to prevent.
 ---@param directory string the frozen working directory
 ---@param playbooks string[] as stored, relative or absolute
+---@param inventory string[]|nil the sources, as stored
 ---@return string|nil problem
-function M.runnable(directory, playbooks)
+function M.runnable(directory, playbooks, inventory)
   local gone = M.still_usable(directory)
   if gone then
     return gone
@@ -292,6 +299,13 @@ function M.runnable(directory, playbooks)
     local _, unreadable = M.playbook(M.under(directory, playbook))
     if unreadable then
       return unreadable
+    end
+  end
+
+  for _, source in ipairs(inventory or {}) do
+    local _, missing = M.inventory(directory, source)
+    if missing then
+      return missing
     end
   end
 

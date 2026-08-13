@@ -267,6 +267,35 @@ T["inventory"]["refuses a directory it may not enter"] = function()
   eq(problem:find("not a directory you can read", 1, true) ~= nil, true)
 end
 
+T["runnable"] = new_set()
+
+T["runnable"]["says nothing while the directory, the playbook and the sources are there"] = function()
+  local problem = context.runnable(
+    at("work", "operations"),
+    { "plays/site_upgrade.yml" },
+    { "../inventories/dev/hosts.yml" }
+  )
+
+  eq(problem, nil)
+end
+
+T["runnable"]["notices an inventory source that has gone"] = function()
+  -- Checked beside the playbooks because Ansible would not check it: a `-i`
+  -- that is not there warns and exits 0, so the run would finish successfully
+  -- having addressed nothing.
+  local problem = context.runnable(at("work", "operations"), { "plays/site_upgrade.yml" }, { "../inventories/retired" })
+
+  eq(problem ~= nil, true)
+  eq(problem:find("inventories/retired", 1, true) ~= nil, true)
+end
+
+T["runnable"]["is content with no sources at all"] = function()
+  -- `Use Ansible configuration` passes no `-i`, and that is a complete answer
+  -- rather than a missing one (§5.3).
+  eq(context.runnable(at("work", "operations"), { "plays/site_upgrade.yml" }, {}), nil)
+  eq(context.runnable(at("work", "operations"), { "plays/site_upgrade.yml" }), nil)
+end
+
 -- ---------------------------------------------------------------------------
 -- Candidate working directories
 

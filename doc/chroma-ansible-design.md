@@ -611,13 +611,20 @@ would match nothing. So when the graph reports no hosts at all, the discovered
 entries are left out and the prompt says why:
 
 ```text
-Limit — the inventory reported no hosts
+Limit (the inventory reported no hosts):
 
 > No limit
   Custom pattern…
 ```
 
 Chroma's own words, not the subprocess's: §7.4 holds here as everywhere.
+
+**Every prompt in the planner ends in `: `**, pickers and inputs alike, and it
+is composed in one place rather than written out per step. A picker puts the
+prompt immediately before what is typed into it with nothing in between, so a
+bare label and a filter run together: `Limit` and `webservers` read as
+`Limitwebservers`. This is the step where it shows most, because it is the step
+where the answer is a list long enough to search.
 
 ### 9.2 `No limit` is not `-l all`
 
@@ -856,8 +863,11 @@ environment, and the run is refused if it is gone or if `PATH` now resolves it
 elsewhere. Repeating an absolute path recorded an hour ago would run a program
 nobody chose.
 
-The working directory and the playbooks are re-checked the same way: still a
-directory, still readable regular files.
+The working directory, the playbooks and the inventory sources are re-checked
+the same way: still a directory, still readable regular files, still sources
+that are there. The sources are on that list because a `-i` that has gone is
+not an error to Ansible — it warns, resolves nothing and exits 0 (§20.17), so
+an unchecked repeat would run against no host and report success.
 
 ### 14.5 The target snapshot does not survive
 

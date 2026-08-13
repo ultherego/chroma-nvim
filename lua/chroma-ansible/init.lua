@@ -51,6 +51,15 @@ local function refuse(message)
   vim.notify(message, vim.log.levels.ERROR)
 end
 
+--- What goes between a prompt and whatever is typed after it.
+---
+--- Pickers put `opts.prompt` immediately before the input with nothing in
+--- between, so a bare label and a filter run together: `Limit` and `webservers`
+--- read as `Limitwebservers`. Every prompt in this module is composed through
+--- this, pickers and inputs alike, so there is one place that decides and no
+--- step can be missed when the answer is a list somebody searches.
+local PROMPT = "%s: "
+
 ---@class chroma_ansible.Choice
 ---@field label string what the operator reads
 ---@field value any what the step does with it
@@ -62,7 +71,7 @@ end
 ---@param chosen fun(value: any)
 local function choose(run, prompt, choices, chosen)
   vim.ui.select(choices, {
-    prompt = prompt,
+    prompt = PROMPT:format(prompt),
     format_item = function(choice)
       return choice.label
     end,
@@ -87,7 +96,7 @@ end
 ---@param default string
 ---@param entered fun(path: string)
 local function ask_path(run, prompt, default, entered)
-  vim.ui.input({ prompt = prompt, default = default, completion = "file" }, function(answer)
+  vim.ui.input({ prompt = PROMPT:format(prompt), default = default, completion = "file" }, function(answer)
     if not answer or answer == "" then
       return planner.cancel(run)
     end
@@ -139,7 +148,7 @@ local function ask_playbook(run, picked)
     if value then
       return accept(value)
     end
-    ask_path(run, "Playbook: ", nearby(), accept)
+    ask_path(run, "Playbook", nearby(), accept)
   end)
 end
 
@@ -180,7 +189,7 @@ local function ask_directory(run, playbook, frozen)
     if value then
       return accept(value)
     end
-    ask_path(run, "Working directory: ", nearby(), accept)
+    ask_path(run, "Working directory", nearby(), accept)
   end)
 end
 
@@ -223,7 +232,7 @@ local function ask_inventory(run, sources, settled)
       -- ago: with the playbook one level down those differ, and a source typed
       -- against the wrong one used to arrive as an inventory Ansible could not
       -- parse — `rc=0`, a warning nothing shows, and a Limit with no hosts in it.
-      return ask_path(run, "Inventory source: ", run.directory .. "/", function(entered)
+      return ask_path(run, "Inventory source", run.directory .. "/", function(entered)
         local resolved, problem = context.inventory(run.directory, entered)
         if not resolved then
           refuse(problem)
@@ -290,7 +299,7 @@ local function pick_tags(run, reported, picked, settled)
       return settled()
     end
     if value == "custom" then
-      return vim.ui.input({ prompt = "Tag: " }, function(entered)
+      return vim.ui.input({ prompt = PROMPT:format("Tag") }, function(entered)
         if not entered or entered == "" then
           return planner.cancel(run)
         end
@@ -356,7 +365,7 @@ local function pick_limit(run, graph, settled)
   -- part of the subprocess's output is repeated (§7.4).
   local discovered = graph
   if graph and #graph.hosts == 0 then
-    prompt = "Limit — the inventory reported no hosts"
+    prompt = "Limit (the inventory reported no hosts)"
     discovered = nil
   end
 
@@ -376,7 +385,7 @@ local function pick_limit(run, graph, settled)
 
   choose(run, prompt, choices, function(value)
     if value == "custom" then
-      return vim.ui.input({ prompt = "Host pattern: " }, function(entered)
+      return vim.ui.input({ prompt = PROMPT:format("Host pattern") }, function(entered)
         if not entered or entered == "" then
           return planner.cancel(run)
         end
@@ -518,7 +527,7 @@ local function ask_remote_user(run, settled)
       run.plan.remote_user = nil
       return settled()
     end
-    vim.ui.input({ prompt = "Remote user: " }, function(entered)
+    vim.ui.input({ prompt = PROMPT:format("Remote user") }, function(entered)
       if not entered or entered == "" then
         return planner.cancel(run)
       end

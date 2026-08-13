@@ -236,11 +236,33 @@ T["the order"]["asks the playbook before the directory, and the directory before
   ansible.plan()
 
   eq(ran_out, false)
-  eq(prompts[1], "Playbook")
-  eq(prompts[3], "Working directory")
-  eq(prompts[4], "Inventory")
+  eq(prompts[1], "Playbook: ")
+  eq(prompts[3], "Working directory: ")
+  eq(prompts[4], "Inventory: ")
   eq(asked("Tags reported by Ansible"), true)
   eq(asked("Limit"), true)
+end
+
+T["the order"]["ends every prompt where the typing starts"] = function()
+  -- A picker puts the prompt straight in front of what is typed into it, so a
+  -- bare label and a filter run together: `Limit` and `webservers` came out as
+  -- `Limitwebservers`. Asserted over the whole walk-through rather than on one
+  -- prompt, because the failure is per step and a new step is easy to add.
+  local steps = straight_through()
+  steps[4] = { pick = "Add a source" }
+  table.insert(steps, 5, { type = "inventories/hosts.yml" })
+  table.insert(steps, 6, { pick = "Done" })
+  answering(steps)
+
+  ansible.plan()
+
+  eq(ran_out, false)
+  eq(#prompts > 10, true)
+  for _, prompt in ipairs(prompts) do
+    if not prompt:find(": $") then
+      error(("prompt %q runs into whatever is typed after it"):format(prompt))
+    end
+  end
 end
 
 T["the order"]["ends at a started process with the prepared array"] = function()
@@ -546,7 +568,7 @@ T["the limit"]["says so when the inventory reported no hosts"] = function()
 
   ansible.plan()
 
-  eq(asked("the inventory reported no hosts"), true)
+  eq(asked("Limit (the inventory reported no hosts): "), true)
   eq(offered("Limit"), { "No limit", "Custom pattern…" })
 end
 
@@ -690,7 +712,7 @@ T["refusing"]["an inventory source that is not there, and asking again"] = funct
 
   local asked_twice = 0
   for _, prompt in ipairs(prompts) do
-    if prompt == "Inventory" then
+    if prompt == "Inventory: " then
       asked_twice = asked_twice + 1
     end
   end

@@ -273,12 +273,17 @@ T["repeating"] = new_set({
   },
 })
 
---- A directory and a playbook on disk, because a repeat re-checks both.
-local WORKING, PLAYBOOK = (function()
+--- A directory, a playbook and an inventory source on disk, because a repeat
+--- re-checks all three.
+local WORKING, PLAYBOOK, INVENTORY = (function()
   local path = vim.fn.tempname()
   vim.fn.mkdir(vim.fs.joinpath(path, "plays"), "p")
+  vim.fn.mkdir(vim.fs.joinpath(path, "inventories", "dev"), "p")
   vim.fn.writefile({ "- hosts: all" }, vim.fs.joinpath(path, "plays", "site_upgrade.yml"))
-  return vim.uv.fs_realpath(path), "plays/site_upgrade.yml"
+  local root = vim.uv.fs_realpath(path)
+  local hosts = vim.fs.joinpath(root, "inventories", "dev", "hosts.yml")
+  vim.fn.writefile({ "all:" }, hosts)
+  return root, "plays/site_upgrade.yml", hosts
 end)()
 
 --- An executable that exists, standing in for `ansible-playbook`.
@@ -291,7 +296,7 @@ local function ran()
   planner.set_executable(run, ANSIBLE)
   planner.set_directory(run, WORKING)
   planner.set_playbooks(run, { PLAYBOOK })
-  planner.set_inventory(run, { "inventories/dev/hosts.yml" })
+  planner.set_inventory(run, { INVENTORY })
   planner.set_tags(run, { "common" })
   planner.set_limit(run, "webservers")
   run.plan.become = true
@@ -322,7 +327,7 @@ T["repeating"]["carries the decisions of the last invocation"] = function()
 
   eq(run.directory, WORKING)
   eq(run.plan.playbooks, { PLAYBOOK })
-  eq(run.plan.inventory, { "inventories/dev/hosts.yml" })
+  eq(run.plan.inventory, { INVENTORY })
   eq(run.plan.tags, { "common" })
   eq(run.plan.limit, "webservers")
   eq(run.plan.become, true)
@@ -431,6 +436,20 @@ T["repeating"]["refuses when a playbook can no longer be read"] = function()
 
   eq(recalled, nil)
   eq(problem:find("deleted.yml", 1, true) ~= nil, true)
+end
+
+T["repeating"]["refuses when an inventory source has gone"] = function()
+  -- An hour can pass between two repeats, and a `-i` that has gone is not an
+  -- error to Ansible: it warns, resolves nothing and exits 0 (§20.17). Without
+  -- this the repeat would run against no host and report success.
+  local run = ran()
+  planner.set_inventory(run, { vim.fs.joinpath(WORKING, "inventories", "retired") })
+  planner.remember(run)
+
+  local recalled, problem = planner.recall(resolver(ANSIBLE))
+
+  eq(recalled, nil)
+  eq(problem:find("inventories/retired", 1, true) ~= nil, true)
 end
 
 T["repeating"]["remembers the most recent invocation, not the first"] = function()
