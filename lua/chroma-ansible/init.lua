@@ -215,10 +215,25 @@ local function ask_inventory(run, sources, settled)
     if value == "add" then
       -- A file or a directory, and never called a `hosts.yml`: an inventory may
       -- be a directory, an executable script or a plugin configuration (§5.2).
-      -- Relative to the frozen directory, which is what makes
-      -- `../inventories/dev/hosts.yml` mean one thing.
-      return ask_path(run, "Inventory source: ", "", function(entered)
-        table.insert(sources, entered)
+      --
+      -- The prompt opens at the frozen directory and the answer is resolved
+      -- against it, so the path that gets completed and the path that reaches
+      -- `-i` are the same path. Completion is Neovim's, anchored at Neovim's
+      -- directory, and the run is anchored at the directory chosen two steps
+      -- ago: with the playbook one level down those differ, and a source typed
+      -- against the wrong one used to arrive as an inventory Ansible could not
+      -- parse — `rc=0`, a warning nothing shows, and a Limit with no hosts in it.
+      return ask_path(run, "Inventory source: ", run.directory .. "/", function(entered)
+        local resolved, problem = context.inventory(run.directory, entered)
+        if not resolved then
+          refuse(problem)
+          -- Back to the list rather than out of the run, unlike a refused
+          -- working directory (§3.3): nothing has been frozen by this step, the
+          -- other sources already chosen are still good, and the picker the
+          -- operator came from is the obvious place to try again.
+          return ask_inventory(run, sources, settled)
+        end
+        table.insert(sources, resolved)
         ask_inventory(run, sources, settled)
       end)
     end
@@ -329,14 +344,29 @@ end
 ---@param settled fun()
 local function pick_limit(run, graph, settled)
   local choices = { { label = "No limit", value = false } }
+  local prompt = "Limit"
 
-  if graph then
+  -- An inventory with no hosts in it is a graph, not a failure: `--graph`
+  -- answers `@all:` and `@ungrouped:` for an empty inventory, for an inventory
+  -- Ansible could not parse, and for a path that is not there — all three with
+  -- `rc=0`. Offering those two groups would put a list in front of somebody
+  -- that is indistinguishable from a working inventory whose groups are simply
+  -- named `all` and `ungrouped`, and neither of them would limit the run to
+  -- anything. So the fact is said out loud instead, in Chroma's own words: no
+  -- part of the subprocess's output is repeated (§7.4).
+  local discovered = graph
+  if graph and #graph.hosts == 0 then
+    prompt = "Limit — the inventory reported no hosts"
+    discovered = nil
+  end
+
+  if discovered then
     -- Groups first (§7.5). An inventory with thirty thousand hosts must not
     -- become thirty thousand rows before anybody has chosen anything.
-    for _, group in ipairs(graph.groups) do
+    for _, group in ipairs(discovered.groups) do
       table.insert(choices, { label = ("Group: %s"):format(group), value = group })
     end
-    for _, host in ipairs(graph.hosts) do
+    for _, host in ipairs(discovered.hosts) do
       table.insert(choices, { label = ("Host: %s"):format(host), value = host })
     end
   end
@@ -344,7 +374,7 @@ local function pick_limit(run, graph, settled)
   -- pattern, and whether that is a comma or a colon is the operator's decision.
   table.insert(choices, { label = "Custom pattern…", value = "custom" })
 
-  choose(run, "Limit", choices, function(value)
+  choose(run, prompt, choices, function(value)
     if value == "custom" then
       return vim.ui.input({ prompt = "Host pattern: " }, function(entered)
         if not entered or entered == "" then

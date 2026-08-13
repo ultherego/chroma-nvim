@@ -323,6 +323,25 @@ therefore accepts a **file or a directory** and never calls the thing a
 Paths are relative to the frozen working directory (§3), which is what makes
 `../inventories/dev/hosts.yml` mean one thing.
 
+**Checked when it is typed, and stored resolved.** The prompt opens at the
+frozen directory and the answer is resolved against it; a source that is not a
+readable file or a directory this user can enter is refused there and then,
+naming the path the subprocess would have opened. What the list keeps is the
+canonical path, so the preview shows the file Ansible will read rather than a
+path the reader has to compose from two lines of the screen.
+
+The reason it is a refusal rather than something Ansible reports: it is not
+something Ansible reports. A `-i` that does not exist produces a warning on
+stderr and **`rc=0`**, an inventory of nothing, and a run that proceeds — which
+is indistinguishable, on every screen after it, from an inventory that is
+genuinely empty. Measured on 2.21.2, §20.17.
+
+This is the one place where completion and execution can disagree.
+`vim.ui.input`'s file completion is anchored at Neovim's directory, the run is
+anchored at the frozen one, and with a playbook one level down those differ. The
+prompt's default is what puts them back in the same place before anything is
+typed.
+
 ### 5.3 Inheriting Ansible's own configuration
 
 ```text
@@ -581,6 +600,24 @@ M1 offers no limit, one group, one host, or a custom pattern. It does **not**
 offer multi-select of hosts: combining two hosts means generating a host
 pattern, and whether that is `host1,host2` or `host1:host2` is a semantic
 decision that belongs to the operator, who can type it.
+
+**An inventory with no hosts in it is said out loud.** `--graph` answers `@all:`
+and `@ungrouped:` with `rc=0` for an empty inventory, for one Ansible could not
+parse, and for a source that is not there — three different situations that
+reach this step looking identical. Listing those two groups would put a menu in
+front of somebody that cannot be told apart from a working inventory whose
+groups happen to be named `all` and `ungrouped`, and limiting to either of them
+would match nothing. So when the graph reports no hosts at all, the discovered
+entries are left out and the prompt says why:
+
+```text
+Limit — the inventory reported no hosts
+
+> No limit
+  Custom pattern…
+```
+
+Chroma's own words, not the subprocess's: §7.4 holds here as everywhere.
 
 ### 9.2 `No limit` is not `-l all`
 
@@ -1225,6 +1262,20 @@ newline was dropped by Ansible before any output: `--list-hosts` reported
 parsed before anything is listed. Partial output followed by a non-zero exit is
 therefore not a case 2.21.2 produces, and the planner treats it as a failure
 regardless of what reached stdout.
+
+**20.17 An inventory source that is not there is a warning, not a failure.**
+`ansible-inventory -i inventories/dev/hosts.yml --graph`, run from a directory
+where that path does not exist, printed `Unable to parse … as an inventory
+source` and `No inventory was parsed` on stderr, `@all:` and `@ungrouped:` on
+stdout, and exited **0**. The playbook does the same: `ansible-playbook -i
+<missing> site.yml` warned four times, reported `skipping: no hosts matched`,
+and exited **0** with an empty play recap.
+
+Both halves matter. The first says the graph cannot distinguish a missing source
+from an empty inventory, so §9.1 states the outcome rather than showing two
+groups. The second says the run cannot either — without §5.2's check, a
+misanchored path ends in a terminal that exits green having done nothing at all,
+which is the worst of the three ways this can go.
 
 ---
 

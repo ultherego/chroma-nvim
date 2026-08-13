@@ -23,19 +23,31 @@ local runner = require("chroma-ansible.run")
 --- A directory holding a playbook, because both are checked for real. The
 --- `ansible.cfg` is what makes the directory itself a candidate: §3.3 offers
 --- Neovim's directory, the playbook's own, and ancestors carrying that file.
+--- Inventory sources exist for real too, because the step now resolves what it
+--- is given against the frozen directory and refuses what is not there.
 local WORKING, PLAYBOOK = (function()
   local path = vim.fn.tempname()
   vim.fn.mkdir(vim.fs.joinpath(path, "plays"), "p")
+  vim.fn.mkdir(vim.fs.joinpath(path, "inventories", "prod"), "p")
+  vim.fn.mkdir(vim.fs.joinpath(path, "inventories", "common"), "p")
   vim.fn.writefile({ "[defaults]" }, vim.fs.joinpath(path, "ansible.cfg"))
+  vim.fn.writefile({ "all:" }, vim.fs.joinpath(path, "inventories", "hosts.yml"))
   local playbook = vim.fs.joinpath(path, "plays", "site_upgrade.yml")
   vim.fn.writefile({ "- hosts: all" }, playbook)
   return vim.uv.fs_realpath(path), playbook
 end)()
 
+---A path inside the working directory.
+---@param ... string
+---@return string
+local function at(...)
+  return vim.fs.joinpath(WORKING, ...)
+end
+
 --- Stands in for both Ansible tools, and is executable, which `run.lua` checks.
 local TOOL = vim.fn.exepath("sh")
 
-local saved, prompts, started, confirmed, script, ran_out
+local saved, prompts, started, confirmed, script, ran_out, menus, defaults
 
 ---Installs the scripted answers.
 ---
@@ -61,6 +73,9 @@ local T = new_set({
   hooks = {
     pre_case = function()
       prompts, started, confirmed, script, ran_out = {}, {}, true, {}, false
+      -- What each menu offered and what each path prompt started from, kept
+      -- apart from `prompts` so the substring helper stays a list of strings.
+      menus, defaults = {}, {}
       planner.forget()
 
       saved = {
@@ -77,6 +92,11 @@ local T = new_set({
 
       vim.ui.select = function(items, opts, on_choice)
         table.insert(prompts, opts.prompt)
+        local labels = {}
+        for _, item in ipairs(items) do
+          table.insert(labels, item.label)
+        end
+        table.insert(menus, { prompt = opts.prompt, labels = labels })
         local step = next_answer()
         if not step.pick then
           return on_choice(nil)
@@ -91,6 +111,7 @@ local T = new_set({
 
       vim.ui.input = function(opts, on_confirm)
         table.insert(prompts, opts.prompt)
+        table.insert(defaults, { prompt = opts.prompt, default = opts.default })
         on_confirm(next_answer().type)
       end
 
@@ -156,6 +177,30 @@ local function asked(text)
     end
   end
   return false
+end
+
+---What one menu offered, found by the text in its prompt.
+---@param text string
+---@return string[]|nil
+local function offered(text)
+  for _, menu in ipairs(menus) do
+    if menu.prompt and menu.prompt:find(text, 1, true) then
+      return menu.labels
+    end
+  end
+  return nil
+end
+
+---What a path prompt was pre-filled with, found by the text in its prompt.
+---@param text string
+---@return string|nil
+local function started_at(text)
+  for _, entry in ipairs(defaults) do
+    if entry.prompt and entry.prompt:find(text, 1, true) then
+      return entry.default
+    end
+  end
+  return nil
 end
 
 -- ---------------------------------------------------------------------------
@@ -246,25 +291,13 @@ T["the order"]["offers the buffer and still asks"] = function()
   vim.api.nvim_buf_set_name(buffer, PLAYBOOK)
   vim.api.nvim_set_current_buf(buffer)
 
-  local offered = {}
-  local select = vim.ui.select
-  vim.ui.select = function(items, opts, on_choice)
-    if opts.prompt == "Playbook" then
-      for _, item in ipairs(items) do
-        table.insert(offered, item.label)
-      end
-    end
-    return select(items, opts, on_choice)
-  end
-
   local steps = straight_through()
   steps[2] = { type = other }
   answering(steps)
   ansible.plan()
-  vim.ui.select = select
   vim.api.nvim_set_current_buf(vim.api.nvim_create_buf(false, true))
 
-  eq(offered[1]:find("Current buffer", 1, true) ~= nil, true)
+  eq(offered("Playbook")[1]:find("Current buffer", 1, true) ~= nil, true)
   eq(started[1].command[#started[1].command], "plays/second.yml")
 end
 
@@ -488,6 +521,49 @@ end
 -- ---------------------------------------------------------------------------
 -- What the steps record
 
+-- ---------------------------------------------------------------------------
+-- What the limit offers
+
+T["the limit"] = new_set()
+
+T["the limit"]["offers the groups Ansible reported before its hosts"] = function()
+  answering(straight_through())
+
+  ansible.plan()
+
+  eq(offered("Limit"), { "No limit", "Group: all", "Group: webservers", "Host: web01", "Custom pattern…" })
+end
+
+T["the limit"]["says so when the inventory reported no hosts"] = function()
+  -- `--graph` answers `@all:` and `@ungrouped:` with `rc=0` for an empty
+  -- inventory, for one Ansible could not parse and for a path that is not
+  -- there. Offering those two groups would be a list indistinguishable from a
+  -- working inventory, and limiting to either of them would match nothing.
+  inspect.inventory = function(_, _, on_done)
+    on_done({ graph = { groups = { "all", "ungrouped" }, hosts = {}, children = {} } })
+  end
+  answering(straight_through())
+
+  ansible.plan()
+
+  eq(asked("the inventory reported no hosts"), true)
+  eq(offered("Limit"), { "No limit", "Custom pattern…" })
+end
+
+T["the limit"]["still offers a group that has hosts under it"] = function()
+  -- The rule is "no hosts anywhere", not "no groups worth showing": an
+  -- inventory with one group and one host in it is a normal inventory.
+  inspect.inventory = function(_, _, on_done)
+    on_done({ graph = { groups = { "all", "web" }, hosts = { "web01" }, children = {} } })
+  end
+  answering(straight_through())
+
+  ansible.plan()
+
+  eq(asked("the inventory reported no hosts"), false)
+  eq(offered("Limit"), { "No limit", "Group: all", "Group: web", "Host: web01", "Custom pattern…" })
+end
+
 T["the answers"] = new_set()
 
 T["the answers"]["put the tags and the limit into the command"] = function()
@@ -551,7 +627,74 @@ T["the answers"]["keep several inventory sources in the order they were added"] 
   ansible.plan()
 
   local command = started[1].command
-  eq({ command[2], command[3], command[4], command[5] }, { "-i", "inventories/prod", "-i", "inventories/common" })
+  eq({ command[2], command[3], command[4], command[5] }, {
+    "-i",
+    at("inventories", "prod"),
+    "-i",
+    at("inventories", "common"),
+  })
+end
+
+T["the answers"]["open the inventory prompt at the frozen directory"] = function()
+  -- Completion is Neovim's and is anchored at Neovim's directory; the run is
+  -- anchored at the directory chosen two steps earlier. Pre-filling the prompt
+  -- is what puts the two in the same place before anything is typed.
+  local steps = straight_through()
+  steps[4] = { pick = "Add a source" }
+  table.insert(steps, 5, { type = "inventories/hosts.yml" })
+  table.insert(steps, 6, { pick = "Done" })
+  answering(steps)
+
+  ansible.plan()
+
+  eq(started_at("Inventory source"), WORKING .. "/")
+end
+
+T["the answers"]["store an inventory source resolved against the frozen directory"] = function()
+  -- The relative path is real from the working directory and would be a
+  -- different file, or none, from anywhere else. What reaches `-i` is neither
+  -- ambiguous nor dependent on where Neovim happens to be.
+  local steps = straight_through()
+  steps[4] = { pick = "Add a source" }
+  table.insert(steps, 5, { type = "plays/../inventories/hosts.yml" })
+  table.insert(steps, 6, { pick = "Done" })
+  answering(steps)
+
+  ansible.plan()
+
+  eq(started[1].run.plan.inventory, { at("inventories", "hosts.yml") })
+end
+
+T["refusing"]["an inventory source that is not there, and asking again"] = function()
+  -- The failure that produced this: a path typed against Neovim's directory is
+  -- absent from the working directory, Ansible answers a warning and `rc=0`,
+  -- and the planner used to carry on with an inventory of nothing. It is
+  -- refused here instead, naming the path the subprocess would have opened —
+  -- and the list is offered again, because one mistyped source is not a reason
+  -- to lose the run.
+  local said
+  vim.notify = function(message)
+    said = message
+  end
+  local steps = straight_through()
+  steps[4] = { pick = "Add a source" }
+  table.insert(steps, 5, { type = "inventories/dev/hosts.yml" })
+  table.insert(steps, 6, { pick = "Use Ansible configuration" })
+  answering(steps)
+
+  ansible.plan()
+
+  eq(said:find(at("inventories", "beta", "hosts.yml"), 1, true) ~= nil, true)
+  eq(started[1].run.plan.inventory, {})
+  eq(vim.tbl_contains(started[1].command, "-i"), false)
+
+  local asked_twice = 0
+  for _, prompt in ipairs(prompts) do
+    if prompt == "Inventory" then
+      asked_twice = asked_twice + 1
+    end
+  end
+  eq(asked_twice, 2)
 end
 
 T["the answers"]["emit nothing for the overrides nobody set"] = function()

@@ -1,10 +1,10 @@
 -- Where Ansible will run, and which file it will be handed.
 --
--- Two questions with one property in common: both are answered from the
+-- Three questions with one property in common: all are answered from the
 -- filesystem and from the operator, never from a guess about what a file
 -- contains. This module stats, resolves and refuses. It starts no process,
 -- opens no picker and reads the contents of nothing. The rules are
--- `doc/chroma-ansible-design.md`, sections 3 and 4.
+-- `doc/chroma-ansible-design.md`, sections 3, 4 and 5.
 --
 -- **The working directory is part of what a command means.** Ansible reads
 -- `ansible.cfg` from the current directory and **does not search upward**
@@ -224,6 +224,54 @@ function M.under(directory, path)
     return path
   end
   return vim.fs.joinpath(directory, path)
+end
+
+---Accepts an inventory source, or says why not.
+---
+---A file or a directory (§5.2) — an inventory may be a `hosts.yml`, a directory
+---of them, an executable script or a plugin configuration, and all four are one
+---of those two things on disk. What is inside is Ansible's business.
+---
+---**Resolved here, and stored resolved.** A path typed into the prompt is
+---relative to whatever the operator was looking at; a path handed to `-i` is
+---relative to the frozen working directory, and the two are not the same place
+---when the playbook lives one level down. Resolving at the moment of entry is
+---what makes the difference visible — the problem below names the path the
+---subprocess would have opened, so a doubled or misanchored prefix can be read
+---off the message instead of arriving as an inventory with no hosts in it.
+---@param directory string the frozen working directory
+---@param path string as typed
+---@return string|nil resolved canonical, string|nil problem
+function M.inventory(directory, path)
+  if type(path) ~= "string" or path == "" then
+    return nil, "no inventory source was given"
+  end
+
+  local target = M.under(directory, path)
+  local resolved = canonical(target)
+  if not resolved then
+    return nil, ("the inventory source %s does not exist"):format(target)
+  end
+
+  local entry = vim.uv.fs_stat(resolved)
+  if entry and entry.type == "directory" then
+    if not usable_directory(resolved) then
+      return nil, ("the inventory source %s is not a directory you can read"):format(target)
+    end
+    return resolved, nil
+  end
+
+  if not readable_file(resolved) then
+    -- Named by what it is, because a socket or a device answering `-i` fails
+    -- inside Ansible with a message about parsing rather than about the file.
+    local kind = entry and entry.type or "unreadable"
+    if kind == "file" then
+      return nil, ("the inventory source %s cannot be read"):format(target)
+    end
+    return nil, ("the inventory source %s is a %s, not a file or a directory"):format(target, kind)
+  end
+
+  return resolved, nil
 end
 
 ---Whether what was chosen can still be run, or why not.

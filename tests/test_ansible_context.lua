@@ -33,6 +33,12 @@ local function build()
   vim.fn.writefile({ "- hosts: all" }, vim.fs.joinpath(root, "work", "operations", "plays", "other.YAML"))
   vim.fn.writefile({ "notes" }, vim.fs.joinpath(root, "work", "operations", "plays", "readme.txt"))
 
+  -- Beside the playbook's tree rather than inside it, which is the layout the
+  -- inventory cases below are about: `work/operations` runs the playbook and the
+  -- sources live one level up.
+  vim.fn.mkdir(vim.fs.joinpath(root, "work", "inventories", "beta"), "p")
+  vim.fn.writefile({ "all:" }, vim.fs.joinpath(root, "work", "inventories", "beta", "hosts.yml"))
+
   return root
 end
 
@@ -143,6 +149,122 @@ T["playbook"]["refuses a broken symlink rather than stepping over it"] = functio
   vim.uv.fs_symlink(at("gone.yml"), link)
 
   eq(select(2, context.playbook(link)) ~= nil, true)
+end
+
+-- ---------------------------------------------------------------------------
+-- Inventory sources
+
+T["inventory"] = new_set()
+
+T["inventory"]["resolves a relative source against the frozen directory"] = function()
+  -- The whole point of resolving here. `../inventories/dev/hosts.yml` typed
+  -- while the run happens in `work/operations` means one file, and it is not the
+  -- one the same text means anywhere else.
+  local resolved, problem = context.inventory(at("work", "operations"), "../inventories/dev/hosts.yml")
+
+  eq(problem, nil)
+  eq(resolved, at("work", "inventories", "beta", "hosts.yml"))
+end
+
+T["inventory"]["refuses a source that is not under the frozen directory, naming where it looked"] = function()
+  -- The failure this exists for: the path is real relative to `work`, which is
+  -- where the completion was typed, and absent relative to `work/operations`,
+  -- which is where the process starts. Ansible answers that with a warning and
+  -- `rc=0`, so nothing downstream would have called it a problem.
+  local resolved, problem = context.inventory(at("work", "operations"), "inventories/dev/hosts.yml")
+
+  eq(resolved, nil)
+  eq(problem:find(at("work", "operations", "inventories", "beta", "hosts.yml"), 1, true) ~= nil, true)
+  -- And says which of the refusals it is. A path that is not there and a path
+  -- that cannot be read are two different mistakes with two different fixes,
+  -- and this is the one somebody reads while looking at a doubled prefix.
+  eq(problem:find("does not exist", 1, true) ~= nil, true)
+end
+
+T["inventory"]["accepts a directory of sources"] = function()
+  -- §5.2: a source is a file *or* a directory, and Ansible merges a directory's
+  -- contents itself.
+  local resolved, problem = context.inventory(at("work", "operations"), "../inventories/dev")
+
+  eq(problem, nil)
+  eq(resolved, at("work", "inventories", "beta"))
+end
+
+T["inventory"]["takes an absolute source from wherever it is given"] = function()
+  local absolute = at("work", "inventories", "beta", "hosts.yml")
+
+  eq(context.inventory(at("work", "operations"), absolute), absolute)
+  eq(context.inventory(at("work", "operations", "plays"), absolute), absolute)
+end
+
+T["inventory"]["answers with the canonical path, not the one that was typed"] = function()
+  -- Stored resolved, so the preview shows the file that will be opened rather
+  -- than a path somebody has to compose in their head.
+  local resolved = context.inventory(at("work", "operations"), "../inventories/../inventories/dev/hosts.yml")
+
+  eq(resolved, at("work", "inventories", "beta", "hosts.yml"))
+end
+
+T["inventory"]["refuses an empty answer"] = function()
+  eq(select(2, context.inventory(at("work", "operations"), "")) ~= nil, true)
+end
+
+T["inventory"]["refuses a broken symlink rather than stepping over it"] = function()
+  local link = at("work", "operations", "inventory-link")
+  vim.uv.fs_symlink(at("work", "gone.yml"), link)
+
+  eq(select(2, context.inventory(at("work", "operations"), "inventory-link")) ~= nil, true)
+end
+
+T["inventory"]["refuses something that is neither a file nor a directory, by name"] = function()
+  -- A socket is the reachable case: `-i` pointed at one fails inside Ansible
+  -- with a message about parsing an inventory, which describes the wrong thing.
+  local path = at("work", "operations", "inventory.sock")
+  local pipe = vim.uv.new_pipe(false)
+  eq(pipe:bind(path), 0)
+
+  local resolved, problem = context.inventory(at("work", "operations"), "inventory.sock")
+  pipe:close()
+
+  eq(resolved, nil)
+  eq(problem:find("socket", 1, true) ~= nil, true)
+  eq(problem:find("not a file or a directory", 1, true) ~= nil, true)
+end
+
+T["inventory"]["refuses a file it may not read"] = function()
+  -- Injected rather than produced with chmod, so the case says the same thing
+  -- when the suite runs as root.
+  local target = at("work", "inventories", "beta", "hosts.yml")
+  local real = vim.uv.fs_access
+  vim.uv.fs_access = function(path, mode)
+    if path == target then
+      return false
+    end
+    return real(path, mode)
+  end
+  local ok, resolved, problem = pcall(context.inventory, at("work", "operations"), "../inventories/dev/hosts.yml")
+  vim.uv.fs_access = real
+
+  eq(ok, true)
+  eq(resolved, nil)
+  eq(problem:find("cannot be read", 1, true) ~= nil, true)
+end
+
+T["inventory"]["refuses a directory it may not enter"] = function()
+  local target = at("work", "inventories", "beta")
+  local real = vim.uv.fs_access
+  vim.uv.fs_access = function(path, mode)
+    if path == target and mode == "X" then
+      return false
+    end
+    return real(path, mode)
+  end
+  local ok, resolved, problem = pcall(context.inventory, at("work", "operations"), "../inventories/dev")
+  vim.uv.fs_access = real
+
+  eq(ok, true)
+  eq(resolved, nil)
+  eq(problem:find("not a directory you can read", 1, true) ~= nil, true)
 end
 
 -- ---------------------------------------------------------------------------

@@ -825,6 +825,13 @@ Inventory is a list, in your order, never sorted: `-i` may be given several
 times and the order decides which definition of a host wins. `Use Ansible
 configuration` means exactly one thing — no `-i` is passed at all.
 
+The prompt opens at the working directory you froze, and what you type is
+resolved against it. A source that is not there is refused on the spot, naming
+the full path Ansible would have opened, and you are asked again. Ansible
+would not have refused it: a `-i` that does not exist is a warning on stderr
+and exit 0, an inventory of nothing, and a run that reports `skipping: no
+hosts matched` and exits green.
+
 Before Ansible runs                                  *chroma-nvim-ansible-gate*
 
 Choosing a file in a picker never starts anything. Before the first Ansible
@@ -871,6 +878,12 @@ Limits and overrides                                *chroma-nvim-ansible-limit*
 the authority, and `-l all` would override it. A custom pattern reaches Ansible
 byte for byte — `webservers:&production` is Ansible's to interpret, and there
 is no shell anywhere in this module.
+
+The groups and hosts offered here are the ones `--graph` reported for the
+sources you chose. When it reports no hosts at all, the list says so and offers
+only `No limit` and `Custom pattern...`: every inventory answers `all` and
+`ungrouped`, including one Ansible could not read, and limiting a run to either
+of them would match nothing.
 
 Every CLI option is inherit-or-override, never on or off:
 >
