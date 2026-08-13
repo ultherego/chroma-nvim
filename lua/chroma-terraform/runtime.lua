@@ -9,9 +9,8 @@
 local M = {}
 
 local OWNER_ONLY = tonumber("700", 8)
---- Everything below the file type: the nine permission bits and the three special
---- ones. Masking to 0777 instead would call 01700 a 0700 directory — the same
---- answer for a directory the specification does not describe.
+--- Everything below the file type: the nine permission bits and the three
+--- special ones. Masking to 0777 would call 01700 a 0700 directory.
 local MODE_BITS = tonumber("10000", 8)
 
 ---Owner and permissions of a directory about to hold something private.

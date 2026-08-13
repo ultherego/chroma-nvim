@@ -12,9 +12,9 @@ M.options = vim.deepcopy(defaults)
 ---@type table<string, string|nil>
 local initial = {}
 
---- Whether `initial` holds the startup environment yet. A second `setup` happens
---- after profiles have been switched, so recapturing there would quietly make the
---- current profile the one `:AwsClear` restores.
+--- Whether `initial` holds the startup environment yet. A second `setup` after
+--- a switch would otherwise make the current profile the one `:AwsClear`
+--- restores.
 local initial_captured = false
 
 --- What `:AwsClear` restores, and the only variables this module sets.
@@ -52,27 +52,22 @@ local function capture(cmd)
     return nil, "`aws` not found on PATH"
   end
 
-  -- vim.system raises before it spawns anything on a bad request, and this one is
-  -- reached from a picker callback where an exception is a stack trace rather than
-  -- a message. There is no custom cwd here, so it is far less reachable than the
-  -- same call in the terraform runner — the contract is the same either way.
+  -- vim.system raises before spawning on a bad request, and this is reached
+  -- from a picker callback where an exception is a stack trace, not a message.
   local ran, result = pcall(function()
-    -- Bounded. `wait()` with no timeout waits forever, and the AWS CLI waits on
-    -- things that can take forever themselves: an SSO login in another window, a
-    -- credential_process prompting for a hardware key, DNS to an endpoint that
-    -- does not answer. Neovim is single-threaded here, so "forever" means the
-    -- editor, not just the picker. Measured: a timeout kills the process and
-    -- comes back with code 124.
+    -- Bounded: `wait()` with no timeout waits forever, and the AWS CLI waits on
+    -- an SSO login, a credential_process or DNS that may not answer. Neovim is
+    -- single-threaded here, so forever means the editor. Measured: the timeout
+    -- kills the process and comes back with code 124.
     return vim.system(cmd, { text = true }):wait(TIMEOUT_MS)
   end)
   if not ran then
     return nil, ("could not run aws: %s"):format(result)
   end
 
-  -- Two shapes mean the same thing. Measured: `wait(timeout)` answers a result
-  -- with code 124 when it kills the process, but nil when a child outlives the
-  -- kill and holds the pipes open — a shell wrapper around the real command does
-  -- exactly that, and it took twice the timeout to come back.
+  -- Two shapes mean the same thing. Measured: `wait(timeout)` answers code 124
+  -- when it kills the process, but nil when a child outlives the kill and holds
+  -- the pipes open — a shell wrapper does exactly that.
   if not result or result.code == 124 then
     return nil,
       ("`%s` did not answer within %d seconds and was stopped. "):format(table.concat(cmd, " "), TIMEOUT_MS / 1000)

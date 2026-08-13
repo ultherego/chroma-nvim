@@ -131,9 +131,9 @@ local function run(args, opts)
   vim.list_extend(cmd, args)
   vim.list_extend(cmd, auth_args(opts.auth or {}, password_path))
 
-  -- vim.system raises before it starts anything when `cwd` has been removed or is not
-  -- a directory. Raising past this point would skip the cleanup below and leave the
-  -- password staged for the rest of the session.
+  -- vim.system raises before starting anything when `cwd` has been removed.
+  -- Raising past this point would skip the cleanup and leave the password
+  -- staged for the rest of the session.
   local ran, result = pcall(function()
     return vim
       .system(cmd, {
@@ -149,8 +149,8 @@ local function run(args, opts)
   if cleanup then
     local removed, cleanup_err = cleanup()
     if not removed then
-      -- Not folded into the return value: rekey may already have rewritten the file,
-      -- and calling a finished operation failed would be the worse lie of the two.
+      -- Not folded into the return value: rekey may already have rewritten the
+      -- file, and calling a finished operation failed is the worse lie.
       vim.notify(
         ("SECURITY: the staged Vault password file could not be removed (%s).\nIt holds the password you typed — remove it yourself:\n%s"):format(
           cleanup_err,
@@ -165,10 +165,9 @@ local function run(args, opts)
     return nil, ("could not run ansible-vault: %s"):format(result)
   end
 
-  -- Two shapes, one meaning: a killed process answers with code 124, but a child
-  -- that outlives the kill and holds the pipes open answers nil. The staged
-  -- password has already been removed above either way, which is the part that
-  -- mattered — a hang used to leave it on disk for as long as the hang lasted.
+  -- Two shapes, one meaning: a killed process answers 124, but a child that
+  -- outlives the kill and holds the pipes open answers nil. The staged password
+  -- has already been removed either way, which is the part that mattered.
   if not result or result.code == 124 then
     return nil,
       ("ansible-vault did not answer within %d seconds and was stopped.\n"):format(TIMEOUT_MS / 1000)

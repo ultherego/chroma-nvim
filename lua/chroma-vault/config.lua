@@ -21,11 +21,11 @@ local function dump(cwd)
     return nil, "ansible-config not found — is ansible installed and on PATH?"
   end
 
-  -- Raises rather than returns when `cwd` has been removed or is not a directory, and
-  -- an unanswerable question about the configuration is an error like any other.
+  -- Raises rather than returns when `cwd` has been removed or is not a
+  -- directory, which is an error like any other.
   local ran, result = pcall(function()
-    -- Bounded for the same reason as every other ansible call here: it resolves
-    -- configuration that can name programs, and this one blocks the editor.
+    -- Bounded: it resolves configuration that can name programs, and this call
+    -- blocks the editor.
     return vim.system({ "ansible-config", "dump" }, { cwd = cwd, text = true }):wait(TIMEOUT_MS)
   end)
 

@@ -52,8 +52,8 @@ local function auth_for(buf)
   local resolved = resolved_cache[cwd]
 
   if resolved.password_file or #resolved.identities > 0 then
-    -- No credential arguments: ansible reads them from ansible.cfg, and repeating
-    -- them registers a second identity under the same label, which ansible refuses.
+    -- No credential arguments: ansible reads them from ansible.cfg, and
+    -- repeating them registers a second identity under the same label.
     return {
       cwd = cwd,
       -- NOT `identities`, which cli.auth_args would turn into --vault-id arguments.
@@ -73,10 +73,8 @@ local function auth_for(buf)
 end
 
 ---Which identity to encrypt with; ansible refuses to guess when several are configured.
----
----Answering "no identity is needed" and "the user cancelled" with the same `nil` made
----dismissing the list encrypt with the default instead of stopping, so the two are
----separate return values.
+---Answering "no identity is needed" and "the user cancelled" with the same `nil`
+---made dismissing the list encrypt with the default, so they are separate.
 ---@param auth ansible_vault.Auth
 ---@return string|nil identity  what to pass as --encrypt-vault-id, nil when unnecessary
 ---@return boolean proceed      false when the choice was dismissed
@@ -303,8 +301,8 @@ end
 function M.encrypt_selection(opts)
   local buf = vim.api.nvim_get_current_buf()
 
-  -- From the command's range, never the '< '> marks: those outlive their selection
-  -- and would encrypt whatever was selected last, somewhere else in the file.
+  -- From the command's range, never the '< '> marks: those outlive their
+  -- selection and would encrypt whatever was selected last.
   if not opts or (opts.range or 0) == 0 then
     vim.notify("VaultEncrypt needs a range — select the lines first, or use :N,MVaultEncrypt", vim.log.levels.WARN)
     return
@@ -328,8 +326,8 @@ function M.encrypt_selection(opts)
     return
   end
 
-  -- The same question the whole-file paths ask: with several configured identities
-  -- ansible refuses to guess, and an inline value is no different.
+  -- With several configured identities ansible refuses to guess, and an inline
+  -- value is no different.
   local identity, proceed = encrypt_identity_for(auth)
   if not proceed then
     return
@@ -377,9 +375,8 @@ end
 
 ---@param buf integer
 local function remember_file_state(buf)
-  -- Three states, not two. "There was no file" is something this plugin looked at
-  -- and knows; storing nil for it is indistinguishable from never having looked,
-  -- and the check below reads that as nothing to protect.
+  -- Three states, not two: "there was no file" is something this looked at and
+  -- knows, and nil for it is indistinguishable from never having looked.
   local fingerprint = file_fingerprint(vim.api.nvim_buf_get_name(buf))
   vim.b[buf].ansible_vault_stat = fingerprint or { absent = true }
 end
@@ -395,8 +392,8 @@ local function file_changed_since_read(buf)
   local current = file_fingerprint(vim.api.nvim_buf_get_name(buf))
 
   if remembered.absent then
-    -- `:write` on a buffer whose file never existed is Neovim's E13, and E13 tells
-    -- you to add `!`. The bang overrides Neovim's checks, not this one.
+    -- `:write` on a buffer whose file never existed is Neovim's E13, which
+    -- tells you to add `!`. The bang overrides Neovim's checks, not this one.
     if current then
       return "a file has appeared on disk since this buffer was converted"
     end
@@ -463,8 +460,8 @@ end
 ---@param contents string
 ---@return boolean ok, string|nil err
 local function write_atomically(path, contents)
-  -- rename() replaces exactly the name it is given: a symlink becomes a regular file
-  -- and the real vault stays stale, and other hard links keep the old contents.
+  -- rename() replaces exactly the name it is given: a symlink becomes a regular
+  -- file and the real vault stays stale.
   local target, link_err = check_hardlinks(path)
   if not target then
     return false,
@@ -472,10 +469,10 @@ local function write_atomically(path, contents)
         .. "Remove the other links first."
   end
 
-  -- `wx` refuses to reuse an existing name, so the name must not repeat: one built
-  -- from the pid alone comes back after a crash once that pid is reused, and every
-  -- write of this vault then fails with EEXIST for the life of the process. Same
-  -- pid-and-hrtime pair the staged password and the terraform plans use.
+  -- `wx` refuses an existing name, and one built from the pid alone comes back
+  -- after a crash once that pid is reused — every write then fails with EEXIST
+  -- for the life of the process. Same pid-and-hrtime pair as the staged
+  -- password and the terraform plans.
   local tmp = ("%s.chroma-vault.nvim.%d.%d.tmp"):format(target, vim.uv.os_getpid(), vim.uv.hrtime())
 
   local fd, open_err = vim.uv.fs_open(tmp, "wx", tonumber("600", 8))
@@ -528,10 +525,9 @@ local function write_atomically(path, contents)
     return false, with_leftover(rename_err or "rename failed")
   end
 
-  -- The rename is atomic, but the directory entry it changed is not on the disk
-  -- until the directory itself is synced: a power cut in between can leave the
-  -- old name. Said out loud rather than returned as a failure — the vault is in
-  -- place, there is nothing to undo, and "could not write" would be false.
+  -- The rename is atomic, but its directory entry is not on the disk until the
+  -- directory is synced. Said out loud rather than returned as a failure: the
+  -- vault is in place and there is nothing to undo.
   local durable, durability_err = sync_directory(vim.fs.dirname(target))
   if not durable then
     vim.notify(
@@ -549,9 +545,8 @@ end
 --- Keeps what attaches to a plaintext buffer out of the way of the write hook's group.
 local tools_group = vim.api.nvim_create_augroup("ansible_vault_tools", { clear = true })
 
---- Stops a file buffer persisting its contents, whether it currently holds plaintext
---- or the ciphertext it was just converted into. 'backup' and 'writebackup' are global
---- options and cannot be set here; M.attach_writer is what takes their place.
+--- Stops a file buffer persisting its contents. 'backup' and 'writebackup' are
+--- global options and cannot be set here; M.attach_writer takes their place.
 ---@param buf integer
 local function harden_sensitive_buffer(buf)
   vim.bo[buf].undofile = false
@@ -560,8 +555,7 @@ local function harden_sensitive_buffer(buf)
 end
 
 --- Language servers that attached to a buffer now holding plaintext are stopped
---- for it. A decrypted vault looks like ordinary YAML once its filetype is
---- detected, and a server is handed the whole buffer on didOpen — see
+--- for it: a server is handed the whole buffer on didOpen. See
 --- :help chroma-nvim-vault-tools for what this does and does not close.
 ---@param buf integer
 local function detach_language_servers(buf)
@@ -581,8 +575,7 @@ local function detach_gitsigns(buf)
 end
 
 --- Keeps the tools that would copy a buffer elsewhere off it for as long as it
---- holds plaintext. Setting the filetype is what invites language servers, so
---- this has to survive that and anything later that tries again.
+--- holds plaintext. Setting the filetype is what invites language servers.
 ---@param buf integer
 local function keep_language_servers_off(buf)
   detach_language_servers(buf)
@@ -601,8 +594,8 @@ local function keep_language_servers_off(buf)
   })
 end
 
---- Removes the undo file for a path. Turning 'undofile' off stops new ones appearing;
---- it does not remove one already holding every earlier state of the buffer.
+--- Removes the undo file for a path. Turning 'undofile' off stops new ones
+--- appearing; it does not remove one already holding every earlier state.
 ---@param path string
 ---@return boolean ok, string|nil err
 local function remove_persistent_undo(path)
@@ -621,10 +614,8 @@ end
 
 ---Converts a plaintext buffer into a vault, in place.
 ---
----Ordered so no step leaves the buffer half-converted: encryption first, because
----everything after it is destructive; then operations, the undo file, the remembered
----state and the writer; only then the buffer itself. See
----:help chroma-nvim-vault-conversion.
+---Ordered so no step leaves the buffer half-converted: encryption first,
+---because everything after it is destructive; the buffer itself last.
 function M.encrypt_file()
   local buf = vim.api.nvim_get_current_buf()
 
@@ -695,8 +686,7 @@ end
 ---Decrypts the whole current buffer in place, leaving it unsaved.
 ---
 ---Ordered so the plaintext is the last thing to appear: operations, then the
----writer, and only then the contents it protects. See
----:help chroma-nvim-vault-transparent.
+---writer, and only then the contents it protects.
 function M.decrypt_file()
   local buf = vim.api.nvim_get_current_buf()
 

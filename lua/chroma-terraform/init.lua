@@ -21,9 +21,8 @@ M.options = vim.deepcopy(defaults)
 ---@type table<string, table>
 local plans = {}
 
---- Every plan file this session has asked for and has not removed yet, keyed by path.
---- A reviewed plan is in `plans` as well; one still being written, or one whose
---- command ended with nothing worth keeping, is only here.
+--- Every plan file this session asked for and has not removed, keyed by path. A
+--- reviewed plan is in `plans` as well; one still being written is only here.
 ---@type table<string, boolean>
 local artifacts = {}
 
@@ -31,10 +30,9 @@ local artifacts = {}
 ---@type table<string, integer>
 local generation = {}
 
---- Directories with plans in flight, as the set of generations that claimed them.
---- A set rather than one value: two plans can overlap by design, and the newer one
---- finishing says nothing about the older process, which is still running terraform
---- in that directory.
+--- Directories with plans in flight, as the set of generations that claimed
+--- them. A set rather than one value: two plans can overlap by design, and the
+--- newer one finishing says nothing about the older process.
 ---@type table<string, table<integer, true>>
 local planning = {}
 
@@ -78,25 +76,22 @@ local function aws_identity(callback)
     return
   end
 
-  -- Not "this is probably not an AWS project": the AWS provider reads
-  -- ~/.aws/credentials and the environment itself and needs no CLI at all, so a
-  -- missing `aws` means the question cannot be answered, not that there is no
-  -- question. Under strict that is a refusal like any other.
+  -- Not "this is probably not an AWS project": the provider reads
+  -- ~/.aws/credentials and the environment itself, so a missing `aws` means the
+  -- question cannot be answered, not that there is none.
   if vim.fn.executable("aws") ~= 1 then
     callback(nil, "`aws` is not on PATH, so the identity cannot be verified")
     return
   end
 
-  -- Callers claim the directory before asking, so a spawn that raises here would leak
-  -- the claim just as one in `run` would. Under strict every path that cannot name
-  -- the identity reports an error, and the callers stop on it.
+  -- Callers claim the directory before asking, so a spawn that raises here
+  -- would leak the claim just as one in `run` would.
   local started, err = pcall(
     vim.system,
     { "aws", "sts", "get-caller-identity", "--output", "json" },
-    -- Bounded. The claim on the directory is taken before this runs, so an `aws`
-    -- that never returns — an SSO login, a credential process waiting on a key —
-    -- would hold planning or applying for the rest of the session. Measured: the
-    -- timeout delivers code 124 to the callback, which is already a refusal.
+    -- Bounded, because the claim is taken before this runs: an `aws` that
+    -- never returns would hold planning for the rest of the session. Measured:
+    -- the timeout delivers code 124, which is already a refusal.
     { text = true, timeout = STS_TIMEOUT_MS },
     function(result)
       vim.schedule(function()
@@ -106,9 +101,8 @@ local function aws_identity(callback)
         end
 
         local ok, decoded = pcall(vim.json.decode, result.stdout or "")
-        -- Both, not just the account: the comparison before an apply uses the ARN
-        -- as well, and an identity missing one of them would compare equal to any
-        -- other identity missing it.
+        -- Both, not just the account: an identity missing one of them would
+        -- compare equal to any other identity missing it.
         if not ok or type(decoded) ~= "table" or not decoded.Account or not decoded.Arn then
           callback(nil, "could not read the STS response")
           return
@@ -224,9 +218,8 @@ local function binary_for(dir)
     return "tofu"
   end
 
-  -- With neither installed this used to answer "tofu", so the refusal named a
-  -- binary the user may never have meant to have — and said nothing about the
-  -- other one being an option.
+  -- With neither installed this used to answer "tofu", naming a binary the
+  -- user may never have meant to have.
   return nil, "Neither `terraform` nor `tofu` was found on PATH"
 end
 
@@ -324,8 +317,8 @@ local function file_sha256(path)
     return nil, open_err or "open failed"
   end
 
-  -- Read to the end rather than to a size measured beforehand: a read returning fewer
-  -- bytes than asked for would otherwise be hashed as though it were the whole file.
+  -- Read to the end rather than to a size measured beforehand: a short read
+  -- would otherwise be hashed as though it were the whole file.
   local chunks, offset = {}, 0
   while true do
     local chunk, read_err = vim.uv.fs_read(fd, 1024 * 1024, offset)
@@ -362,10 +355,10 @@ local reserved = {
   apply = { ["-input"] = true },
 }
 
---- Every way the CLIs can be told to work somewhere else. `-chdir` is terraform's;
---- terragrunt calls it `--working-dir` (v0.96 was checked) and `--terragrunt-working-dir`
---- in the versions before its CLI was redesigned. Both terragrunt spellings take a
---- value, so they also appear split from it.
+--- Every way the CLIs can be told to work somewhere else. `-chdir` is
+--- terraform's; terragrunt calls it `--working-dir` (v0.96) and
+--- `--terragrunt-working-dir` before its CLI was redesigned. Both terragrunt
+--- spellings take a value, so they also appear split from it.
 local WORKING_DIRECTORY_OPTIONS = {
   ["-chdir"] = false,
   ["--working-dir"] = true,
@@ -385,8 +378,8 @@ local function sanitize_global_args(args)
     local takes_value = WORKING_DIRECTORY_OPTIONS[name]
 
     if skip_value then
-      -- The path belonging to a flag already dropped. Kept, it would arrive as a
-      -- positional argument instead.
+      -- The path belonging to a flag already dropped; kept, it would arrive as
+      -- a positional argument instead.
       skip_value = false
     elseif takes_value ~= nil then
       -- Split form only when the value is not already attached with `=`.
@@ -460,9 +453,9 @@ local function run(command, args, dir, on_done, binary)
 
   vim.notify(("Running %s %s…"):format(vim.fs.basename(bin), command), vim.log.levels.INFO)
 
-  -- vim.system raises before it starts anything when the directory has been removed
-  -- (ENOENT) or is no longer a directory (ENOTDIR). Raising past the caller would skip
-  -- the claim it releases on `nil`, leaving the directory blocked for the session.
+  -- vim.system raises before starting anything when the directory has been
+  -- removed (ENOENT) or is not one (ENOTDIR). Raising past the caller would
+  -- skip the claim it releases on `nil`.
   local started, process = pcall(vim.system, cmd, { cwd = dir, text = true }, function(result)
     local out = (result.stdout or "") .. (result.stderr or "")
     local lines = vim.split(out:gsub("%s+$", ""), "\n", { trimempty = false })
@@ -543,9 +536,8 @@ local function plan(destroy)
       return
     end
 
-    -- Strict means strict. A plan that cannot be bound to an identity is exactly the
-    -- plan this option exists to prevent: it would compare equal to any other
-    -- unidentified plan at apply time, so the check would pass by knowing nothing.
+    -- Strict means strict: a plan that cannot be bound to an identity would
+    -- compare equal to any other unidentified plan at apply time.
     if identity_err then
       -- Nothing to clean up: the plan file is terraform's to create and it has not run.
       finish_planning(dir, mine)
@@ -560,8 +552,8 @@ local function plan(destroy)
 
     local context = aws_context(identity)
 
-    -- Tracked from before the process exists, because the file appears while it runs
-    -- and a session that ends there would otherwise leave nobody knowing about it.
+    -- Tracked from before the process exists: the file appears while it runs,
+    -- and a session ending there would leave nobody knowing about it.
     artifacts[path] = true
 
     local process = run("plan", args, dir, function(code, lines)
@@ -734,8 +726,8 @@ function M.apply()
 
   aws_identity(function(identity, identity_err)
     -- Before the comparison, because an unanswerable question compares equal to
-    -- itself: an unidentified apply against an unidentified plan produced no
-    -- difference and passed, which is the check succeeding by knowing nothing.
+    -- itself: an unidentified apply against an unidentified plan passed, which
+    -- is the check succeeding by knowing nothing.
     if identity_err then
       vim.notify(
         ("Refusing to apply: strict_aws_identity is on and the AWS identity could not be determined.\n%s\n"):format(
@@ -769,9 +761,8 @@ function M.apply()
       return release()
     end
 
-    -- The first digest was taken before the identity lookup and the prompt, which is
-    -- where the time goes. This one covers that window, so what terraform is handed is
-    -- what was reviewed rather than what was reviewed some seconds ago.
+    -- The first digest was taken before the identity lookup and the prompt,
+    -- which is where the time goes. This one covers that window.
     local final, final_err = file_sha256(saved.path)
     if not final then
       release()
@@ -950,9 +941,8 @@ function M.setup(opts)
   end
 
   -- Reviewed plans are not the only files on disk: one whose command is still
-  -- running is written by that command, not by us, and is worth removing too. What
-  -- a subprocess creates after this point outlives the session; nothing here can
-  -- promise otherwise.
+  -- running is written by that command and is worth removing too. What a
+  -- subprocess creates after this point outlives the session.
   vim.api.nvim_create_autocmd("VimLeavePre", {
     group = vim.api.nvim_create_augroup("terraform_nvim_cleanup", { clear = true }),
     callback = function()
