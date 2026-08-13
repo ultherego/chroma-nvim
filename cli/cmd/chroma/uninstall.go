@@ -8,19 +8,13 @@ import (
 	"github.com/ultherego/chroma-nvim/cli/internal/install"
 )
 
-// cmdUninstall removes what Chroma made and gives back what it borrowed.
-//
-// One operation and no levels. `--purge` beside a plain `uninstall` asks
-// somebody to guess which of two destructive things they meant, and the honest
-// alternative is cheaper: show the exact list of paths and let them read it
-// before agreeing.
+// cmdUninstall removes what Chroma made and gives back what it borrowed. One
+// operation and no levels: `--purge` beside a plain `uninstall` asks somebody to
+// guess which of two destructive things they meant, and showing the exact list
+// of paths is cheaper.
 //
 // The rule the list follows: **what Chroma made for its own operation it may
-// remove; what Chroma only moved aside, because it belonged to somebody
-// already, it gives back.** So the plugins, the Mason packages, the parsers,
-// the cache, the kept generations and the selection all go — and a
-// configuration that was in Neovim's directory before `--default` took it over
-// is restored, never deleted.
+// remove; what Chroma only moved aside it gives back.**
 func cmdUninstall(args []string, out, errOut *os.File) int {
 	set := flag.NewFlagSet("uninstall", flag.ContinueOnError)
 	set.SetOutput(errOut)

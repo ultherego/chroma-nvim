@@ -17,16 +17,12 @@ import (
 	"github.com/ultherego/chroma-nvim/cli/internal/report"
 )
 
-// cmdComponents changes which parts of an installation are enabled.
+// cmdComponents changes which parts of an installation are enabled. Two commands
+// in one, told apart by whether a tree is named: `--tree` is the developer's
+// listing, everything else acts on the installation this machine has.
 //
-// Two commands in one, told apart by whether a tree is named. `--tree` asks a
-// question about a configuration directory and answers it — the developer's
-// listing. Everything else acts on the installation this machine has.
-//
-// It does not make a generation. A generation is a release of Chroma; which
-// parts of it somebody wants is a different fact with a different lifetime, so
-// `install.json` is not touched, nothing is backed up, and a rollback later
-// will move the version without moving this.
+// It does not make a generation: `install.json` is not touched, nothing is
+// backed up, and a rollback later moves the version without moving this.
 func cmdComponents(args []string, out, errOut *os.File) int {
 	set := flag.NewFlagSet("components", flag.ContinueOnError)
 	set.SetOutput(errOut)

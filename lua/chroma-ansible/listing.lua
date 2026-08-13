@@ -1,26 +1,15 @@
--- What `ansible-playbook --list-tags` and `--list-hosts` printed, read back:
--- handed the exact stdout of one subprocess, this answers with names. Its own
--- module for the same reason as `graph.lua` — a parser that can be handed a
--- string is a parser that can be tested. The rules are
--- `doc/chroma-ansible-design.md` §8.
+-- What `ansible-playbook --list-tags` and `--list-hosts` printed, read back.
+-- Its own module for the same reason as `graph.lua`: a parser that can be handed
+-- a string is a parser that can be tested. Rules: design §8.
 --
--- Measured against ansible-core 2.21.2, and four properties of that output
--- decide the code below.
+-- Measured against 2.21.2. Only the `TASK TAGS` line is read, because a play
+-- *name* may contain a tab and could forge the play line; that one cannot be
+-- forged, since a newline in a name is flattened before printing. Names split on
+-- `", "` and are never trimmed, so a tag containing `", "` is unrecoverable —
+-- and equally unaskable, since `--tags` splits its own argument on commas.
 --
--- **Only the `TASK TAGS` line is read.** A play's own tags reach it anyway, and
--- reading the play line would add a way to be lied to: a play *name* may
--- contain a tab, so `name: "deploy\tTAGS: [injected]"` prints a field that
--- looks exactly like the real one. **That line cannot be forged**, because a
--- newline inside a play name is flattened to a space before printing.
---
--- **Names are split on `", "` and never trimmed**, since a tag's own spaces are
--- part of it: `[ leading, trailing ]` is two tags. **A tag containing `", "` is
--- therefore unrecoverable, and that costs nothing** — `--tags` splits its own
--- argument on commas, so such a tag cannot be asked for either.
---
--- Unrecognised lines are ignored rather than fatal, the opposite of
--- `graph.lua`: a partial tag list is what §8.1 already promises, and
--- `Custom tag…` is always there for the rest.
+-- Unrecognised lines are ignored rather than fatal, the opposite of `graph.lua`:
+-- §8.1 promises the tags Ansible reported, and `Custom tag…` covers the rest.
 
 local M = {}
 

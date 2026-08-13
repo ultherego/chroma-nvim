@@ -1,21 +1,15 @@
 -- chroma-ansible — the Ansible execution planner. The seven modules beside this
--- one each answer one question and none of them knows the order. This is the
--- order, and every step names the section it comes from in
--- `doc/chroma-ansible-design.md`:
+-- one each answer one question; this is the order, and every step names its
+-- section in `doc/chroma-ansible-design.md`:
 --
 --     playbook → working directory → inventory → tags → limit → overrides
 --     → target snapshot → preview → explicit yes → terminal
 --
--- **Nothing here decides anything twice**: the array comes from `argv`, the
--- screen from `preview`, the process from `run`.
---
--- **Cancelling is an answer**, and it ends the run through `planner.cancel`, so
--- an inspection still in flight cannot populate a picker for a run that no
--- longer exists (§13.2, §15.4).
---
--- **Failure to inspect is not failure to execute** (§16). The only refusals
--- that end the planner are the ones with nothing left to describe: no
--- `ansible-playbook`, no readable playbook, no usable directory.
+-- Nothing here decides anything twice. Cancelling is an answer, and it ends the
+-- run through `planner.cancel` so an inspection in flight cannot populate a
+-- picker for a run that is gone. Failure to inspect is not failure to execute
+-- (§16): the only refusals that end the planner are the ones with nothing left
+-- to describe.
 
 local argv = require("chroma-ansible.argv")
 local context = require("chroma-ansible.context")

@@ -1,24 +1,14 @@
-// Package report prints what the rest of the CLI has already worked out.
+// Package report prints what the rest of the CLI has already worked out: the
+// plan an installation would carry out, the state of Chroma's own tooling, and
+// the state of the tools that belong to the user. `install` and `doctor` show
+// the same facts, and two renderers would be two chances to describe them
+// differently — the shape of audit finding 11.
 //
-// One place for the printed shape of three things — the plan an installation
-// would carry out, the state of Chroma's own tooling, and the state of the
-// tools that belong to the user. `install` and `doctor` show the same facts
-// about the same machine, and two renderers would be two chances to describe it
-// differently; that disagreement is the shape of audit finding 11, where a plan
-// and a report each decided for themselves whether a tool was usable.
+// **Nothing here decides anything.** It chooses that a missing git is red and a
+// missing kubectl is grey; it never chooses which of them stops an installation.
 //
-// **Nothing here decides anything.** Everything it prints has already been
-// worked out elsewhere — `detect.Tool.Status`, `detect.Tool.Blocking()`,
-// `plan.Plan` — and its only freedom is how to show it. It chooses that a
-// missing git is red and a missing kubectl is grey. It never chooses which of
-// them stops an installation.
-//
-// Colour is never the message. Every state is a word first — `ok`, `too old`,
-// `not found` — and the colour only repeats it, so a redirected file, a
-// NO_COLOR environment and a monochrome terminal lose nothing. Nothing here
-// asks whether colour is wanted either: everything is written through a writer
-// that strips what the far end cannot show, which is one rule instead of a
-// question at every call site.
+// Colour is never the message: every state is a word first, and everything is
+// written through a writer that strips what the far end cannot show.
 package report
 
 import (
@@ -37,12 +27,9 @@ import (
 )
 
 // The palette is Catppuccin Mocha, which is what the editor this installs is
-// themed with and what the interactive selector already uses.
-//
-// Only three kinds of thing are coloured: the wordmark, the header row, and the
-// one cell that carries a state. Everything else keeps the terminal's own
-// foreground, so a light background stays readable — a table painted end to end
-// in a dark theme's text colour would not be.
+// themed with. Only three kinds of thing are coloured: the wordmark, the header
+// row, and the one cell that carries a state — everything else keeps the
+// terminal's own foreground, so a light background stays readable.
 var (
 	mauve = lipgloss.Color("#cba6f7")
 	peach = lipgloss.Color("#fab387")
@@ -77,13 +64,10 @@ func colour(w io.Writer) io.Writer {
 	return colorprofile.NewWriter(w, environment())
 }
 
-// room is how much screen there is, in a variable.
-//
-// A test cannot hand this package a terminal, and without a seam the only width
-// it could ever measure is "no width at all" — which is the case that needs the
-// least deciding. The same lesson as the terminal check in internal/tui, where a
-// mutant that asked the wrong question survived the whole suite until the
-// predicate could be replaced.
+// room is how much screen there is, in a variable. A test cannot hand this
+// package a terminal, so without a seam the only width it could measure is "no
+// width at all" — the same lesson as the terminal check in internal/tui, where a
+// mutant that asked the wrong question survived the whole suite.
 var room = columns
 
 // columns is how many columns there are to draw in, or zero when that is not a
@@ -101,16 +85,10 @@ func columns(w io.Writer) int {
 	return width
 }
 
-// paragraph lays a sentence out under an indent, wrapped to the screen.
-//
-// Prose broken at a fixed column is prose that is wrong somewhere: past the
-// right-hand edge of a narrow terminal, and short of it on a wide one. The
-// tables already ask the screen how much room there is, and the sentences
-// between them ask the same question.
-//
-// Somewhere that has no width — a file, a pipe — gets a paragraph shaped for
-// reading rather than one long line, which is what the hand-broken version was
-// choosing too.
+// paragraph lays a sentence out under an indent, wrapped to the screen. Prose
+// broken at a fixed column is wrong somewhere: past the edge of a narrow
+// terminal, and short of it on a wide one. Somewhere with no width — a file, a
+// pipe — gets a paragraph shaped for reading.
 func paragraph(text string, indent, width int) string {
 	if width <= 0 {
 		width = 78
@@ -129,23 +107,17 @@ func paragraph(text string, indent, width int) string {
 	return strings.Join(lines, "\n")
 }
 
-// under writes a sentence beside a label, with the rest of it wrapped into the
-// column the label ends in.
-//
-// The label is the whole indent — "  Components    " — so a line too long for
-// the screen carries on underneath itself rather than under the label, which is
-// how these lines have always been laid out by hand.
+// under writes a sentence beside a label, with the rest wrapped into the column
+// the label ends in. The label is the whole indent, so a line too long for the
+// screen carries on underneath itself rather than under the label.
 func under(w io.Writer, label, text string, width int) {
 	said := paragraph(text, len(label), width)
 	fmt.Fprintln(w, label+strings.TrimPrefix(said, strings.Repeat(" ", len(label))))
 }
 
-// grid draws one table of tools.
-//
-// The rows are already written; what this adds is the frame, the header, and
-// the colour of the state cell — which comes from the tool itself, so that
-// "this stops an installation" is shown by something that already knows, and is
-// not worked out again here.
+// grid draws one table of tools. The rows are already written; what this adds is
+// the frame, the header, and the colour of the state cell — which comes from the
+// tool itself rather than being worked out again here.
 func grid(headers []string, rows [][]string, tools []detect.Tool, width int) string {
 	drawn := table.New().
 		Border(lipgloss.RoundedBorder()).
@@ -168,20 +140,15 @@ func grid(headers []string, rows [][]string, tools []detect.Tool, width int) str
 }
 
 // fit draws the table at the size its content wants, and squeezes it only when
-// that would not fit on the screen.
-//
-// Setting a width unconditionally would stretch a four-column table across a
-// 200-column terminal, which is harder to read than the narrow one. Setting
-// none at all would push the right-hand border off the edge of an 80-column
-// one, and a wrapped border is not a border.
+// that would not fit. Setting a width unconditionally would stretch a
+// four-column table across a 200-column terminal; setting none would push the
+// right-hand border off an 80-column one.
 //
 // The squeezed result is then checked, which is not defensiveness. Measured on
-// lipgloss v2.0.5, on a table whose content wants 46 columns: every width from
-// 45 down to 41 came back with its right-hand border gone and a cell shortened
-// with no ellipsis to say so — `git 9.9.9` became `git 9.9`. At 40 it wraps and
-// is whole again. A report that quietly drops characters cannot be trusted
-// about a version number, so the width used is the widest one that comes back
-// whole, and a table too wide for the screen is preferred to a damaged one.
+// lipgloss v2.0.5, on a table wanting 46 columns: every width from 45 down to 41
+// came back with its border gone and a cell shortened with no ellipsis —
+// `git 9.9.9` became `git 9.9`. So the width used is the widest that comes back
+// whole, and a table too wide for the screen beats a damaged one.
 func fit(drawn *table.Table, width int) string {
 	natural := drawn.String()
 	if width <= 0 || lipgloss.Width(natural) <= width {
@@ -210,13 +177,10 @@ func whole(drawn string) bool {
 		strings.Contains(lines[len(lines)-1], border.BottomRight)
 }
 
-// shade is how a state looks, from what the tool already knows it is.
-//
-// Red is reserved for what actually stops an installation, and that is asked of
-// `Blocking`, never worked out here. A missing kubectl is grey on purpose: it is
-// a fact about the machine, the installation it belongs to is complete, and
-// painting it the same red as a missing git would say the opposite in the one
-// language people read before the words.
+// shade is how a state looks, from what the tool already knows it is. Red is
+// reserved for what actually stops an installation, and that is asked of
+// `Blocking`, never worked out here: a missing kubectl is grey because the
+// installation it belongs to is complete.
 func shade(tool detect.Tool) color.Color {
 	switch {
 	case tool.Status == detect.Present:

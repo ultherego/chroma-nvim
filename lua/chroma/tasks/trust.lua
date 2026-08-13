@@ -1,20 +1,14 @@
 -- Whether Neovim's trust database authorises this project's task definitions.
--- This decides nothing about tasks, runs nothing, and reads no file except the
--- one discovery pointed at and the database itself. Five states, of which only
--- `trusted` returns bytes; `denied` skips Neovim entirely, since it would
--- return nil and ask nothing.
+-- Five states, of which only `trusted` returns bytes; `denied` skips Neovim
+-- entirely, since it would return nil and ask nothing.
 --
 -- **One snapshot is authoritative, and it is this one.** Hashing a file and
 -- letting `vim.secure.read()` read it again leaves a window in which a trusted
--- answer authorises one byte string and hands back another. See
--- `doc/DECISIONS.md`, "The bytes that were trusted are the bytes that are
--- parsed".
+-- answer authorises one byte string and hands back another. See DECISIONS.md.
 --
--- Measured on 0.12.4, `runtime/lua/vim/secure.lua`: the database is
--- `$XDG_STATE_HOME/nvim/trust`, one entry per line as a token, a space and the
--- path; a decision is a `sha256` of the exact bytes and a denial is `!`. The
--- prompt offers ignore, view and deny — there is no allow — so trusting a file
--- means viewing it and running `:trust`.
+-- Measured on 0.12.4: the database is `$XDG_STATE_HOME/nvim/trust`, one entry
+-- per line as a token, a space and the path; a decision is a `sha256` of the
+-- exact bytes and a denial is `!`.
 
 local M = {}
 

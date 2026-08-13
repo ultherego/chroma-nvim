@@ -9,13 +9,10 @@ import (
 	"github.com/ultherego/chroma-nvim/cli/internal/plan"
 )
 
-// Plan prints what would happen, before anything does.
-//
-// What is enabled, what that pulled in, the state of everything Chroma itself
-// needs, and a note about the tools that belong to the user. The same four
-// things whether this is an install, a dry run, a change of components, an
-// update or a rollback: each of those says its own sentence above this and then
-// shows the same plan, so what somebody agreed to reads the same everywhere.
+// Plan prints what would happen, before anything does: what is enabled, what
+// that pulled in, the state of everything Chroma needs, and a note about the
+// tools that belong to the user. The same four things for an install, a dry run,
+// a change of components, an update or a rollback.
 func Plan(w io.Writer, p plan.Plan) {
 	// The label is sixteen columns in every command that prints one of these,
 	// and the continuation of a line too long for the screen lines up under it.

@@ -11,22 +11,16 @@ import (
 	"github.com/ultherego/chroma-nvim/cli/internal/state"
 )
 
-// Installer carries out an installation.
-//
-// The interactive flow, the flag flow and — later — update all go through this
-// one function. A second implementation of "place a Chroma on a machine" is a
-// second set of orderings to get right, and the ordering is the whole design.
+// Installer carries out an installation. The interactive flow, the flag flow and
+// update all go through this one function, because a second implementation is a
+// second set of orderings to get right and the ordering is the whole design.
 type Installer struct {
 	Runner Runner
 	Sink   ProgressSink
 }
 
-// Result is what happened.
-//
-// Returned on failure as well as on success, because "what happened" is most
-// worth knowing when it did not work: the user needs to be told whether the
-// machine is back the way it was, and being told nothing is how a rollback that
-// silently failed becomes a support question.
+// Result is what happened, returned on failure as well as on success: whether
+// the machine is back the way it was is most worth knowing when it did not work.
 type Result struct {
 	Paths    Paths
 	Selected []string
@@ -78,14 +72,11 @@ func (i *Installer) Apply(
 }
 
 // Update replaces a managed installation with another release, keeping the
-// components its owner already chose.
-//
-// The same transaction as an installation, and deliberately so: an update that
-// took a different path to placing a tree would be a second installer, and the
-// half of it nobody exercises daily is the half that breaks. Three things
-// differ, and all three are decided before this is called — the selection comes
-// from the installation rather than from a question, the backup is not
-// optional, and what was moved aside is recorded as the generation it was.
+// components its owner already chose. The same transaction as an installation,
+// deliberately: a second path to placing a tree is a second installer, and the
+// half nobody exercises daily is the half that breaks. Three things differ, all
+// decided before this is called — the selection comes from the installation, the
+// backup is not optional, and what was moved aside is recorded as a generation.
 func (i *Installer) Update(
 	ctx context.Context,
 	paths Paths,
@@ -102,27 +93,22 @@ func (i *Installer) Update(
 	}
 
 	// false, not true: an update moves Chroma's own tree aside, which is what
-	// `previous` says. Borrowing is what a takeover does to directories that
-	// were never Chroma's, and it happens once — at the installation that took
-	// them. One boolean used to mean both, and that is how an update came to
-	// look like a first takeover to everything downstream of it.
+	// `previous` says, while borrowing is what a takeover does to directories
+	// that were never Chroma's. One boolean used to mean both, and that is how
+	// an update came to look like a first takeover to everything downstream.
 	return i.carryOut(ctx, paths, prepared, set, selected, false, previous, current.Borrowed)
 }
 
 // Reconfigure changes which components are enabled, and nothing else.
 //
-// **It does not make a generation.** A generation is a release of Chroma;
-// which parts of it somebody wants is a different fact with a different
-// lifetime, and conflating them would mean a rollback undid a preference or a
-// preference invented a version. So there is no staging, no backup of the
-// configuration, and no install.json written — the tree on disk is the tree
-// that was already there.
+// **It does not make a generation.** A generation is a release; which parts of
+// it somebody wants is a different fact with a different lifetime, and
+// conflating them would mean a rollback undid a preference. So there is no
+// staging, no backup and no install.json written.
 //
-// What it does do is the same transaction discipline as everything else. The
-// new selection is written, the editor is brought to it, the result is
-// verified, and only then is the change kept. A bootstrap that fails leaves the
-// old selection authoritative, which is what decides whether a mistyped
-// component costs somebody their editor.
+// It keeps the same transaction discipline: the new selection is written, the
+// editor is brought to it, the result is verified, and only then is the change
+// kept — so a mistyped component does not cost somebody their editor.
 func (i *Installer) Reconfigure(
 	ctx context.Context,
 	paths Paths,
@@ -176,16 +162,12 @@ func (i *Installer) Reconfigure(
 	return result, nil
 }
 
-// Rollback puts the previous generation back, and keeps the current selection.
+// Rollback puts the previous generation back, and keeps the current selection:
+// what somebody wants is not undone by moving the version. The caller has
+// already checked that the selection is legal in the generation being restored.
 //
-// The two are different facts and stay different: what somebody wants is not
-// undone by moving the version. The caller has already checked that the
-// selection is legal in the generation being restored — that refusal belongs
-// before anything moves, and this function is past that point.
-//
-// It swaps rather than pops. What was current becomes the previous generation,
-// so a second rollback returns, and the model stays one slot deep rather than
-// becoming a history nobody asked for.
+// It swaps rather than pops, so a second rollback returns and the model stays
+// one slot deep rather than becoming a history nobody asked for.
 func (i *Installer) Rollback(
 	ctx context.Context,
 	paths Paths,
@@ -431,19 +413,14 @@ func (i *Installer) carryOut(
 	sink.Emit(Event{Step: "record", Status: StatusStart})
 	written, err := writeRecord(paths.InstallState, record)
 	if err != nil && !written.Replaced {
-		// Rolled back rather than left alone. An installation nothing recorded
-		// is an unmanaged directory, and every command already knows how to
-		// refuse one of those — but it is a directory the user did not have
-		// before, and leaving it would be this CLI walking away from a mess it
-		// made.
+		// Rolled back rather than left alone: an unmanaged directory is one every
+		// command knows how to refuse, but it is one the user did not have before.
 		return fail("record", err)
 	}
 	if err != nil {
-		// The record is already the new one. Rolling the tree back here would
-		// put the two on opposite sides of the same boundary, which is the one
-		// outcome worse than either. The commit stands and the problem is
-		// reported: what is in doubt is whether it survives a power cut, not
-		// what it says.
+		// The record is already the new one, and rolling the tree back would put
+		// the two on opposite sides of the same boundary. The commit stands and
+		// the problem is reported.
 		sink.Emit(Event{Step: "record", Status: StatusWarning, Message: err.Error()})
 	}
 	result.State = record
@@ -461,11 +438,9 @@ func (i *Installer) carryOut(
 	return result, nil
 }
 
-// sourceOf describes where this installation came from, in the terms update
-// and rollback will read it in.
-//
-// From the prepared source rather than from the request. What was asked for and
-// what arrived are two different facts, and the record is about the second one.
+// sourceOf describes where this installation came from, in the terms update and
+// rollback read it in. From the prepared source rather than the request: what
+// was asked for and what arrived are two different facts.
 func sourceOf(prepared PreparedSource) installstate.Source {
 	if prepared.Kind == KindTree {
 		return installstate.Source{Type: installstate.FromTree, Ref: prepared.Root}

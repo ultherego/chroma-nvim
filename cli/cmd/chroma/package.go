@@ -10,14 +10,11 @@ import (
 	"github.com/ultherego/chroma-nvim/cli/internal/release"
 )
 
-// cmdPackage builds the artefacts a release is made of.
-//
-// Developer-only, and it stays in the same binary rather than becoming a script
-// for one reason: the release workflow has to build the archive with the code
-// that was tested, not with a shell pipeline that happens to agree with it
-// today. What goes in comes from install.RuntimeEntries, which is also what the
-// installer copies when it stages a checkout — so a release and a development
-// install are the same files.
+// cmdPackage builds the artefacts a release is made of. Developer-only, and in
+// the same binary rather than a script for one reason: the release workflow has
+// to build the archive with the code that was tested. What goes in comes from
+// install.RuntimeEntries, so a release and a development install are the same
+// files.
 func cmdPackage(args []string, out, errOut *os.File) int {
 	set := flag.NewFlagSet("package", flag.ContinueOnError)
 	set.SetOutput(errOut)

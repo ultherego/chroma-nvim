@@ -1,10 +1,7 @@
 // Package component reads the contract in components/ — the one interface the
-// Lua configuration and this CLI share.
-//
-// The rules here must match lua/chroma/components.lua. Where they disagree, one
-// side accepts a contract the other rejects, and the disagreement surfaces
-// during an install rather than in a test. That is why the shipped contract is
-// checked by both.
+// Lua configuration and this CLI share. The rules must match
+// lua/chroma/components.lua, or one side accepts a contract the other rejects
+// during an install, so the shipped contract is checked by both.
 package component
 
 import (
@@ -24,22 +21,15 @@ import (
 // drift apart quietly. See cli/DESIGN.md, "The component contract".
 const Contract = 5
 
-// Version is a compatibility boundary, and only that.
-//
-// Min is the earliest version known to work. Max is the latest, and belongs
-// here only when a real incompatibility has been found — not as a guess about
-// the future. Neither says which version Chroma prefers, because Chroma does
-// not have a preference about a tool that is not its own.
+// Version is a compatibility boundary, and only that. Min is the earliest
+// version known to work, Max the latest, and Max belongs here only where a real
+// incompatibility has been found. Neither says which version Chroma prefers.
 //
 // There is no `exact`. Contract 4 had one, and it was the one way this schema
-// let somebody write "this machine must run kubectl 1.35.2" — which is Chroma
-// deciding the version of a tool that belongs to the user. Removing it is the
-// point: a schema should not be able to express what the product will not do,
-// or the next person reads the field, sees both readers support it, and quite
-// reasonably uses it.
-//
-// Deliberately not a constraint language. `>=1.2,<2.0 || >=3.0` is a parser, a
-// grammar and a class of bug, and nothing here has yet needed one.
+// let somebody write "this machine must run kubectl 1.35.2" — Chroma deciding
+// the version of a tool that belongs to the user. Deliberately not a constraint
+// language either: `>=1.2,<2.0 || >=3.0` is a parser, a grammar and a class of
+// bug, and nothing has needed one.
 type Version struct {
 	Min string `json:"min"`
 	Max string `json:"max"`
@@ -78,18 +68,14 @@ type Tools struct {
 	Optional    []Tool `json:"optional"`
 }
 
-// Nvim is what the configuration loads for this component: the language servers
-// it enables, the Mason packages it needs, the linters it registers, the
-// treesitter parsers it installs, the formatters it hands to conform, the
-// schemas it maps onto files, the plugins it brings and the modules it sets up.
-// The CLI does not act on any of it — this is the editor's half of the
-// contract, and it is here so that both halves are one document.
+// Nvim is what the configuration loads for this component: servers, Mason
+// packages, linters, parsers, formatters, schemas, plugins and modules. The CLI
+// acts on none of it — this is the editor's half of the contract, here so that
+// both halves are one document.
 //
-// Schemas are logical names, not URLs and not file globs: "kubernetes", never
-// the yannh URL and the four patterns it applies to. Which document those name
-// and where it belongs is the editor's business, and putting it here would move
-// one language server's implementation details into a product contract that a
-// web page or a different editor is also supposed to be able to read.
+// Schemas are logical names, never URLs and globs: which document a name means
+// is the editor's business, and putting it here would move one language server's
+// implementation details into a contract a web page also has to read.
 type Nvim struct {
 	Servers    []string `json:"servers"`
 	Mason      []string `json:"mason"`
@@ -173,17 +159,14 @@ func readOne(path string) (*Component, string) {
 		return nil, "is not valid JSON"
 	}
 
-	// Decode reads the *next* value, because a Decoder is built for streams of
-	// them. A file holding `{...}{...}` therefore parses as its first object and
-	// the rest is never seen — a component file quietly half-read. Lua's decoder
-	// refuses the same input with "Expected the end", so requiring it here is
-	// also what keeps the two readers answering alike.
+	// Decode reads the *next* value, because a Decoder is built for streams, so
+	// a file holding `{...}{...}` parses as its first object and the rest is
+	// never seen. Lua's decoder refuses the same input, and requiring io.EOF here
+	// is what keeps the two readers answering alike.
 	//
-	// Asked for by decoding again and requiring io.EOF, rather than with More().
-	// More() is documented as reporting "whether there is another element in the
-	// current array or object being parsed", which is not a promise about the end
-	// of a top-level stream; it answers correctly today, and this contract is too
-	// strict a thing to rest on behaviour the standard library does not describe.
+	// By decoding again rather than with More(), which is documented as reporting
+	// whether there is another element in the current array or object — not a
+	// promise about the end of a top-level stream.
 	var extra json.RawMessage
 	switch err := decoder.Decode(&extra); {
 	case errors.Is(err, io.EOF):
@@ -213,12 +196,10 @@ func readOne(path string) (*Component, string) {
 	return &component, ""
 }
 
-// validateNames refuses an empty name anywhere a name is expected. Decoding
-// into typed slices gets the shape right for free — that is the half Lua has to
-// write out — but `""` is a perfectly good string, and it would arrive as a
-// dependency on nothing, a server nobody can enable or a plugin no lockfile
-// pins. The Lua reader refuses these, so this is also what keeps the corpus
-// agreeing.
+// validateNames refuses an empty name anywhere a name is expected. Decoding into
+// typed slices gets the shape right for free, but `""` is a perfectly good
+// string and would arrive as a dependency on nothing. The Lua reader refuses
+// these too, which is what keeps the corpus agreeing.
 func validateNames(c Component) string {
 	for _, id := range c.Requires {
 		if id == "" {
@@ -336,15 +317,10 @@ func looksLikeVersion(value string) bool {
 }
 
 // numbersOf is the part of a version before any pre-release or build suffix,
-// and it is empty when there is nothing before one.
-//
-// A version is a value out of a file somebody wrote by hand, so "-" and "+" are
-// inputs like any other. Taking the first field of a split was correct for
-// every version and fatal for those two: `FieldsFunc` returns nothing when the
-// string is only separators, and indexing it panicked the whole CLI on a
-// contract it was in the middle of reporting problems with. Neither of these
-// two callers had a way to express that precondition in its signature, so it is
-// removed rather than documented.
+// empty when there is nothing before one. A version is a value out of a file
+// somebody wrote by hand, so "-" and "+" are inputs like any other: taking the
+// first field of a split panicked the whole CLI on a contract it was in the
+// middle of reporting problems with.
 func numbersOf(value string) string {
 	if cut := strings.IndexAny(value, "-+"); cut >= 0 {
 		return value[:cut]

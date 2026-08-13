@@ -1,9 +1,6 @@
-// This file is the line-oriented flow, and it is not a legacy path.
-//
-// It reads an io.Reader and writes an io.Writer, so every screen here works
-// over a pipe, in a test and in CI. There is no raw mode, no cursor addressing
-// and no redraw. That is what makes it the one that runs whenever there is no
-// terminal to draw on — and, measured, the one that is correct there.
+// This file is the line-oriented flow, and it is not a legacy path. It reads an
+// io.Reader and writes an io.Writer, so every screen here works over a pipe, in
+// a test and in CI.
 //
 // The library that draws the terminal version has an accessible mode meant for
 // exactly this, and it was tried first. Two measurements sent it back:
@@ -11,16 +8,10 @@
 //	strings.NewReader("2\n3\n0\n")  →  only the first option was selected
 //	strings.NewReader("")           →  an empty selection, and a nil error
 //
-// The second is the one that decided it. A closed pipe has to be a refusal —
-// see ErrNoInput — and there it is silently an answer, so an installation would
-// proceed on a choice nobody made. The cause is upstream and deliberate: the
+// The second decided it: a closed pipe has to be a refusal (see ErrNoInput), and
+// there it is silently an answer. The cause is upstream and deliberate — the
 // accessible prompt cannot signal an error, so end-of-input reads as the
-// default, and a fresh bufio.Scanner per prompt discards whatever the previous
-// one had already buffered out of the pipe.
-//
-// So this is not kept for compatibility. It is the correct implementation for
-// everything that is not a terminal, and the terminal version is an enhancement
-// on top of it.
+// default.
 package tui
 
 import (

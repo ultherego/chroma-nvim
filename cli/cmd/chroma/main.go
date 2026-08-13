@@ -1,13 +1,7 @@
-// Command chroma installs and maintains Chroma Neovim.
+// Command chroma installs and maintains Chroma Neovim. See cli/DESIGN.md for
+// what each command does and, more usefully, what it refuses to do.
 //
-// This is the skeleton: the commands that only need to read are here, and the
-// ones that write are not written yet. See cli/DESIGN.md for what they will do
-// and, more usefully, what they will refuse to do.
-//
-// One command per file. This file holds the entry point and nothing else,
-// because the installer is about to arrive and cmdInstall is where it lands;
-// a file that holds every command is a file that ends up holding the installer
-// as well.
+// One command per file. This file holds the entry point and nothing else.
 package main
 
 import (

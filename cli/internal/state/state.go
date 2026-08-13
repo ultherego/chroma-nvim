@@ -1,13 +1,9 @@
-// Package state reads and writes what the user chose.
+// Package state reads and writes what the user chose: one person's intent, in
+// their configuration directory, surviving a release being replaced over it.
+// Not the component contract, which describes the product.
 //
-// This is not the component contract. That describes the product — what a
-// component is and what it needs — and lives with the release. This describes
-// one person's intent, lives in their configuration directory, and survives a
-// release being replaced.
-//
-// The rules here must match lua/chroma/state.lua. Both are driven by the same
-// fixtures in tests/fixtures/component-state, so a disagreement is a failing
-// test rather than a machine behaving differently from its editor.
+// The rules must match lua/chroma/state.lua. Both run against the fixtures in
+// tests/fixtures/component-state, so a disagreement is a failing test.
 package state
 
 import (
@@ -41,13 +37,9 @@ type State struct {
 }
 
 // Path is where the selection lives: alongside the user's other configuration,
-// not inside the release tree, which is replaced wholesale by an update.
-//
-// It fails rather than guessing. With no XDG_CONFIG_HOME and no home directory
-// there is no answer, and the relative path this used to return —
-// `.config/chroma/components.json` — is not a worse answer, it is a different
-// file: one under whatever directory the CLI happened to be run from, which the
-// editor would never read and the user would never find.
+// not inside the release tree, which an update replaces wholesale. It fails
+// rather than guessing — the relative path this used to return is not a worse
+// answer, it is a different file, under whatever directory the CLI was run from.
 func Path() (string, error) {
 	config := os.Getenv("XDG_CONFIG_HOME")
 	if config == "" {
@@ -60,12 +52,10 @@ func Path() (string, error) {
 	return filepath.Join(config, "chroma", "components.json"), nil
 }
 
-// Load reads the selection and checks it against the components that exist.
-//
-// A file that is not there is not an error and not an empty selection: it is a
-// configuration that predates any of this, and everything is enabled. An
-// upgrade must not silently switch off the Terraform support somebody has been
-// using. `found` distinguishes the two.
+// Load reads the selection and checks it against the components that exist. A
+// file that is not there is not an error and not an empty selection: it is a
+// configuration that predates any of this, and everything is enabled. `found`
+// distinguishes the two.
 func Load(path string, set component.Set) (state State, found bool, err error) {
 	contents, err := os.ReadFile(path)
 	if os.IsNotExist(err) {
@@ -81,13 +71,9 @@ func Load(path string, set component.Set) (state State, found bool, err error) {
 		return State{}, true, fmt.Errorf("%s: %w", path, err)
 	}
 
-	// Decode reads the next value in what it treats as a stream, so a file
-	// holding two documents parses as the first one and says nothing about the
-	// second. A selection is one document; the same rule as the component
-	// reader, and the same rule Lua's decoder applies on its own.
-	//
-	// io.EOF rather than More(), for the reason given in component.go: More()
-	// describes arrays and objects, not the end of a top-level stream.
+	// Decode reads the next value in what it treats as a stream, so a file holding
+	// two documents parses as the first and says nothing about the second. io.EOF
+	// rather than More(), for the reason given in component.go.
 	var extra json.RawMessage
 	switch err := decoder.Decode(&extra); {
 	case errors.Is(err, io.EOF):
@@ -170,18 +156,14 @@ func EnabledLegacy(set component.Set) []string {
 	return set.IDs()
 }
 
-// Write replaces the file atomically. Not because this one is precious, but
-// because it will be read at startup by an editor that decides what to load
-// from it, and a half-written selection is a Chroma that comes up wrong.
+// Write replaces the file atomically, because it is read at startup by an editor
+// that decides what to load from it and a half-written selection is a Chroma
+// that comes up wrong.
 //
-// It refuses to write a selection this package would refuse to read. `set` is
-// the contract to check against, and it is required rather than optional: the
-// caller is a TUI, and a TUI is a thing people will change. Leaving the
-// invariants to it would mean the one guarantee that matters here — that a file
-// this wrote can be read back — held only as long as every future caller
-// remembered. Writing `core`, a duplicate or a component that does not exist
-// produces a file the next startup drops into safe mode over, which is a
-// perfectly avoidable way to switch somebody's editor off.
+// It refuses to write a selection this package would refuse to read, and `set`
+// is required rather than optional: the caller is a TUI, and leaving the
+// invariants to it would hold the one guarantee that matters only as long as
+// every future caller remembered.
 func Write(path string, state State, set component.Set) (atomicfile.Result, error) {
 	state.Schema = Schema
 	sort.Strings(state.Selected)
@@ -201,26 +183,19 @@ func Write(path string, state State, set component.Set) (atomicfile.Result, erro
 	return replace(path, append(contents, '\n'))
 }
 
-// Restore puts back bytes that were already there, without reading them.
-//
-// The one case where this package's own validation would be wrong. An installer
-// that captured a selection before overwriting it has to be able to put back
-// exactly what it found, and what it found is not its to correct: a file that
-// was already invalid stays invalid, because the alternative is an installer
-// that silently rewrites a document it never owned. Everything else about the
-// write — atomic, flushed, durable — is the same, which is why it shares the
-// same implementation rather than growing a second one.
+// Restore puts back bytes that were already there, without reading them — the
+// one case where this package's own validation would be wrong. What an installer
+// found is not its to correct, and the alternative is an installer that silently
+// rewrites a document it never owned. Everything else about the write is the
+// same, which is why it shares the implementation.
 func Restore(path string, contents []byte) (atomicfile.Result, error) {
 	return replace(path, contents)
 }
 
-// replace writes contents to path atomically, or does not write at all.
-//
-// Not because a selection is precious, but because it is read at startup by an
-// editor that decides what to load from it, and a half-written selection is a
-// Chroma that comes up wrong. The mechanics live in internal/atomicfile, which
-// the install state uses as well: the same fifty lines in two packages is the
-// arrangement where one of them quietly loses its directory flush.
+// replace writes contents to path atomically, or does not write at all. The
+// mechanics live in internal/atomicfile, which the install state uses as well:
+// the same fifty lines in two packages is the arrangement where one of them
+// quietly loses its directory flush.
 func replace(path string, contents []byte) (atomicfile.Result, error) {
 	return atomicfile.Replace(path, contents, 0o644)
 }

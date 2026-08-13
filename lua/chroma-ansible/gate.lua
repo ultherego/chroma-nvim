@@ -1,19 +1,13 @@
--- The boundary between looking and running: everything before this module
--- stats and resolves, everything after it starts an Ansible process. The rules
--- are `doc/chroma-ansible-design.md` §6.
+-- The boundary between looking and running: everything before this stats and
+-- resolves, everything after starts an Ansible process (design §6).
 --
 -- > **Selecting a path in a picker must never start an Ansible process.**
 --
--- `ansible-inventory --graph` is not a file read. An inventory may be an
--- executable script, a plugin may contact EC2 or LDAP, and an `ansible.cfg` can
--- point `callback_plugins`, `library` and `roles_path` at code Ansible loads.
---
--- **The consent is bound to what the prompt named** (§6.4): the working
--- directory, the playbooks and the sources in order. Change any of them and the
--- question is asked again — it never asks "may Chroma run Ansible".
---
--- `vim.secure` is deliberately not used (§6.5): it binds a decision to the
--- bytes of one file, while the risk here is the whole execution context.
+-- `--graph` is not a file read: an inventory may be an executable script, and an
+-- `ansible.cfg` can point `callback_plugins` and `roles_path` at code Ansible
+-- loads. The consent is bound to the directory, the playbooks and the sources in
+-- order (§6.4), and `vim.secure` is not used because it binds to one file's
+-- bytes while the risk here is the whole execution context (§6.5).
 
 local M = {}
 

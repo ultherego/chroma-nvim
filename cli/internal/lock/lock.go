@@ -1,19 +1,12 @@
-// Package lock keeps two mutating operations off one installation.
+// Package lock keeps two mutating operations off one installation. `install`,
+// `update`, `components`, `rollback` and `uninstall` all move directories and
+// rewrite the record that says where they went; `doctor` is not here, because it
+// reads.
 //
-// `install`, `update`, `components`, `rollback` and `uninstall` all move
-// directories and rewrite the record that says where they went. Two of them at
-// once is not a race that ends in a slow answer; it is one process renaming a
-// tree the other is about to write a state file about. `doctor` is not here on
-// purpose: it reads.
-//
-// The lock is `flock` rather than a file holding a pid. The difference is the
-// case this whole campaign is about — a process that dies without running any
-// cleanup. The kernel drops an flock when the file descriptor closes, which it
-// does on exit however the exit happened, including SIGKILL. A pid file would
-// still be there, and the next run would have to decide whether the pid it
-// names is the same program or a number the system has since reused. That
-// decision is a guess, and it is a guess made at the exact moment somebody is
-// already having a bad day.
+// `flock` rather than a file holding a pid, for the case this whole campaign is
+// about: a process that dies without running any cleanup. The kernel drops an
+// flock when the descriptor closes, however the exit happened. A pid file would
+// leave the next run guessing whether the pid it names is the same program.
 package lock
 
 import (
@@ -24,27 +17,19 @@ import (
 	"syscall"
 )
 
-// Path is where the one lock lives.
+// Path is where the one lock lives. One for the whole CLI, not one per
+// installation: what is protected is the selection both placements share, the
+// discovery of which installation is managed, recovery and the generations. A
+// per-installation lock measurably did not cover them — `install` took the
+// isolated lock, the interactive flow chose the takeover, and the operation ran
+// against an installation somebody else held.
 //
-// One lock for the whole CLI, not one per installation. What is being protected
-// is not a directory: it is the selection, which both placements share, the
-// discovery of which installation is managed, the choice between taking a
-// directory over and living beside it, recovery, and the generations. A
-// per-installation lock could not cover any of those, and measurably did not —
-// `install` took the isolated lock, the interactive flow then chose the
-// takeover, and the operation ran against an installation somebody else held.
-//
-// It lives in the runtime directory rather than in an installation's state,
-// because a lock inside a directory `uninstall` removes is a lock that stops
-// working halfway through an uninstall: the name goes, the flock survives on an
-// inode nobody can reach, and the next process makes a second file and locks
-// that instead. Two exclusive locks, one installation — measured, and the
-// reason this comment exists.
-//
-// Runtime state also expires by itself: nothing has to clean it up, and a
-// reboot leaves nothing behind. Where there is no runtime directory the
-// fallback is state rather than a shared temporary directory, because
-// `/tmp/chroma.lock` is a name any account can take first.
+// In the runtime directory rather than an installation's state, because a lock
+// inside a directory `uninstall` removes stops working halfway through one: the
+// name goes, the flock survives on an unreachable inode, and the next process
+// locks a second file. Where there is no runtime directory the fallback is state
+// rather than a shared temporary directory, since `/tmp/chroma.lock` is a name
+// any account can take first.
 func Path() (string, error) {
 	if runtime := os.Getenv("XDG_RUNTIME_DIR"); runtime != "" {
 		return filepath.Join(runtime, "chroma-nvim.lock"), nil

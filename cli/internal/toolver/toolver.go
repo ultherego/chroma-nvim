@@ -1,11 +1,7 @@
-// Package toolver knows how to ask a tool what version it is.
-//
-// This is deliberately not in the component contract. A manifest says *what* is
-// required — "tree-sitter, at least 0.26.1" — and that is a fact about the
-// product. How to get a version out of a particular executable is a fact about
-// that executable, it changes when the tool changes, and putting the argument
-// and the parsing into components/*.json would make the shared contract carry
-// this CLI's implementation details.
+// Package toolver knows how to ask a tool what version it is. Deliberately not
+// in the component contract: a manifest says *what* is required, which is a fact
+// about the product, while how to get a version out of an executable is a fact
+// about that executable and changes when it does.
 package toolver
 
 import (

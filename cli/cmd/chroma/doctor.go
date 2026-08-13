@@ -12,29 +12,17 @@ import (
 	"github.com/ultherego/chroma-nvim/cli/internal/state"
 )
 
-// cmdDoctor reports whether the Chroma on this machine is healthy.
+// cmdDoctor reports whether the Chroma on this machine is healthy — that
+// question, and not "does the directory I happen to be standing in contain a
+// components/ folder". `--tree` used to default to `.`, so `cd /tmp && chroma
+// doctor` answered "no components directory in ." and exited 2 against a working
+// installation. With no flag it now finds the installation the way every other
+// managed command does.
 //
-// That question, and not "does the directory I happen to be standing in contain
-// a components/ folder". `--tree` used to default to `.`, so the ordinary
-// invocation failed in every directory but a checkout — measured against a
-// working managed installation:
-//
-//	$ cd /tmp && chroma doctor
-//	no components directory in . — is that a Chroma Neovim tree?   (exit 2)
-//
-// With no flag it now finds the installation the way every other managed
-// command does, reads that installation's own contract, and reports the
-// components its owner actually chose. `--tree` remains, as what it always
-// really was: an explicit read-only override for somebody working on a checkout,
-// and there it reports the whole contract because there is no selection to
-// narrow it by.
-//
-// The report has two halves and the line between them is the point. Chroma's
-// own tooling is the half that can be broken: without git there are no plugins.
-// Everything else — terraform, kubectl, helm, ansible, aws, docker — belongs to
-// the person running this, and its absence is reported as a fact about the
-// machine rather than as a fault in the installation. So a missing kubectl
-// prints `not found`, not `ERROR`, and does not change the exit code.
+// The report has two halves and the line between them is the point: Chroma's own
+// tooling can be broken, everything else belongs to the person running this — so
+// a missing kubectl prints `not found`, not `ERROR`, and does not change the
+// exit code.
 func cmdDoctor(args []string, out, errOut *os.File) int {
 	set := flag.NewFlagSet("doctor", flag.ContinueOnError)
 	set.SetOutput(errOut)
@@ -66,13 +54,9 @@ func cmdDoctor(args []string, out, errOut *os.File) int {
 	}
 	fmt.Fprint(out, "\n")
 
-	// The components in force, not every component the release ships. Somebody
-	// who turned Kubernetes off is not running a machine that is missing kubectl
-	// — they are running a machine that does not need it, and a report saying
-	// otherwise describes an installation they do not have.
-	//
-	// A checkout has no selection to narrow by, so there it is the whole
-	// contract: that is what `--tree` is for.
+	// The components in force, not every component the release ships: somebody who
+	// turned Kubernetes off is not missing kubectl, they do not need it. A
+	// checkout has no selection to narrow by, so there it is the whole contract.
 	ids := enabled
 	if ids == nil {
 		ids = loaded.IDs()

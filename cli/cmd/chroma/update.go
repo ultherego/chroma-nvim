@@ -19,15 +19,11 @@ import (
 	"github.com/ultherego/chroma-nvim/cli/internal/state"
 )
 
-// cmdUpdate replaces a managed installation with another release.
-//
-// It asks nothing about components. What somebody chose is a decision with a
-// longer life than any release, and re-asking it on every update is how a
-// person ends up with a different editor because they pressed return too
-// quickly. The selection document is read, validated against the contract of
-// the release being installed, and carried over — and if the new release no
-// longer has a component that was chosen, that is a refusal before anything
-// moves, not a silent drop.
+// cmdUpdate replaces a managed installation with another release, and asks
+// nothing about components: what somebody chose has a longer life than any
+// release. The selection is read, validated against the contract of the release
+// being installed, and carried over — and a release that no longer has a chosen
+// component is a refusal before anything moves, not a silent drop.
 func cmdUpdate(args []string, out, errOut *os.File) int {
 	set := flag.NewFlagSet("update", flag.ContinueOnError)
 	set.SetOutput(errOut)
@@ -167,17 +163,12 @@ func cmdUpdate(args []string, out, errOut *os.File) int {
 }
 
 // managed finds the one installation on this machine, and says so when there is
-// not exactly one.
-//
-// Both placements are looked at rather than asked about: somebody updating does
-// not want to remember which of them they chose a year ago. Two of them is the
-// case worth refusing — acting on whichever was checked first would update an
-// installation the user was not thinking of.
-// releaseVersion says which release a request like `latest` names.
-//
-// A package variable for the same reason releaseSource is one: a test about
-// what this command does before it downloads anything should not have to reach
-// the network to get there.
+// not exactly one. Both placements are looked at rather than asked about, and
+// two of them is the case worth refusing: acting on whichever was checked first
+// would update an installation the user was not thinking of.
+// releaseVersion says which release a request like `latest` names. A package
+// variable for the same reason releaseSource is one: a test about what this
+// command does before it downloads anything should not reach the network.
 var releaseVersion = func(ctx context.Context, version string) (string, error) {
 	return release.GitHubSource{Version: version}.Resolve(ctx)
 }
@@ -215,16 +206,11 @@ type installation struct {
 	state installstate.State
 }
 
-// managed finds the one installation a lifecycle command is about.
-//
-// One, and there is deliberately no way to ask for a particular one of two:
-// `install` refuses to make a second, so two is a state this CLI does not
-// produce. It was produced before that refusal existed — an isolated
-// installation and a `--default` one side by side left every lifecycle command
-// answering "this cannot tell which you mean", with no flag in the product to
-// resolve it. Measured, and the reason the refusal is where it is rather than
-// here: by the time a command needs to know which installation to act on, the
-// wrong one has already been made.
+// managed finds the one installation a lifecycle command is about. One, and
+// deliberately no way to ask for a particular one of two: `install` refuses to
+// make a second, so two is a state this CLI does not produce. It was produced
+// before that refusal existed, and every lifecycle command answered "this cannot
+// tell which you mean" with no flag in the product to resolve it.
 func managed(errOut *os.File) (install.Paths, installstate.State, int) {
 	found, code := recorded(errOut)
 	if code != exitOK {

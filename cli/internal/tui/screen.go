@@ -1,16 +1,11 @@
 // This file is the terminal version, and it runs only when there is a terminal.
+// An enhancement on top of the printed questions beside it, not a replacement:
+// both fill in the same Choices, and if this file were deleted the installer
+// would still work everywhere.
 //
-// It is an enhancement on top of the printed questions beside it, not a
-// replacement for them: nothing here decides anything the other one does not,
-// and both fill in the same Choices. If this file were deleted the installer
-// would still work everywhere, which is the property that made the dependency
-// worth taking.
-//
-// It deliberately does not use huh's accessible mode, which would look like the
-// obvious way to cover pipes and screen readers with one implementation. Two
-// measurements sent that back — see the note in line.go. The short version is
-// that its prompts cannot signal an error, so a closed pipe reads as an answer
-// nobody gave.
+// It deliberately does not use huh's accessible mode — see the note in line.go:
+// its prompts cannot signal an error, so a closed pipe reads as an answer nobody
+// gave.
 package tui
 
 import (
@@ -76,17 +71,13 @@ func onScreen(what questions, set component.Set, in io.Reader, out io.Writer) (C
 	return chosen, nil
 }
 
-// wayOut adds escape to the keys that leave without installing anything.
-//
-// The library binds only ctrl+c, and binds it with no help text, so the form
-// offered no visible way out at all — measured: escape on the placement
-// selector did nothing, and the run sat there until it was killed. Escape is
-// what somebody presses to mean "not this", and a question with no answer for
-// that is a question that has trapped them.
+// wayOut adds escape to the keys that leave without installing anything. The
+// library binds only ctrl+c, and with no help text, so the form offered no
+// visible way out — measured: escape on the placement selector did nothing and
+// the run sat there until it was killed.
 //
 // The cost, stated because it is real: the form checks this before the field
-// does, so escape no longer clears an active `/` filter. Backspace still does,
-// and the worst case of the trade is a cancelled run that changed nothing.
+// does, so escape no longer clears an active `/` filter. Backspace still does.
 func wayOut() *huh.KeyMap {
 	keys := huh.NewDefaultKeyMap()
 	keys.Quit = key.NewBinding(key.WithKeys("ctrl+c", "esc"), key.WithHelp("esc", "cancel"))

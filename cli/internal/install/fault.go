@@ -7,22 +7,17 @@ import (
 
 // Fault points: the boundaries between two steps that both succeeded.
 //
-// These exist because a real operating system cannot be aimed. Permissions,
-// ENOSPC, EXDEV and symlinks all produced genuine answers when the campaign put
-// them in the way — but none of them can be made to happen *after* a rename
-// worked and *before* the next write started. That gap is where a transaction
-// either has a defined state or does not.
+// A real operating system cannot be aimed. Permissions, ENOSPC, EXDEV and
+// symlinks all produced genuine answers when the campaign put them in the way,
+// but none of them can be made to happen *after* a rename worked and *before*
+// the next write started — and that gap is where a transaction either has a
+// defined state or does not.
 //
-// A fault point is not a simulated error in a step. `afterVerify` means verify
-// really ran and really succeeded, and then the process stopped. Simulating a
-// failing verify tests something the unit tests already cover; stopping between
-// two successes tests the boundary, which nothing else can.
-//
-// Deliberately not a filesystem interface. A `Filesystem` with `Rename`,
-// `WriteFile` and friends would be a large abstraction over a well-understood
-// API, added for tests and carried in production forever — and "fail on the
-// third Rename" quietly changes meaning the moment a refactor splits one rename
-// into two, while "after the generation was restored" does not.
+// Not a simulated error in a step: `afterVerify` means verify really ran and
+// really succeeded, and then the process stopped. Deliberately not a filesystem
+// interface either — "fail on the third Rename" changes meaning the moment a
+// refactor splits one rename into two, while "after the generation was restored"
+// does not.
 type faultPoint string
 
 const (
@@ -67,17 +62,14 @@ func hit(point faultPoint) error {
 }
 
 // writeRecord and writeSelection are the two durable writes this package makes.
-//
-// Package variables rather than direct calls, for the same reason the fault
-// points above exist: the window between "the rename committed" and "the caller
-// was told" cannot be produced by any real failure, and it is the one where a
-// transaction either keeps a commit or rolls back past it. A test replaces
-// these with the real write followed by an error, which is exactly that window.
+// Package variables for the same reason the fault points exist: the window
+// between "the rename committed" and "the caller was told" cannot be produced by
+// any real failure, and it is the one where a transaction either keeps a commit
+// or rolls back past it.
 //
 // This replaced an exported hook in internal/atomicfile. A test seam belongs in
 // the package whose behaviour is under test, not in the API of the primitive it
-// happens to be built on — atomicfile now keeps its own, unexported, and proves
-// its own half of the boundary in its own tests.
+// is built on.
 var (
 	writeRecord    = installstate.Write
 	writeSelection = state.Write

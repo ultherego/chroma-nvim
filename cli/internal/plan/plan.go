@@ -14,27 +14,20 @@ import (
 )
 
 // Detector describes the tools a set of components needs, as they are on this
-// machine. `detect.Tools` is the only implementation; it is a parameter so a
-// plan can be built for a machine other than this one, which is what makes it
-// testable.
-//
-// It is called with the components the plan resolved, not with the ones that
-// were asked for: a component pulled in by `requires` needs its tools described
-// too, and a list made before the resolution would not have them.
+// machine. `detect.Tools` is the only implementation; a parameter so a plan can
+// be built for another machine, which is what makes it testable. Called with the
+// components the plan resolved, not the ones asked for: a component pulled in by
+// `requires` needs its tools described too.
 type Detector func(component.Set, []string) []detect.Tool
 
 // Tool is one entry in the plan's tool list, and it is `detect.Tool` because
-// there is one answer to "is this tool usable on this machine" and it lives
-// there.
+// there is one answer to "is this tool usable on this machine".
 //
-// It used to be a type of its own, filled in from a `func(string) bool` that
-// asked only whether the name was on PATH. So a plan called a git of 2.18
-// present while `doctor`, reading the same executable, called it too old for
-// the floor core states — and the installation went ahead against a machine
-// that could not run it. Measured, with a stubbed PATH: the plan was complete
-// and doctor exited 4 on the same machine, at the same moment.
-//
-// Two definitions of "present" is the shape of that bug, so there is now one.
+// It used to be a type of its own, filled in from a check that asked only
+// whether the name was on PATH — so a plan called a git of 2.18 present while
+// `doctor`, reading the same executable, called it too old. Measured, with a
+// stubbed PATH: the plan was complete and doctor exited 4, on the same machine
+// at the same moment.
 type Tool = detect.Tool
 
 // Plan is what would happen. Component ids are sorted, so the same request
@@ -52,17 +45,13 @@ type Plan struct {
 	Unknown []string
 }
 
-// Complete reports whether everything Chroma itself needs is present.
-//
-// External tools are deliberately not counted. Choosing the kubernetes
-// component means "give me Chroma's Kubernetes features", not "install
-// kubectl" — so an absent kubectl is a fact about the machine, not an
-// incomplete plan, and the features that shell out to it say so when used.
-// Without git, by contrast, there are no plugins and there is no installation.
+// Complete reports whether everything Chroma itself needs is present. External
+// tools are deliberately not counted: choosing the kubernetes component means
+// "give me Chroma's Kubernetes features", not "install kubectl". Without git,
+// by contrast, there are no plugins and no installation.
 //
 // The rule itself is `detect.Blocking`, and is not restated here. It used to be,
-// word for word, next to the same rule in `doctor` — two copies of "what stops
-// an installation" that nothing made agree.
+// word for word, beside the same rule in `doctor`.
 func (p Plan) Complete() bool {
 	return !detect.Blocking(p.Tools)
 }
@@ -80,13 +69,10 @@ func (p Plan) External() []Tool {
 }
 
 // Build expands the request through the dependency graph and reports what that
-// costs. An unknown id is reported rather than ignored: silently installing
-// less than was asked for is how a user ends up debugging a component that was
-// never enabled.
-// Build works out what would be enabled and what it needs.
-//
-// The tools are described by the detector rather than worked out here from a
-// name lookup. See Tool and Detector.
+// costs. An unknown id is reported rather than ignored: silently installing less
+// than was asked for is how somebody ends up debugging a component that was
+// never enabled. The tools are described by the detector rather than worked out
+// here — see Tool and Detector.
 func Build(set component.Set, requested []string, describe Detector) Plan {
 	plan := Plan{Requested: append([]string(nil), requested...)}
 

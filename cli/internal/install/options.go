@@ -8,13 +8,10 @@ import (
 	"github.com/ultherego/chroma-nvim/cli/internal/component"
 )
 
-// Options is one installation as the user asked for it.
-//
-// It carries intent and nothing derived: which release, where it goes, what was
-// selected, and how much the CLI is allowed to decide on its own. Everything
-// that follows from it — paths, the plan, the transaction — is worked out from
-// this one value, so that the interactive flow and the flag flow cannot diverge
-// into two implementations of the same install.
+// Options is one installation as the user asked for it: which release, where it
+// goes, what was selected, and how much the CLI may decide on its own.
+// Everything derived from it is worked out from this one value, so the
+// interactive flow and the flag flow cannot become two implementations.
 type Options struct {
 	// Version is the release to install: a tag, or "latest" to be resolved to a
 	// tag before anything is shown to the user. A plan that says "latest" is a
@@ -30,14 +27,9 @@ type Options struct {
 	// existing one has been backed up.
 	UseDefault bool
 
-	// Selected are the optional components. `core` is implicit and is not a
-	// legal member — naming it is refused rather than ignored, the same rule the
-	// selection document itself keeps.
-	//
-	// Nil and empty are different, and the difference is the same one the
-	// selection document makes between having no file and having `[]`: nil means
-	// nobody said, empty means somebody said "core alone". A flag that was not
-	// passed leaves this nil.
+	// Selected are the optional components. `core` is implicit and naming it is
+	// refused rather than ignored. Nil and empty are different, as in the
+	// selection document: nil means nobody said, empty means "core alone".
 	Selected []string
 
 	// Profile is a named set of components, resolved by the CLI. Mutually

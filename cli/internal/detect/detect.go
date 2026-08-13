@@ -1,19 +1,12 @@
-// Package detect reports what is on this machine.
+// Package detect reports what is on this machine. It reports: it does not
+// install, and does not know how. What used to live beside this — a table of
+// package names per distribution — was deleted rather than left unused, because
+// the useful half was always the sentence "kubectl is not here".
 //
-// It reports. It does not install, and it does not know how: Chroma installs
-// Chroma, and a configuration that installs a terraform beside the one already
-// on the machine has taken over a system it was invited into. What used to live
-// beside this — a table of package names per distribution, and the commands to
-// run them — was deleted rather than left unused, because the useful half of it
-// was always the sentence "kubectl is not here", and that needs no package
-// manager to say.
-//
-// Two questions, kept apart. What the system is, and what state each tool the
-// enabled components ask for is in. The second has a boundary in it that
-// matters more than the states do: a tool `core` asks for is something Chroma
-// itself cannot run without, and a tool any other component asks for is the
-// user's own — wanted by a feature, absent at worst, and never a reason to
-// refuse an installation.
+// Two questions, kept apart: what the system is, and what state each tool the
+// enabled components ask for is in. The boundary in the second matters more than
+// the states — a tool `core` asks for is something Chroma cannot run without,
+// and any other is the user's own and never a reason to refuse an installation.
 package detect
 
 import (
@@ -106,11 +99,9 @@ func (t Tool) Blocking() bool {
 }
 
 // Blocking reports whether anything in a list of tools stops an installation.
-//
-// The list form exists because every caller needed it and each was writing the
-// loop again: a plan asking whether it is complete, `doctor` asking whether to
-// exit non-zero. Two loops, one rule — and nothing keeping them the same, which
-// is how a plan once called a machine ready that doctor called broken.
+// The list form exists because every caller was writing the loop again — and two
+// loops with nothing keeping them the same is how a plan once called a machine
+// ready that doctor called broken.
 func Blocking(tools []Tool) bool {
 	for _, tool := range tools {
 		if tool.Blocking() {
@@ -133,12 +124,9 @@ func OnPath(name string) bool {
 	return err == nil
 }
 
-// Tools reports the state of everything the enabled components ask for.
-//
-// One entry per requirement, in contract order, so that two runs on one machine
-// read the same. A tool asked for by two components appears once, under the
-// first that asked — the point is what is known about it, and that is the same
-// either way.
+// Tools reports the state of everything the enabled components ask for: one
+// entry per requirement, in contract order, so two runs on one machine read the
+// same. A tool asked for by two components appears once, under the first.
 func Tools(set component.Set, enabled []string, lookup Lookup, version Version) []Tool {
 	if lookup == nil {
 		lookup = OnPath
@@ -238,9 +226,6 @@ func Split(tools []Tool) (own, external []Tool) {
 	return own, external
 }
 
-// Printing any of this is `report.External`, and is deliberately not here.
-//
-// This package answers what is on the machine. How that reads — a table, a
-// colour, the difference between `not found` and `ERROR` — is one decision made
-// in one place for every command, and a package that both measures and draws is
-// a package where changing the drawing can change the measurement.
+// Printing any of this is `report.External`, deliberately not here: a package
+// that both measures and draws is one where changing the drawing can change the
+// measurement.

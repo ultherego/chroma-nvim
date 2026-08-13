@@ -1,21 +1,12 @@
--- The last screen before a playbook touches anything: the decisions in the
--- words §10 insists on, then the argument vector exactly as the process will
--- get it. The rules are `doc/chroma-ansible-design.md` §15.
+-- The last screen before a playbook touches anything: the decisions in the words
+-- §10 insists on, then the argument vector exactly as the process will get it.
 --
--- **Nothing is decided here**, and the prepared array is handed in rather than
+-- Nothing is decided here, and the prepared array is handed in rather than
 -- built, so the thing shown and the thing started cannot disagree (§15.2).
---
--- **There is no shell rendering** (§15.3): a line joined with spaces
--- misrepresents any argument holding a space, a quote or a semicolon, and that
--- is the line people copy.
---
--- **Nothing says a value will win.** `CLI remote-user override` rather than
--- `Remote user`, because playbook keywords and variables can outrank a
--- command-line option (§10.2); and an option nobody chose reads `inherited`,
--- never `no`.
---
--- A second implementation of `chroma.tasks.preview`'s policy rather than a call
--- into it, so these modules stay self-contained (§15.5).
+-- There is no shell rendering (§15.3): a line joined with spaces misrepresents
+-- any argument holding a space or a quote, and that is the line people copy.
+-- And nothing says a value will win — playbook keywords can outrank a
+-- command-line option (§10.2), so an option nobody chose reads `inherited`.
 
 local M = {}
 

@@ -12,13 +12,10 @@ import (
 	"time"
 )
 
-// Command is one external process.
-//
-// A struct rather than a variadic call, because everything the installer runs —
-// Neovim, and later a package manager — has to go through one place that can
-// bound it, cancel it and log it. Args are a slice and stay a slice: nothing
-// here is ever handed to a shell, so a component name or a package name cannot
-// become part of a command line.
+// Command is one external process. A struct rather than a variadic call, because
+// everything the installer runs has to go through one place that can bound it,
+// cancel it and log it. Args stay a slice: nothing here is ever handed to a
+// shell.
 type Command struct {
 	Name string
 	Args []string
@@ -73,12 +70,9 @@ type ExecRunner struct {
 }
 
 // Run starts the command, streams its output, and returns when it has finished
-// or when the context says to stop.
-//
-// The context is not advisory. exec.CommandContext kills the child when it is
-// cancelled, which is what makes a bootstrap that hangs — a parser compiling
-// forever, a download that never finishes — a failed installation rather than a
-// terminal nobody can get back.
+// or when the context says to stop. The context is not advisory:
+// exec.CommandContext kills the child, which is what makes a bootstrap that
+// hangs a failed installation rather than a terminal nobody can get back.
 func (r ExecRunner) Run(ctx context.Context, cmd Command, sink ProgressSink) error {
 	if sink == nil {
 		sink = Discard{}
@@ -88,13 +82,10 @@ func (r ExecRunner) Run(ctx context.Context, cmd Command, sink ProgressSink) err
 	process.Dir = cmd.Dir
 	process.Env = append(os.Environ(), cmd.Env...)
 
-	// Killing a process does not close the pipes its own children inherited, so
-	// reading to EOF can outlive the cancellation by as long as a grandchild
-	// feels like living — measured in CI, where a cancelled `sh -c "sleep 30"`
-	// held this open for the full thirty seconds while the same case finished
-	// immediately on a machine whose shell had exec'd the sleep. WaitDelay is
-	// the standard library's answer: shortly after the context ends, the pipes
-	// are closed regardless.
+	// Killing a process does not close the pipes its children inherited, so
+	// reading to EOF can outlive the cancellation. Measured in CI: a cancelled
+	// `sh -c "sleep 30"` held this open for the full thirty seconds. WaitDelay
+	// closes the pipes shortly after the context ends regardless.
 	process.WaitDelay = 2 * time.Second
 
 	output, err := process.StdoutPipe()
@@ -138,18 +129,12 @@ func (r ExecRunner) Run(ctx context.Context, cmd Command, sink ProgressSink) err
 			mu.Unlock()
 		}
 
-		// Whatever stopped the scan, the pipe still has to be emptied.
-		//
-		// A Scanner stops on a line longer than its buffer, and stopping is not
-		// the same as being finished: the child goes on writing into a pipe
-		// nobody is reading, fills it, and blocks on the write forever — so
-		// Wait below never returns. Measured, and it is a hang rather than a
-		// wrong answer: one line of two megabytes from a child that then exits
-		// cleanly made this run until the test framework killed it.
-		//
-		// Reading the rest and discarding it lets the child finish and lets the
-		// error below be reported. The output really is lost; that is what the
-		// error says.
+		// Whatever stopped the scan, the pipe still has to be emptied. A Scanner
+		// stops on a line longer than its buffer, and stopping is not being
+		// finished: the child goes on writing into a pipe nobody is reading,
+		// fills it, and blocks forever. Measured — one line of two megabytes from
+		// a child that then exited cleanly made this run until the test framework
+		// killed it. The output really is lost; that is what the error says.
 		err := scanner.Err()
 		if err != nil {
 			_, _ = io.Copy(io.Discard, output)

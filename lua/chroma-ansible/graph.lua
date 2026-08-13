@@ -1,19 +1,14 @@
--- The `ansible-inventory --graph` text tree, and nothing else: handed the exact
--- stdout of one subprocess, this answers with the groups, the hosts and who is
--- inside whom, or with one problem naming the line it could not read. The rules
--- are `doc/chroma-ansible-design.md` §7.
+-- The `ansible-inventory --graph` text tree, and nothing else: handed one
+-- subprocess's exact stdout, this answers with groups, hosts and who is inside
+-- whom, or with one problem naming the line it could not read (design §7).
 --
--- **`--graph`, not `--list`**: `--list` returns every host variable in
--- plaintext and no flag suppresses them (§7.1). Carrying somebody else's text
--- format is the price of never printing a secret by accident.
+-- `--graph`, not `--list`: `--list` returns every host variable in plaintext and
+-- no flag suppresses them (§7.1). All or nothing (§7.3), because a graph missing
+-- some groups looks exactly like a small inventory.
 --
--- **All or nothing** (§7.3): one unreadable line discards the tree, because a
--- graph missing some groups looks exactly like a small inventory.
---
--- Measured against 2.21.2, with the fixtures in `tests/fixtures/ansible/`. Two
--- properties of that output decide the code below: indentation is exactly two
--- spaces, then one `|  ` per level, then `|--`; and **a host name may contain
--- spaces**, so a name is the rest of the line, never the next word.
+-- Measured against 2.21.2: indentation is two spaces, then one `|  ` per level,
+-- then `|--`; and a host name may contain spaces, so a name is the rest of the
+-- line.
 
 local M = {}
 

@@ -10,13 +10,10 @@ import (
 	"github.com/ultherego/chroma-nvim/cli/internal/component"
 )
 
-// LocalSource installs from a checkout instead of a release.
-//
-// Developer-only, and the rule it exists under is the one at the top of
-// cli/DESIGN.md: the CLI never installs `main`. A checkout is where work
-// happens and is allowed to be broken. This exists so the install engine can be
-// built and exercised end to end before there is a release to fetch — not so
-// that anybody can install from a working tree.
+// LocalSource installs from a checkout instead of a release. Developer-only,
+// under the rule at the top of cli/DESIGN.md: the CLI never installs `main`. It
+// exists so the install engine can be exercised end to end before there is a
+// release to fetch.
 type LocalSource struct {
 	Root string
 }
@@ -101,14 +98,11 @@ func (s LocalSource) Prepare(_ context.Context) (PreparedSource, error) {
 const coreID = "core"
 
 // RefuseSourceInsideTarget rejects installing a tree onto itself, or onto
-// anything containing it.
-//
-// Not string equality. The failure worth preventing is broader: staging copies
-// the source while placement replaces the target, so a source that lives inside
-// the target — or a target inside the source — means one operation reading what
-// the other is moving. The obvious case is a developer whose checkout is
-// symlinked as their configuration, which is exactly how this repository is set
-// up on the machine it was written on.
+// anything containing it. Not string equality: staging copies the source while
+// placement replaces the target, so either nesting means one operation reading
+// what the other is moving. The obvious case is a checkout symlinked as somebody's
+// configuration, which is how this repository is set up on the machine it was
+// written on.
 func RefuseSourceInsideTarget(source string, paths Paths) error {
 	source, err := resolve(source)
 	if err != nil {

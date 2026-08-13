@@ -1,9 +1,7 @@
-// Package release builds the artefacts a release is made of.
-//
-// One packager, used by a developer making a prerelease by hand and later by
-// the release workflow. Not two: an archive built one way in development and
-// another way in CI is an archive whose checksum proves nothing about what was
-// tested.
+// Package release builds the artefacts a release is made of. One packager, used
+// by a developer making a prerelease by hand and by the release workflow: an
+// archive built one way in development and another in CI is an archive whose
+// checksum proves nothing about what was tested.
 package release
 
 import (
@@ -25,13 +23,10 @@ import (
 	"github.com/ultherego/chroma-nvim/cli/internal/install"
 )
 
-// Prefix is the directory every archive entry lives under.
-//
-// `chroma-nvim-v1.0.0/init.lua`, not `init.lua`. Two reasons, and the second is
-// the one that matters: a tarball that explodes into the working directory is
-// rude to anybody who unpacks it by hand, and a required prefix is one more
-// thing the extractor can check — an archive whose entries do not all sit under
-// the name it claims to be is not the archive that was built.
+// Prefix is the directory every archive entry lives under:
+// `chroma-nvim-v1.0.0/init.lua`, not `init.lua`. A tarball that explodes into
+// the working directory is rude, and a required prefix is one more thing the
+// extractor can check.
 func Prefix(version string) string {
 	return "chroma-nvim-" + version
 }
@@ -58,12 +53,10 @@ type Result struct {
 	SHA256  string
 }
 
-// Package writes the release archive and its checksum file.
-//
-// What goes in is install.RuntimeEntries — the same list the installer copies
-// when it stages a developer checkout, so an installation from a release and an
-// installation from a tree contain the same files. A second list here is how
-// those two quietly stop being the same product.
+// Package writes the release archive and its checksum file. What goes in is
+// install.RuntimeEntries — the same list the installer copies from a developer
+// checkout, so an installation from a release and one from a tree contain the
+// same files.
 func Package(tree, version, outDir string, assets ...string) (Result, error) {
 	if version == "" {
 		return Result{}, errors.New("a release needs a version")
@@ -265,11 +258,9 @@ func add(archive *tar.Writer, tree, relative, prefix string) error {
 	}
 }
 
-// ReadSums parses a SHA256SUMS file into checksums by file name.
-//
-// The format is the one `sha256sum` writes and reads: a hex digest, two spaces,
-// a name. Nothing else is accepted — a line this cannot parse is a line whose
-// meaning would have to be guessed at, in a file whose whole job is to be
+// ReadSums parses a SHA256SUMS file into checksums by file name, in the format
+// `sha256sum` writes. Nothing else is accepted: a line this cannot parse is one
+// whose meaning would have to be guessed at, in a file whose job is to be
 // unambiguous.
 func ReadSums(contents []byte) (map[string]string, error) {
 	sums := map[string]string{}
@@ -310,13 +301,10 @@ func ReadSums(contents []byte) (map[string]string, error) {
 }
 
 // Attribution is the commit an archive can honestly claim to have been built
-// from.
-//
-// A release says "this was built from commit X", and a tag points at X. Both
-// are false if the runtime files differ from what X contains — and that is not
-// hypothetical: this was written after an archive was built from a tree whose
-// lazy-lock.json had been changed by a `:Lazy sync` and never committed, which
-// would have published a configuration no commit describes.
+// from. A release says "this was built from commit X", and both that and the tag
+// are false if the runtime files differ from what X contains — not hypothetical:
+// this was written after an archive was built from a tree whose lazy-lock.json
+// had been changed by a `:Lazy sync` and never committed.
 type Attribution struct {
 	// Commit is the SHA the tree is checked out at.
 	Commit string

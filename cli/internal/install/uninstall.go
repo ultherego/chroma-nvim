@@ -21,8 +21,7 @@ type Removal struct {
 	Restored string
 
 	// Problems are the removals that did not work. An uninstall reports them
-	// rather than stopping: a directory that could not be deleted is worth
-	// naming, and refusing to remove the rest because of it would leave more
+	// rather than stopping: refusing to remove the rest would leave more
 	// behind than carrying on does.
 	Problems []error
 }
@@ -33,10 +32,9 @@ type RemovalPlan struct {
 	// Remove are Chroma's own paths, which it made and may take away.
 	Remove []string
 
-	// GiveBack are the directories Chroma borrowed and still owes, in the
-	// order they are to be returned. Never on Remove: the Chroma directory
-	// standing at each one's path is removed as part of giving it back, which
-	// is a different act from deleting a path Chroma owns outright.
+	// GiveBack are the directories Chroma borrowed and still owes, in the order
+	// they are to be returned. Never on Remove: the Chroma directory standing
+	// at each path is removed as part of giving it back.
 	GiveBack []installstate.Borrowed
 
 	// RestoreTo is where the configuration goes.
@@ -44,10 +42,8 @@ type RemovalPlan struct {
 }
 
 // giveBackOrder is the order borrowed directories are returned in.
-//
-// Configuration first, because it is the one whose return somebody would check,
-// and state last: install.json lives under it, so once it has been given back
-// there is no record left to write the next step into.
+// Configuration first, because that is the return somebody would check, and
+// state last: install.json lives under it.
 var giveBackOrder = []string{"configuration", "data", "cache", "state"}
 
 // undo puts a half-done uninstall back, and reports both problems if the
@@ -60,36 +56,16 @@ func undo(tx *Transaction, cause error) error {
 }
 
 // ReconcileHandover repairs a record left behind by a process that stopped
-// existing between giving a borrowed directory back and writing that down.
+// existing between giving a borrowed directory back and writing that down. The
+// filesystem wins: a record is a description, and one that disagrees with what
+// it describes is wrong about it.
 //
-// A signal can land in that window; an error cannot, because the two statements
-// are adjacent. What is left is a record saying "there is a directory to give
-// back" and a filesystem saying the opposite, and the rule is that the
-// filesystem wins — a record is a description, and a description that disagrees
-// with the thing it describes is wrong about it.
+// Allowed only where the record says a handover had begun. What it asks is not
+// what the directory looks like but which directory it is — the recorded device
+// and inode are what the borrowed directory had when Chroma took it, and a
+// rename keeps both. That is the whole difference from the version H4 forged.
 //
-// The inference is allowed only where the record says a handover had begun.
-// `pending` is written before the first move, so its presence is Chroma's own
-// record of having entered the transfer. That is the whole difference from the
-// version H4 forged: with Chroma still installed, deleting the backup and one
-// file out of the tree was enough to make the old rule conclude the
-// configuration had been given back — because it asked what the directory
-// looked like.
-//
-// What it asks now is not what the directory looks like but which directory it
-// is. The recorded device and inode are the ones the borrowed directory had
-// when Chroma took it, and a rename keeps both; so if the backup is gone and
-// the original path holds that same inode, the rename ran and nothing else
-// could have produced it. Shape could be imitated by anybody. This cannot be,
-// except by the account owner rewriting install.json, which is outside the
-// threat model either way.
-//
-// Anything else with `pending` set is a contradiction — the backup gone and
-// nothing recognisable at the original path — and produces a refusal rather
-// than a story.
-//
-// Returns the record to act on, a sentence for whoever is watching, and an
-// error when nothing can be concluded safely.
+// Anything else with `pending` set is a contradiction and produces a refusal.
 func ReconcileHandover(current installstate.State) (installstate.State, string, error) {
 	repaired := current
 	repaired.Borrowed = append([]installstate.Borrowed(nil), current.Borrowed...)
@@ -97,9 +73,8 @@ func ReconcileHandover(current installstate.State) (installstate.State, string, 
 	var said []string
 	for index, borrowed := range repaired.Borrowed {
 		if borrowed.Handover != installstate.HandoverPending {
-			// Not in a transfer, so the state of the backup proves nothing
-			// about ownership. A missing one is somebody else's doing and is
-			// refused later, by name.
+			// Not in a transfer, so the state of the backup proves nothing about
+			// ownership. A missing one is refused later, by name.
 			continue
 		}
 
@@ -132,11 +107,8 @@ func ReconcileHandover(current installstate.State) (installstate.State, string, 
 		strings.Join(said, ", ")), nil
 }
 
-// isChromaTree reports whether a directory holds a Chroma configuration.
-//
-// The same file LocalSource insists on before it will install anything, for the
-// same reason: without it there is nothing here the installer could bootstrap,
-// so whatever it is, it is not this.
+// isChromaTree reports whether a directory holds a Chroma configuration: the
+// same file LocalSource insists on before it will install anything.
 func isChromaTree(dir string) bool {
 	_, err := os.Stat(filepath.Join(dir, "lua", "chroma", "bootstrap.lua"))
 	return err == nil
@@ -145,21 +117,13 @@ func isChromaTree(dir string) bool {
 // RefuseSymlinkedConfiguration reports why a symlinked configuration cannot be
 // uninstalled.
 //
-// Renaming a symlink moves the link, not what it points at, and removing it
-// removes the link. An uninstall that did that would report a complete removal
-// while the entire configuration sat where it always was — measured, not
-// imagined: it deleted the link, left nine entries behind and said "6 paths
-// removed".
+// Renaming a symlink moves the link and removing it removes the link. Measured,
+// not imagined: an uninstall that did that deleted the link, left nine entries
+// behind and said "6 paths removed". Following it is worse — the README's own
+// second installation route links to a checkout with somebody's work in it.
 //
-// Following it instead is worse. What is on the other end was not made by
-// Chroma; the README's own second installation route is to clone the repository
-// somewhere and link to it, so the thing at the end of the link is quite likely
-// a checkout with somebody's work in it. Neither lying nor deleting is
-// acceptable, which leaves saying so.
-//
-// Exported because the refusal has to happen before the plan is printed — a
-// destructive list nobody is going to act on reads as a threat — and the check
-// still runs inside Uninstall, so no caller can skip it.
+// Exported because the refusal has to happen before the plan is printed, and
+// the check still runs inside Uninstall so no caller can skip it.
 func RefuseSymlinkedConfiguration(configDir string) error {
 	info, err := os.Lstat(configDir)
 	if err != nil || info.Mode()&os.ModeSymlink == 0 {
@@ -175,19 +139,14 @@ func RefuseSymlinkedConfiguration(configDir string) error {
 		configDir, destination, destination)
 }
 
-// PlanUninstall works out what an uninstall would do.
+// PlanUninstall works out what an uninstall would do, under a single rule:
+// **what Chroma made for its own operation it may remove; what Chroma only
+// moved aside it gives back.**
 //
-// The single rule, and everything here follows from it: **what Chroma made for
-// its own operation it may remove; what Chroma only moved aside, because it
-// belonged to somebody already, it gives back.** A generation is the first
-// kind. Every directory `--default` took over is the second, and none of them
-// is ever on the removal list.
-//
-// There are up to four of the second kind, not one. `~/.config/nvim` is the
-// visible one; `~/.local/share/nvim`, `~/.local/state/nvim` and `~/.cache/nvim`
-// are the ones Neovim reads without being asked, and an uninstall that listed
-// them as Chroma's own removed somebody's plugins and undo history — measured,
-// on a real machine.
+// There are up to four of the second kind. `~/.config/nvim` is the visible one;
+// `~/.local/share/nvim`, `~/.local/state/nvim` and `~/.cache/nvim` are the ones
+// Neovim reads without being asked, and an uninstall that listed them as
+// Chroma's own removed somebody's plugins and undo history — measured.
 func PlanUninstall(paths Paths, current installstate.State) RemovalPlan {
 	plan := RemovalPlan{RestoreTo: current.ConfigDir}
 
@@ -249,18 +208,14 @@ func PlanUninstall(paths Paths, current installstate.State) RemovalPlan {
 
 // Uninstall removes what Chroma made and gives back what it borrowed.
 //
-// Each borrowed directory is given back the same way: Chroma's own directory at
-// that path is moved aside, the borrowed one is proved to be the one that was
-// taken, and only then does it move home. Chroma's copy is deleted afterwards.
-// Deleting first would mean a failed restore leaves the path empty — no Chroma
-// and nothing of the user's either, which is worse than either outcome alone.
+// Each borrowed directory is given back the same way: Chroma's own directory
+// there is moved aside, the borrowed one is proved to be the one that was
+// taken, and only then does it move home. Deleting Chroma's copy first would
+// mean a failed restore leaves the path empty.
 //
-// The configuration is the commit point, and the rest follow it. Up to the
-// moment somebody's own `init.lua` is back at `~/.config/nvim` this is
-// reversible and a failure reinstates Chroma; past it, ownership has changed
-// hands, and a failure to hand back the data directory is reported and resumed
-// rather than undone. Undoing it would mean taking back something already
-// given.
+// The configuration is the commit point. Up to the moment somebody's own
+// `init.lua` is back this is reversible; past it, ownership has changed hands,
+// and a failure on the rest is reported and resumed rather than undone.
 func (i *Installer) Uninstall(paths Paths, current installstate.State) (Removal, error) {
 	sink := i.Sink
 	if sink == nil {
@@ -287,28 +242,21 @@ func (i *Installer) Uninstall(paths Paths, current installstate.State) (Removal,
 	plan := PlanUninstall(paths, current)
 	removal := Removal{}
 
-	// Nothing about giving somebody's directories back begins before the
-	// intention to do it is on disk. If this write fails the filesystem is
-	// untouched, which is the whole point of putting it first.
-	//
-	// Every one of them at once, not one at a time: they were taken together
-	// and the record has to be able to say so before the first rename, or a
-	// process that stops after two of four leaves two directories nobody can
-	// prove were ever in transit.
-	//
-	// Before the protocol starts, not merely before the move: once Chroma
-	// cannot show that what sits at a recorded path is the directory it put
-	// there, it has no business beginning a transfer of ownership at all.
+	// Nothing begins before the intention to do it is on disk, and all of them
+	// at once: they were taken together, and a process that stops after two of
+	// four would leave two directories nobody can prove were in transit. Before
+	// the protocol starts, not merely before the move — once Chroma cannot show
+	// that what sits at a recorded path is what it put there, it has no business
+	// beginning a transfer of ownership.
 	if beginning, entered := beginHandover(current, plan); entered {
 		for _, one := range plan.GiveBack {
 			if err := ProveIdentity(one.Backup, identityOfRecord(one), "your "+one.Kind); err != nil {
 				return removal, err
 			}
 		}
-		// Replaced is what matters: if the intention reached the disk, the
-		// protocol has begun whether or not the flush was confirmed. Refusing
-		// to continue then would leave `pending` recorded with nothing to
-		// resume from.
+		// Replaced is what matters: if the intention reached the disk the
+		// protocol has begun, and refusing to continue would leave `pending`
+		// recorded with nothing to resume from.
 		if written, err := writeRecord(paths.InstallState, beginning); err != nil && !written.Replaced {
 			return removal, fmt.Errorf("recording that the handover is starting: %w", err)
 		}
@@ -318,17 +266,15 @@ func (i *Installer) Uninstall(paths Paths, current installstate.State) (Removal,
 	tx := NewTransaction(paths)
 
 	// Chroma's own directories that were moved out of the way, and where they
-	// went. They are removed at the end like anything else Chroma owns — the
-	// difference is only that the path they used to have now belongs to
-	// somebody else, so the copy is what goes and the original is what is
-	// reported.
+	// went. Removed at the end like anything else Chroma owns; the difference
+	// is that their old path now belongs to somebody else, so the copy goes and
+	// the original path is what gets reported.
 	type doomed struct{ report, target string }
 	var held []doomed
 
-	// Held rather than removed. Until the restore below has succeeded this is
-	// the only copy of anything at ConfigDir.
-	// A configuration already handed back is not touched at all — not held, not
-	// moved, not looked at for permission to move. It is somebody else's.
+	// Held rather than removed: until the restore succeeds this is the only
+	// copy of anything at ConfigDir. A configuration already handed back is not
+	// touched at all — it is somebody else's.
 	if ownsConfigDir(current) {
 		sink.Emit(Event{Step: "hold", Status: StatusStart})
 		moved, err := tx.HoldAside(current.ConfigDir)
@@ -351,39 +297,27 @@ func (i *Installer) Uninstall(paths Paths, current installstate.State) (Removal,
 		sink.Emit(Event{Step: "restore", Status: StatusStart})
 		want := identityOfRecord(configuration)
 		if err := tx.RestoreGeneration(configuration.Backup, want, paths); err != nil {
-			// Put the Chroma configuration back and stop. Nothing has been
-			// deleted, so this is recoverable by running the command again.
+			// Nothing has been deleted, so running the command again recovers.
 			return removal, undo(tx, fmt.Errorf("restoring the configuration that was here before Chroma: %w", err))
 		}
 		removal.Restored = configuration.Backup
 		sink.Emit(Event{Step: "restore", Status: StatusDone, Message: configuration.Backup})
 	}
 
-	// **The commit point.**
-	//
-	// Before this line the operation is reversible: nothing has been deleted
-	// and the user's own configuration is still where Chroma put it, so a
-	// failure restores Chroma and asks to be run again.
-	//
-	// After it, ownership has changed hands. The directory now holds the
-	// configuration its owner had before Chroma ever ran, and moving it a
-	// second time to reinstate an installation somebody has just asked to
-	// remove would be Chroma taking back something it has already given. So
-	// from here nothing is undone — what is left is deletion of Chroma's own
-	// paths and the return of the remaining borrowed ones, and every one of
-	// those is safe to attempt again. The record is removed last precisely so
-	// that a second run still knows what to finish.
+	// **The commit point.** Before this line nothing has been deleted and a
+	// failure restores Chroma. After it the directory holds the configuration
+	// its owner had before Chroma ever ran, and moving it again would be Chroma
+	// taking back what it has given — so from here nothing is undone. What is
+	// left is safe to attempt again, and the record is removed last precisely
+	// so that a second run knows what to finish.
 	tx.Commit()
 
-	// Written down, not merely reasoned about. Until this line the record says
-	// there is a configuration to give back; past it there is not, because it
-	// has been given. A stop here without this write leaves a record pointing
-	// at a directory whose contents have moved, and a second attempt then fails
-	// trying to restore from somewhere empty — measured, by the fault point
-	// below, before this line existed.
-	//
-	// A failure to write it is reported and does not stop the removals: they
-	// are what was asked for, and the record is on its way out anyway.
+	// Written down, not merely reasoned about: past this line the record must
+	// not say there is a configuration to give back. Measured by the fault point
+	// below, before this existed: a stop here left a record pointing at a
+	// directory whose contents had moved, and the second attempt failed
+	// restoring from somewhere empty. A failed write is reported and does not
+	// stop the removals.
 	if err := hit(faultRestoredNotRecorded); err != nil {
 		return removal, err
 	}
@@ -401,21 +335,16 @@ func (i *Installer) Uninstall(paths Paths, current installstate.State) (Removal,
 	}
 
 	// The rest of what was borrowed: data, cache, and state last. Each is a
-	// separate resumable step — a failure on one is reported and the next is
-	// still attempted, because they are independent directories and giving two
-	// of three back beats giving none.
+	// separate resumable step, because giving two of three back beats none.
 	for _, one := range plan.GiveBack {
 		if one.Kind == "configuration" {
 			continue
 		}
 		if one.Kind == "state" {
-			// The terminal resource, and it waits for phase three. install.json
+			// The terminal resource, and it waits for phase three: install.json
 			// lives under it, so handing it back is the moment Chroma stops
-			// having a record — and doing that while anything else is still
-			// owed is how a borrowed cache ends up stranded at a backup path
-			// with nothing left to say whose it is. Measured, before this: the
-			// cache could not be handed back, the state went home anyway, and
-			// the record went with it.
+			// having a record. Measured, before this: the cache could not be
+			// handed back, the state went home anyway, and the record with it.
 			continue
 		}
 
@@ -428,8 +357,8 @@ func (i *Installer) Uninstall(paths Paths, current installstate.State) (Removal,
 		want := identityOfRecord(one)
 		if err := ProveIdentity(one.Backup, want, "your "+one.Kind); err != nil {
 			removal.Problems = append(removal.Problems, err)
-			// Chroma's own directory goes back where it was, so the path is not
-			// left empty because of a refusal.
+			// Chroma's own directory goes back, so a refusal does not leave the
+			// path empty.
 			if moved != "" {
 				if putBack := os.Rename(moved, one.Original); putBack != nil {
 					removal.Problems = append(removal.Problems, fmt.Errorf("putting %s back as %s: %w", moved, one.Original, putBack))
@@ -443,14 +372,11 @@ func (i *Installer) Uninstall(paths Paths, current installstate.State) (Removal,
 		}
 		sink.Emit(Event{Step: "restore", Status: StatusDone, Message: one.Kind + ": " + one.Original})
 
-		// The Chroma directory that stood there is gone now, and the record has
-		// to stop claiming the borrowed one is still held.
-		//
-		// State is the exception, and deliberately: install.json lives under
-		// it, so by this point the record has moved with the held copy and
-		// writing to paths.InstallState would create a fresh directory in the
-		// one just handed back. Its copy is removed instead, immediately, which
-		// is what finishing the uninstall would do anyway.
+		// The Chroma directory that stood there is gone, so the record must stop
+		// claiming the borrowed one is held. State is the exception: install.json
+		// lives under it, so the record has moved with the held copy and writing
+		// to paths.InstallState would create a directory in the one just handed
+		// back. Its copy is removed immediately instead.
 		current = markHandedBack(current, one.Kind)
 
 		if moved != "" {
@@ -464,13 +390,10 @@ func (i *Installer) Uninstall(paths Paths, current installstate.State) (Removal,
 
 	sink.Emit(Event{Step: "remove", Status: StatusStart})
 
-	// Chroma's own paths, and then the copies of the ones whose place has been
-	// given back. Both are Chroma's; only the second kind no longer lives where
-	// its name says, which is why it is reported under the path it had.
-	//
-	// The state directory is held back from this list. It is where install.json
-	// lives, so removing it is the last act of an uninstall and not one item
-	// among several — see finish below.
+	// Chroma's own paths, then the copies of the ones whose place has been
+	// given back; the second kind is reported under the path it had. The state
+	// directory is held back — install.json lives there, so removing it is the
+	// last act of an uninstall. See finish below.
 	going := make([]doomed, 0, len(plan.Remove)+len(held))
 	for _, path := range plan.Remove {
 		if path == current.StateDir {
@@ -489,29 +412,22 @@ func (i *Installer) Uninstall(paths Paths, current installstate.State) (Removal,
 	}
 
 	// The directory the selection lived in, if nothing else is in it. `Remove`
-	// rather than `RemoveAll` on purpose: it succeeds only on an empty
-	// directory, so anything somebody else put there keeps it — and Chroma has
-	// no business deciding what that is. Left behind, this was the one thing a
-	// real uninstall still left on the machine.
+	// rather than `RemoveAll`: it succeeds only on an empty directory, so
+	// anything somebody else put there keeps it.
 	if current.SelectionFile != "" {
 		if err := os.Remove(filepath.Dir(current.SelectionFile)); err == nil {
 			removal.Removed = append(removal.Removed, filepath.Dir(current.SelectionFile))
 		}
 	}
 
-	// **The end of phase two, and the gate into phase three.**
+	// **The end of phase two, and the gate into phase three.** Everything above
+	// can be attempted again, so if any of it failed the record stays where it
+	// is and this stops — the record is the only description of what is left to
+	// finish, and the next step destroys it.
 	//
-	// Everything above can be attempted again: the removals are of Chroma's own
-	// paths, and the hand-backs are of directories still standing where the
-	// record says. So if any of it failed, the record stays exactly where it is
-	// and this stops — because the record is the only description of what is
-	// left to finish, and the next step destroys it.
-	//
-	// Measured, before this gate existed. Isolated: the data directory could
-	// not be removed, the state directory went anyway, and a second run
-	// answered "No Chroma installation is recorded". Takeover: the cache could
-	// not be handed back, the borrowed state went home anyway, and the user's
-	// cache was left at a backup path with nothing to say whose it was.
+	// Measured before this gate existed: the state directory went while the
+	// data directory could not be removed, and a second run answered "No Chroma
+	// installation is recorded".
 	if len(removal.Problems) > 0 {
 		sink.Emit(Event{Step: "uninstall", Status: StatusFailed,
 			Message: "some of what Chroma made could not be removed; the record is kept so this can be run again"})
@@ -529,14 +445,10 @@ func (i *Installer) Uninstall(paths Paths, current installstate.State) (Removal,
 }
 
 // finish is the last act of an uninstall, and the only one that destroys the
-// record.
-//
-// Two shapes, one meaning. An installation of its own owns its state directory,
-// so removing it is the commit. A takeover borrowed it, so giving it back is —
-// and Chroma's own copy, which is where install.json has been all along, is
-// removed immediately afterwards.
-//
-// Nothing reaches here while anything else is unfinished.
+// record. Two shapes, one meaning: an installation of its own owns its state
+// directory, so removing it is the commit; a takeover gives it back, and
+// Chroma's copy — where install.json has been all along — goes immediately
+// after. Nothing reaches here while anything else is unfinished.
 func finish(paths Paths, current installstate.State, plan RemovalPlan, sink ProgressSink) []error {
 	borrowed, owed := firstOfKind(plan.GiveBack, "state")
 	if !owed {

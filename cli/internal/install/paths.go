@@ -1,11 +1,8 @@
-// Package install places a Chroma Neovim release on a machine.
-//
-// This file is the part everything else measures against: where the
-// configuration goes, where its data and state go, and where the selection
-// already lives. Every mutating command resolves paths through here, because a
-// path assembled twice is a path that will eventually be assembled differently
-// — and the two places that would disagree are "what the installer wrote" and
-// "what the uninstaller deletes".
+// Package install places a Chroma Neovim release on a machine. This file is what
+// everything else measures against: where the configuration, its data and its
+// state go, and where the selection already lives. Every mutating command
+// resolves paths through here, because the two places that would disagree are
+// "what the installer wrote" and "what the uninstaller deletes".
 package install
 
 import (

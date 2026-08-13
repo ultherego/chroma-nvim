@@ -1,19 +1,14 @@
--- Starting the playbook: everything is decided, so this opens a terminal,
--- starts the process and refuses in the two cases where what was agreed to no
--- longer exists. The rules are `doc/chroma-ansible-design.md` §15.5 and §16.
+-- Starting the playbook: everything is decided, so this opens a terminal, starts
+-- the process, and refuses where what was agreed to no longer exists (§15.5, §16).
 --
 -- Measured at the pinned commit (§20.8): `toggle()` would hide a matching
 -- terminal rather than run anything, and `auto_close` closes a terminal that
--- exited 0 — exactly the output somebody wanted. The other interactive defaults
--- stay, because `BECOME password:` has to be answerable (§11).
+-- exited 0. The other interactive defaults stay, because `BECOME password:` has
+-- to be answerable (§11).
 --
--- **A second implementation of `chroma.tasks.run`'s policy, not a call into
--- it** (§15.5): these modules are self-contained so any of them can be lifted
--- into its own repository. A test runs the invariants against both (§19.6).
---
--- **The run counter is one counter for all of Chroma** (§15.5.1), because a
--- terminal's identity has no room for the module that opened it, and a Project
--- Task may declare `ansible-playbook` in the same directory (§2).
+-- A second implementation of `chroma.tasks.run`'s policy rather than a call into
+-- it, so these modules stay liftable (§15.5); a test runs the invariants against
+-- both. The run counter is one counter for all of Chroma (§15.5.1).
 
 local context = require("chroma-ansible.context")
 

@@ -25,15 +25,10 @@ const (
 )
 
 // Interruption is a generation transaction that stopped between moving a
-// directory and writing the record.
-//
-// It is detected rather than journalled, because the evidence is already
-// durable: **a `*.chroma-backup-*` directory the record does not reference
-// cannot exist in any committed state.** An installation records what it moved
-// aside as `user_backup`; an update and a rollback record it as
-// `previous.path`. One that nothing points at is proof that a process died
-// between its backup step and its commit — which is exactly the window writing
-// the record last does not cover, because the write never happens.
+// directory and writing the record. Detected rather than journalled, because the
+// evidence is already durable: **a `*.chroma-backup-*` directory the record does
+// not reference cannot exist in any committed state.** One that nothing points
+// at is proof that a process died between its backup step and its commit.
 type Interruption struct {
 	// Orphan is the unreferenced backup: the generation that was committed.
 	Orphan string
@@ -52,12 +47,10 @@ type Interruption struct {
 	Why string
 }
 
-// DetectInterruption looks for an unfinished generation transaction.
-//
-// It concludes only what it can show. Anything ambiguous — more than one
-// orphan, an orphan that is not a Chroma tree, a recorded previous that is
-// missing with nothing to explain it — returns an error rather than a guess:
-// the alternative is a recovery that moves somebody's directories on a hunch.
+// DetectInterruption looks for an unfinished generation transaction, and
+// concludes only what it can show. Anything ambiguous — more than one orphan, an
+// orphan that is not a Chroma tree, a recorded previous that is missing —
+// returns an error rather than a guess.
 func DetectInterruption(paths Paths, current installstate.State) (*Interruption, error) {
 	beside := filepath.Dir(paths.ConfigDir)
 	entries, err := os.ReadDir(beside)
@@ -121,21 +114,15 @@ func DetectInterruption(paths Paths, current installstate.State) (*Interruption,
 		return nil, fmt.Errorf("%s is not a Chroma configuration, so it cannot be the generation to restore", orphan)
 	}
 
-	// An unreferenced backup is evidence of an interrupted transaction only
-	// where its presence closes a gap in the committed state. With the target in
-	// place and every recorded path where the record says it is, nothing is
-	// missing — so the directory beside them explains nothing, and a familiar
-	// name is not proof of ownership.
+	// An unreferenced backup is evidence of an interrupted transaction only where
+	// its presence closes a gap in the committed state. With everything where the
+	// record says, nothing is missing and the directory beside them explains
+	// nothing.
 	//
-	// Measured, and it is why this exists: without the check, a stray
-	// `*.chroma-backup-*` was treated as the committed generation, moved over a
-	// perfectly good installation, and the good one deleted.
-	//
-	// The honest cost is that an update killed between placing the new tree and
-	// writing the record is no longer distinguished from a complete state with a
-	// stray directory beside it. From the filesystem alone the two are the same
-	// arrangement, and inventing a rule that told them apart would be inventing
-	// a fact. So that case is reported and refused rather than guessed at.
+	// The honest cost: an update killed between placing the new tree and writing
+	// the record is no longer distinguished from a complete state with a stray
+	// directory beside it. From the filesystem alone the two are the same
+	// arrangement, so that case is reported and refused rather than guessed at.
 	if !targetMissing && !previousMissing {
 		return nil, fmt.Errorf(
 			"%s is a Chroma backup that nothing in %s refers to, and the installation is otherwise complete.\nIt may be what an interrupted update left behind, or something copied there; this cannot tell which and will not guess.\nMove it away or delete it, and run this again",
@@ -171,19 +158,14 @@ func DetectInterruption(paths Paths, current installstate.State) (*Interruption,
 	return found, nil
 }
 
-// Repair puts the committed arrangement back.
-//
-// Renames first and deletion last, always. A recovery that removed the
-// uncommitted tree and then failed to move the committed one into place would
-// leave a machine with no configuration at all — the same hole it exists to
-// close, dug one level down.
+// Repair puts the committed arrangement back. Renames first and deletion last,
+// always: removing the uncommitted tree and then failing to move the committed
+// one into place would leave a machine with no configuration at all.
 //
 // What it deletes is exactly the directory it moved aside itself, in this run.
-// Nothing is removed by name: a `*.chroma-provisional-*` left by an earlier
-// recovery that was interrupted looks identical to one somebody created, and
-// after the process that made it is gone there is no evidence of which it is.
-// A familiar name is not proof of ownership — the same rule that stopped an
-// orphaned backup being given a role it had not earned.
+// Nothing is removed by name — a `*.chroma-provisional-*` left by an earlier
+// recovery looks identical to one somebody created, and a familiar name is not
+// proof of ownership.
 func (found *Interruption) Repair(paths Paths) error {
 	// Anything at the target that was never committed goes aside, under a name
 	// that is not a backup: a second `*.chroma-backup-*` would make the next
@@ -224,12 +206,9 @@ func (found *Interruption) Repair(paths Paths) error {
 }
 
 // putBack returns the uncommitted tree to the target when the committed one
-// could not be restored.
-//
-// This is what makes the ordering load-bearing rather than merely tidy. Moving
-// the uncommitted tree aside instead of deleting it costs one rename, and buys
-// the difference between "the machine still has a configuration, and it is not
-// the one recorded" and "the machine has none at all".
+// could not be restored. This is what makes the ordering load-bearing: one
+// rename buys the difference between "the machine still has a configuration, and
+// it is not the one recorded" and "the machine has none at all".
 func putBack(paths Paths, aside string) error {
 	if aside == "" || present(paths.ConfigDir) {
 		return nil
@@ -265,14 +244,11 @@ func describeVersionOfGeneration(version string) string {
 	return version
 }
 
-// Recover detects an interrupted transaction and puts the committed
-// arrangement back, reporting what it did.
-//
-// Nothing is asked of the user. Whether a half-placed tree had been
-// bootstrapped or verified is not something anybody outside this process can
-// know, and offering it as a choice would be a way of promoting an uncommitted
-// transaction. Either the committed state can be shown and is restored, or it
-// cannot and nothing is touched.
+// Recover detects an interrupted transaction and puts the committed arrangement
+// back, reporting what it did. Nothing is asked of the user: whether a
+// half-placed tree had been bootstrapped is not something anybody outside this
+// process can know, and offering it as a choice would be a way of promoting an
+// uncommitted transaction.
 func Recover(paths Paths, current installstate.State) (string, error) {
 	found, err := DetectInterruption(paths, current)
 	if err != nil {

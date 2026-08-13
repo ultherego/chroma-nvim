@@ -1,26 +1,15 @@
-// Package tui asks the questions a flag did not answer.
-//
-// It holds no decisions. Everything it shows comes from the component contract,
-// and everything it produces is a Choices — which one function turns into the
-// install.Options the flag flow builds, so `--non-interactive` is not a second
-// implementation of installing. What happens after the last question is
-// identical either way: build the plan, show it, confirm, and hand it to the
-// installer.
+// Package tui asks the questions a flag did not answer, and holds no decisions:
+// everything it shows comes from the component contract, and everything it
+// produces is a Choices, which one function turns into install.Options. What
+// happens after the last question is identical either way.
 //
 // **This package never performs an installation.** It returns values.
 //
-// There are two ways of asking and one meaning:
-//
-//	a terminal          full-screen selectors, arrow keys and checkboxes
-//	anything else       printed questions and typed answers, over a pipe
-//	--plain             the printed questions, on a terminal too
-//	--non-interactive   nothing is asked; the flags are the answer
-//
-// The two adapters are deliberately not one. They are input adapters, not two
-// definitions of what an answer means: both fill in the same Choices, and a test
-// drives the same questions through both and compares. That is the difference
-// from the duplication that produced audit finding 11, where a plan and a report
-// each decided for themselves whether a tool was usable and disagreed.
+// Two ways of asking and one meaning: full-screen selectors on a terminal,
+// printed questions over a pipe or under `--plain`, and nothing at all under
+// `--non-interactive`. The two adapters are input adapters rather than two
+// definitions of what an answer means — a test drives the same questions through
+// both and compares.
 package tui
 
 import (
@@ -33,18 +22,14 @@ import (
 	"github.com/ultherego/chroma-nvim/cli/internal/install"
 )
 
-// ErrNoInput is returned when there is nobody to ask.
-//
-// Its own error because the alternative is worse: a closed stdin would
-// otherwise read as an empty line, an empty line means "accept the default",
-// and an installation would proceed on answers nobody gave.
+// ErrNoInput is returned when there is nobody to ask. Its own error because a
+// closed stdin would otherwise read as an empty line, an empty line means
+// "accept the default", and an installation would proceed on answers nobody gave.
 var ErrNoInput = errors.New("nothing to read answers from; use --non-interactive with --components or --profile")
 
-// ErrAborted is somebody pressing escape, or interrupting.
-//
-// Different from ErrNoInput on purpose: one is a machine with nothing to say,
-// the other is a person who has decided not to. The first is misuse; the second
-// is an answer, and the caller reports it as "nothing was changed".
+// ErrAborted is somebody pressing escape, or interrupting. Different from
+// ErrNoInput on purpose: one is a machine with nothing to say, the other a
+// person who has decided not to.
 var ErrAborted = errors.New("nothing was chosen")
 
 // Choices is what a person decided, and nothing else.
@@ -138,28 +123,17 @@ func apply(opts install.Options, chosen Choices) install.Options {
 	return opts
 }
 
-// asking picks the adapter for what is at both ends.
-//
-// Both, and that is the invariant: a screen UI needs a terminal to draw on and a
-// terminal to take keys from, and either one missing makes it the wrong choice.
+// asking picks the adapter for what is at both ends, and both is the invariant:
+// a screen UI needs a terminal to draw on and a terminal to take keys from.
 //
 //	chroma install > install.log    the plan would be drawn into a file
 //	echo | chroma install           there are no arrow keys in a pipe
 //
-// The first was already handled by asking about the output. The second was not,
-// and it is the one that would have put escape sequences and a redraw loop in
-// front of a reader that can only ever send bytes and then end.
+// A pipe, a file and a test's temporary file are all "not a terminal" and all
+// get the printed questions — which is also the answer for a screen reader.
 //
-// A pipe, a file and a test's temporary file are all "not a terminal", and all
-// of them get the printed questions — which is also the answer for a screen
-// reader, and is why there is one fallback rather than two.
-//
-// Somebody with a terminal can ask for those too, with `--plain` or by setting
-// CHROMA_PLAIN. That is the escape hatch for the whole selector layer: a
-// terminal that draws it badly, a multiplexer that redraws it wrongly, a
-// preference. It is deliberately not a switch between two installers — it picks
-// which of the two adapters puts the questions, and everything after the last
-// answer is the same code either way, tables included.
+// `--plain` or CHROMA_PLAIN asks for those on a terminal too. It is not a switch
+// between two installers: everything after the last answer is the same code.
 func asking(in io.Reader, out io.Writer, plain bool) adapter {
 	if plain || plainly() {
 		return overLines
@@ -170,13 +144,10 @@ func asking(in io.Reader, out io.Writer, plain bool) adapter {
 	return overLines
 }
 
-// plainly reports whether the environment asks for the printed questions.
-//
-// Set to anything but empty or `0`, so `CHROMA_PLAIN=1`, `=true` and `=yes` all
-// work and `CHROMA_PLAIN=0` is not a way of accidentally asking for the thing
-// it names. An environment variable as well as a flag because the commands that
-// ask are not the only place this is wanted: a dotfile, a CI job and a `sudo -E`
-// can all set it once instead of remembering the flag.
+// plainly reports whether the environment asks for the printed questions. Set to
+// anything but empty or `0`, so `=1`, `=true` and `=yes` all work. An
+// environment variable as well as a flag, because a dotfile, a CI job and a
+// `sudo -E` can set it once instead of remembering the flag.
 func plainly() bool {
 	switch os.Getenv("CHROMA_PLAIN") {
 	case "", "0":
@@ -186,12 +157,11 @@ func plainly() bool {
 	}
 }
 
-// isTerminal is the predicate below, in a variable.
-//
-// A test cannot hand this package a real terminal, so without a seam the only
-// case it could check is "neither end is one" — which passes whether the rule
-// asks about one end or both. Measured: a mutant that went back to asking only
-// about the output survived the whole suite until this existed.
+// isTerminal is the predicate below, in a variable. A test cannot hand this
+// package a real terminal, so without a seam the only case it could check is
+// "neither end is one" — which passes whether the rule asks about one end or
+// both. Measured: a mutant that went back to asking only about the output
+// survived the whole suite until this existed.
 var isTerminal = terminal
 
 // terminal reports whether something is a character device — a terminal — as

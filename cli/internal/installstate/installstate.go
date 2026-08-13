@@ -1,16 +1,10 @@
-// Package installstate records the deployment that was actually carried out.
+// Package installstate records the deployment that was actually carried out:
+// which release, in which directories, when, and what was moved aside to make
+// room. Written by the installer, read by update, rollback and uninstall, so
+// none of those has to work out where things are from its environment.
 //
-// Not the component selection, which is a different document with a different
-// lifetime: that one is what a person wants and survives releases being
-// replaced over it. This one is what a machine has — which release, in which
-// directories, when, and what was moved aside to make room. It is written by
-// the installer and read by update, rollback and uninstall, which is the whole
-// reason it exists: those three must never have to work out where things are
-// from the environment they happen to run in.
-//
-// Its schema is its own, for the same reason the selection's is: two documents
-// with two reasons to change, and tying their numbers together would make one
-// of them lie.
+// Not the component selection, which is what a person wants and outlives
+// releases being replaced over it. Its schema is its own for the same reason.
 package installstate
 
 import (
@@ -24,89 +18,20 @@ import (
 	"github.com/ultherego/chroma-nvim/cli/internal/atomicfile"
 )
 
-// Schema is the version of this document.
+// Schema is the version of this document. The history and the measurements
+// behind it are in cli/DESIGN.md; what each version changed, in one line:
 //
-// 6 made borrowing plural, and gave each borrowed directory an identity.
-//
-// Taking over `~/.config/nvim` takes over four directories, not one: Neovim
-// without NVIM_APPNAME reads `~/.local/share/nvim`, `~/.local/state/nvim` and
-// `~/.cache/nvim` as well, so a bootstrap writes plugins, packages and parsers
-// into whatever was already there. Schema 5 recorded one borrowed path, and an
-// uninstall removed the other three as Chroma's — measured, on a machine whose
-// plugins and undo history had been there for years.
-//
-// Each borrowed directory now carries the device and inode it had when it was
-// moved aside. A rename keeps both, so they are what proves the directory being
-// handed back is the one that was taken — a path says where, an identity says
-// what. And each carries its own handover state, because a process can stop
-// after giving two of three back, and one flag for four directories cannot say
-// which.
-//
-// What the identity is not: a cryptographic one. It is what the operating
-// system already knows about an object — device, inode and modification time —
-// and it is chosen because those are exactly what `rename` preserves and what a
-// directory created in place of another does not have.
-//
-// Device and inode alone were tried first and measured to be insufficient. A
-// filesystem may hand a newly created directory the inode of one just deleted at
-// the same path, and this is not the rare case it sounds like:
-//
-//	btrfs, tmpfs, overlayfs   0/40 rounds reused the inode
-//	ext4                     40/40 rounds reused the inode
-//
-// The substitution tests therefore passed on a development machine and failed on
-// CI, which is the only reason it was caught. The modification time closes it: a
-// directory's own mtime changes only when its entries change, so every move
-// Chroma makes preserves it, while a directory created where one was deleted
-// carries the time it was created.
-//
-// The consequence, stated rather than discovered: if something adds or removes a
-// top-level entry inside a directory Chroma is holding, Chroma will refuse to
-// move it and say so. That is the right way round. Refusing to hand back a
-// directory that has changed under it costs somebody a manual move; accepting a
-// substituted one costs them their work.
-//
-// The threat model is unchanged and is corruption, stale topology and
-// substitution. This is not, and does not claim to be, a defence against the
-// owner of the account forging state deliberately — the same boundary
-// install.json itself sits on. A marker file with a UUID would not move that
-// boundary either, and would mean writing into a directory Chroma has promised
-// to return untouched.
-//
-// 5 replaced `handed_back` with `handover`, a state rather than a flag. H4
-// forged the old inference: with Chroma still installed, deleting the backup and
-// one file out of the tree was enough to make it conclude the user's
-// configuration had been given back. The weakness was that the conclusion came
-// from what the directory looked like, and "this no longer looks like a complete
-// Chroma tree" is not "this is exactly what we were holding for you".
-//
-// So the handover is a protocol now, and `pending` is written before the first
-// move rather than inferred after it. Nothing about giving somebody's data back
-// begins until the intention to do it is on disk. A flag pair would have left
-// `pending && handed_back` expressible and meaningless; a state cannot say two
-// things at once.
-//
-// 4 added `handed_back`, and it exists because clearing `user_backup` was not
-// enough. An uninstall that restored somebody's configuration and then stopped
-// left a record saying nothing was pending — and the next run treated the
-// directory as Chroma's, moved it aside and deleted it. Measured, by a fault
-// point, on somebody's own files. The record has to say not just "there is
-// nothing to give back" but "it has already been given".
-//
-// 3 added `user_backup` and `cache_dir`, and the first of those closes a hole
-// this document had from the start. `backup` means "what was moved aside", and
-// that was two different things wearing one name: the configuration somebody
-// already had, moved out of the way by `--default`, and a Chroma generation
-// moved aside by an update. After one update the second overwrote the first,
-// so the path to the user's own configuration was no longer recorded anywhere
-// — and `uninstall` could not give back the thing it had taken.
-//
-// 2 added `previous`. An installation is a generation rather than a state of
-// affairs: `update` moves the current one aside and records what it replaced,
-// so that `rollback` has something to go back to and so that a person can be
-// told what they are on and what they were on. Schema 1 could say what was
-// moved aside but not what it was, which is enough to restore a directory and
-// not enough to name a version.
+//	6  borrowing became plural, and each borrowed directory got an identity:
+//	   taking over ~/.config/nvim takes over four directories, and schema 5
+//	   recorded one — so an uninstall removed the other three as Chroma's.
+//	5  handover became a state rather than a flag, written before the move,
+//	   because H4 forged an inference drawn from what a directory looked like.
+//	4  handed_back, because clearing user_backup could not say "already given":
+//	   the next run treated the directory as Chroma's and deleted it.
+//	3  user_backup and cache_dir; `backup` had been two things under one name,
+//	   and after one update the path to the user's own configuration was gone.
+//	2  previous, so rollback has something to go back to and a person can be
+//	   told what they are on.
 const Schema = 6
 
 // Source is where an installation came from.
@@ -129,11 +54,9 @@ const (
 	FromTree    = "tree"
 )
 
-// Handover is where the configuration that was here before Chroma stands.
-//
-// Only an installation that took a directory over has one. The order is the
-// order it happens in, and each step is written down before the move it
-// describes rather than after it.
+// Handover is where the configuration that was here before Chroma stands. Only
+// an installation that took a directory over has one, and each step is written
+// down before the move it describes.
 type Handover string
 
 const (
@@ -145,9 +68,8 @@ const (
 	HandoverHeld Handover = "held"
 
 	// HandoverPending: an uninstall has begun giving it back. Written before
-	// anything moves, so that a process which stops existing mid-transfer can be
-	// recognised as one — rather than guessed at from what the directories look
-	// like afterwards.
+	// anything moves, so a process that stops mid-transfer can be recognised as
+	// one rather than guessed at afterwards.
 	HandoverPending Handover = "pending"
 
 	// HandoverHandedBack: ownership has returned. The directory is not Chroma's
@@ -166,18 +88,12 @@ type Borrowed struct {
 	Backup   string `json:"backup"`
 
 	// Device, Inode and Mtime are what it was when it was moved. A rename keeps
-	// all three, so together they are the proof that what is at Backup now is
-	// what was taken — which a path alone cannot be. Somebody who deletes the
-	// backup and puts an ordinary directory of the same shape in its place gets
-	// a refusal rather than their directory handed back as somebody else's.
+	// all three, so together they prove that what is at Backup now is what was
+	// taken. Mtime is not decoration: on ext4 a directory created where one was
+	// just deleted gets the same inode every time, measured 40 out of 40. See
+	// cli/DESIGN.md, "One handover state per directory".
 	//
-	// Mtime is not decoration. On ext4 a directory created where one was just
-	// deleted is given the same inode every time, measured 40 out of 40; the
-	// modification time of the new one is the moment it was created, and so is
-	// not the one recorded here.
-	//
-	// Not a defence against the owner of the account rewriting this file. That
-	// is a different threat model, and one this does not claim to be in.
+	// Not a defence against the owner of the account rewriting this file.
 	Device uint64 `json:"device"`
 	Inode  uint64 `json:"inode"`
 	Mtime  int64  `json:"mtime"`
@@ -187,11 +103,9 @@ type Borrowed struct {
 	Handover Handover `json:"handover"`
 }
 
-// Generation is an installation that was replaced, and what it was.
-//
-// Deliberately not a whole State. What rollback needs is where the directory
-// went and which release it holds; the rest of a State describes paths that
-// have not changed, and copying them would be two records of one fact.
+// Generation is an installation that was replaced, and what it was. Not a whole
+// State: rollback needs where the directory went and which release it holds,
+// and the rest would be two records of one fact.
 type Generation struct {
 	// Version is the release it was, empty for a tree.
 	Version string `json:"version,omitempty"`
@@ -205,10 +119,9 @@ type Generation struct {
 	Path string `json:"path"`
 
 	// Device, Inode and Mtime are what that directory was when it was moved
-	// aside. A path says where to look; these say whether what is there is the
-	// generation Chroma kept. Measured before they existed: deleting a kept
-	// generation and putting an ordinary Chroma-shaped directory at its path
-	// made rollback restore that directory as the release it was not.
+	// aside: a path says where to look, these say whether what is there is the
+	// generation Chroma kept. Measured before they existed: an ordinary
+	// Chroma-shaped directory at that path was restored as the release it was not.
 	Device uint64 `json:"device,omitempty"`
 	Inode  uint64 `json:"inode,omitempty"`
 	Mtime  int64  `json:"mtime,omitempty"`
@@ -223,15 +136,13 @@ type Generation struct {
 type State struct {
 	Schema int `json:"schema"`
 
-	// Version is the release. Empty means the installation came from a tree and
-	// has no version — which update needs to know, and which is why it is a
-	// field rather than something inferred from Source.
+	// Version is the release. Empty means a tree installation, which update
+	// needs to know and cannot infer from Source.
 	Version string `json:"version"`
 
-	// Contract is the component contract version of the tree that was
-	// installed. Recorded because a CLI that no longer understands it must
-	// refuse to update this installation, and finding that out should not
-	// require reading the installed tree first.
+	// Contract is the component contract version of the tree that was installed,
+	// so a CLI that no longer understands it can refuse without reading the
+	// tree first.
 	Contract int `json:"contract"`
 
 	// AppName is what NVIM_APPNAME has to be, and is empty for the installation
@@ -244,10 +155,9 @@ type State struct {
 	CacheDir      string `json:"cache_dir"`
 	SelectionFile string `json:"selection_file"`
 
-	// Backup is what was moved aside, and is empty when there was nothing
-	// there. For an update it is the same path as Previous.Path — kept as its
-	// own field because it also carries the case Previous cannot: a directory
-	// that was not a Chroma installation at all, moved aside by `--default`.
+	// Backup is what was moved aside, empty when there was nothing there. For an
+	// update it is Previous.Path; its own field because it also carries what
+	// Previous cannot — a directory that was never a Chroma installation.
 	Backup string `json:"backup,omitempty"`
 
 	// Previous is the Chroma generation this one replaced, and is nil for a
@@ -255,14 +165,9 @@ type State struct {
 	Previous *Generation `json:"previous,omitempty"`
 
 	// Borrowed are the directories that existed before Chroma and were moved
-	// aside to make room for it. Empty when Chroma was installed beside an
-	// existing setup rather than over one.
-	//
-	// None of them is a generation and none may be treated as one. A generation
-	// is something Chroma made and may remove; these are somebody else's work,
-	// and `uninstall` gives them back. Every operation after the first carries
-	// the list forward unchanged, because losing it would mean losing the only
-	// record of what to restore.
+	// aside for it. None is a generation: a generation is something Chroma made
+	// and may remove, these are somebody else's work. Every operation after the
+	// first carries the list forward unchanged.
 	Borrowed []Borrowed `json:"borrowed,omitempty"`
 
 	// InstalledAt is when this was recorded, which is after it was verified.
@@ -275,11 +180,9 @@ type State struct {
 // rather than worked out here, because install.Paths already owns that answer
 // and two answers is one too many.
 
-// Load reads the state of a managed installation.
-//
-// A file that is not there is not an error: it means this is not a managed
-// installation, which is a perfectly ordinary thing for `install` to find and
-// the exact thing `update` has to refuse. `found` tells the two apart.
+// Load reads the state of a managed installation. A file that is not there is
+// not an error — it means this is not a managed installation, which `install`
+// finds and `update` refuses. `found` tells the two apart.
 func Load(path string) (state State, found bool, err error) {
 	contents, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
@@ -317,9 +220,8 @@ func (s State) validate() error {
 		return fmt.Errorf("declares schema %d; this understands %d", s.Schema, Schema)
 	}
 
-	// Every one of these is a path something later will act on — update places
-	// over ConfigDir, uninstall deletes what is named here. A record that does
-	// not say where it is, is a record that cannot be acted on safely.
+	// Every one of these is a path something later acts on, and a record that
+	// does not say where it is cannot be acted on safely.
 	for _, required := range []struct {
 		name  string
 		value string
@@ -342,10 +244,9 @@ func (s State) validate() error {
 		return fmt.Errorf("records an unknown source type %q", s.Source.Type)
 	}
 
-	// The two are different things and must not name one directory. If they
-	// did, removing the generation would take the user's configuration with it.
-	// Each borrowed directory has to say all of what it is, or none of it can
-	// be acted on.
+	// The two must not name one directory: removing the generation would take
+	// the user's configuration with it. Each borrowed directory has to say all
+	// of what it is, or none of it can be acted on.
 	kinds := map[string]bool{}
 	for _, borrowed := range s.Borrowed {
 		switch borrowed.Handover {
@@ -364,9 +265,8 @@ func (s State) validate() error {
 		}
 		kinds[borrowed.Kind] = true
 
-		// Two directories cannot be in one place, so two entries cannot name
-		// one. Whichever of them was acted on second would move whatever the
-		// first had just put there.
+		// Two directories cannot be in one place, so whichever entry was acted
+		// on second would move what the first had just put there.
 		for _, other := range s.Borrowed {
 			if other.Kind == borrowed.Kind {
 				continue
@@ -384,10 +284,8 @@ func (s State) validate() error {
 	}
 
 	// No two of these may name one directory, and neither may name the
-	// installation itself. Every alias sends a destructive step at the wrong
-	// object: removing the generation would take the user's configuration with
-	// it, and restoring either over the target would be Chroma moving a
-	// directory onto itself.
+	// installation itself: every alias sends a destructive step at the wrong
+	// object.
 	pairs := []struct {
 		first, second, names string
 	}{
@@ -407,9 +305,8 @@ func (s State) validate() error {
 	}
 
 	if s.Previous != nil {
-		// A generation that does not say where it went is a generation rollback
-		// cannot restore, which makes recording it worse than not recording it:
-		// it promises a way back that is not there.
+		// A generation that does not say where it went promises a way back that
+		// is not there.
 		if s.Previous.Path == "" {
 			return errors.New("records a previous generation with no path")
 		}
@@ -423,12 +320,9 @@ func (s State) validate() error {
 	return nil
 }
 
-// Write records an installation.
-//
-// Called last, and only after verify. An install state describing something
-// that was never checked is worse than none at all: none at all is an
-// unmanaged directory, which every command already knows how to refuse, while a
-// false one is an unmanaged directory that update will happily replace.
+// Write records an installation. Called last, and only after verify: a false
+// record is an unmanaged directory that update will happily replace, which is
+// worse than no record at all.
 func Write(path string, state State) (atomicfile.Result, error) {
 	state.Schema = Schema
 

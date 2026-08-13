@@ -9,13 +9,9 @@ import (
 )
 
 // The wordmark from the README, in the two colours the image is drawn in:
-// Chroma in mauve, Neovim in peach.
-//
-// Half-block letters rather than an image. The logo in the README is a PNG, and
-// a terminal that can show one is a terminal — which would make the top of
-// `chroma install` mean different things depending on where it ran. This is
-// twenty-five columns of text: the same in Kitty, in a pipe, and in a log
-// somebody reads a month later.
+// Chroma in mauve, Neovim in peach. Half-block letters rather than an image,
+// because a terminal that can show a PNG is a terminal — this is the same
+// twenty-five columns in Kitty, in a pipe, and in a log read a month later.
 const (
 	chroma = "█▀▀ █ █ █▀▄ █▀█ █▀▄▀█ ▄▀█\n" +
 		"█   █▀█ █▀▄ █ █ █ ▀ █ █▀█\n" +
@@ -27,15 +23,11 @@ const (
 )
 
 // Clear wipes the screen a command is about to draw on, and only where there is
-// one to wipe.
+// one to wipe: an escape sequence in a log file is noise, and a CLI that clears
+// a pipe is one whose output nothing will see it happen to.
 //
-// Nowhere else: an escape sequence written into a log file is noise in
-// somebody's log, and a CLI that clears a pipe is a CLI whose output is being
-// read by something that will never see it happen.
-//
-// The scrollback survives. `ansi.EraseEntireDisplay` — the third variant of ED,
-// which xterm extends to the saved lines — would throw away what somebody had
-// on screen before they ran this, and that is theirs, not this command's.
+// The scrollback survives. `ansi.EraseEntireDisplay` would throw away what
+// somebody had on screen before they ran this.
 func Clear(w io.Writer) {
 	if room(w) <= 0 {
 		return

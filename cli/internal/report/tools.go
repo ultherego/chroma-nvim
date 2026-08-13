@@ -34,14 +34,11 @@ func Requirements(w io.Writer, tools []detect.Tool) {
 	fmt.Fprintln(colour(w), grid([]string{"Tool", "Need", "State", "Detail"}, rows, tools, room(w)))
 }
 
-// External prints the report on the user's own tools.
-//
-// One renderer, called by `doctor` and by the end of an installation, because
-// two of them would be two things to keep saying the same. The wording is the
-// substance here: `not found`, never `ERROR` or `missing dependency`, because an
-// installation with no kubectl on the machine is a complete installation — and
-// the sentence above the table says so in full, which is why it lives here and
-// not at the call sites that would each have to remember it.
+// External prints the report on the user's own tools. One renderer, called by
+// `doctor` and by the end of an installation. The wording is the substance:
+// `not found`, never `ERROR`, because an installation with no kubectl on the
+// machine is a complete installation — and the sentence above the table says so,
+// which is why it lives here rather than at each call site.
 func External(w io.Writer, tools []detect.Tool) {
 	if len(tools) == 0 {
 		return

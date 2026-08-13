@@ -44,14 +44,10 @@ func (tx *Transaction) Verify(ctx context.Context, paths Paths, expected []strin
 	return runStep(ctx, paths, runner, sink, "verify", expected)
 }
 
-// bootstrappable checks that there is a configuration to run.
-//
-// The tree on disk, not `tx.Placed`. That flag says "this transaction put it
-// there", which was a fair proxy while installing was the only thing that ran
-// the editor — and stopped being one when `components` began bringing an
-// installation that was already placed to a new selection. It also asks a
-// slightly better question: a transaction that placed an empty directory would
-// have passed the flag and failed here.
+// bootstrappable checks that there is a configuration to run: the tree on disk,
+// not `tx.Placed`. That flag says "this transaction put it there", which stopped
+// being a fair proxy when `components` began bringing an already-placed
+// installation to a new selection.
 func bootstrappable(paths Paths) error {
 	entry := filepath.Join(paths.ConfigDir, "init.lua")
 	if _, err := os.Stat(entry); err != nil {

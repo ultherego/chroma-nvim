@@ -1,13 +1,7 @@
-// Package atomicfile replaces a file, or does not touch it.
-//
-// Two documents are written by this CLI — the component selection and the
-// install state — and both are read by something that decides what to do from
-// them: an editor at startup, and this CLI when it comes to update or uninstall.
-// A half-written one of either is worse than an old one.
-//
-// It lives on its own because it was about to exist twice. The same fifty lines
-// in two packages is the arrangement where one of them quietly loses its
-// directory flush.
+// Package atomicfile replaces a file, or does not touch it. Two documents are
+// written by this CLI — the component selection and the install state — and both
+// are read by something that decides what to do from them, so a half-written one
+// is worse than an old one. Its own package because it was about to exist twice.
 package atomicfile
 
 import (
@@ -17,14 +11,10 @@ import (
 	"path/filepath"
 )
 
-// Result says how far a replacement got.
-//
-// The distinction exists because the two failures are not the same event, and a
-// caller that treats them alike gets one of them badly wrong. Before the rename,
-// a failure means the replacement did not happen and the old file is intact.
-// After it, the new contents are already at the path and only their durability
-// is in question — and a caller that "rolls back" from there undoes something
-// that was never done while leaving in place something that was.
+// Result says how far a replacement got, because the two failures are not the
+// same event. Before the rename, the replacement did not happen and the old file
+// is intact; after it, the new contents are already at the path and only their
+// durability is in question.
 //
 // Measured, before this type existed: a record write that failed after its
 // rename was reported as not written, so the update rolled the tree back to the
@@ -38,18 +28,14 @@ type Result struct {
 	Durable bool
 }
 
-// Replace writes contents to path, atomically and durably.
+// Replace writes contents to path, atomically and durably. The order has cost
+// somebody something at every step: the temporary file is a sibling so the
+// rename cannot cross a filesystem; it is flushed before the rename, or the
+// rename can land before the bytes; and the directory is flushed after, because
+// a rename is atomic without being on the disk.
 //
-// The steps are in this order for reasons that have each cost somebody
-// something: the temporary file is a sibling so the rename cannot cross a
-// filesystem; it is flushed before the rename, or the rename can land before
-// the bytes; and the directory is flushed after, because a rename is atomic
-// without being on the disk — the entry it changed is not durable until the
-// directory holding it has been written.
-//
-// The directory is opened *before* the rename, so that the one failure which
-// can be moved out of the post-commit window is moved out of it. What remains
-// after the rename is the flush itself and the close.
+// The directory is opened *before* the rename, so the one failure that can be
+// moved out of the post-commit window is moved out of it.
 func Replace(path string, contents []byte, mode fs.FileMode) (Result, error) {
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -107,13 +93,11 @@ func Replace(path string, contents []byte, mode fs.FileMode) (Result, error) {
 }
 
 // afterRename stops a replacement between the rename and the directory flush.
-// Nil everywhere except a test in this package that set it: that window cannot
-// be produced by permissions or a full disk, and it is the one where the file
-// has already been replaced and the caller has not been told yet.
-//
-// Unexported, and it stays that way. Callers that need the same window in their
-// own transactions build it from their own seams; a primitive does not carry a
-// way to make itself fail in every binary that links it.
+// Nil everywhere except a test in this package: that window cannot be produced
+// by permissions or a full disk, and it is the one where the file has already
+// been replaced and the caller has not been told. Unexported, and it stays that
+// way — a primitive does not carry a way to make itself fail in every binary
+// that links it.
 var afterRename func(path string) error
 
 func hit(path string) error {

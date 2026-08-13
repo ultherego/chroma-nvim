@@ -17,17 +17,13 @@ import (
 	"github.com/ultherego/chroma-nvim/cli/internal/report"
 )
 
-// cmdRollback puts the previous generation back.
+// cmdRollback puts the previous generation back. There is no `--version`:
+// rollback has exactly one target, the generation the last update moved aside.
+// If that directory is gone this refuses rather than fetching the tag again,
+// which would be `install --version` wearing the wrong name.
 //
-// There is no `--version`: rollback has exactly one target, which is the
-// generation the last update moved aside. It is a local operation on a
-// directory that was kept, not a way of installing an old release — if that
-// directory is gone, this refuses rather than fetching the tag again, because
-// re-downloading would be `install --version` wearing the wrong name.
-//
-// It moves the version and keeps the selection. Those are different facts with
-// different lifetimes, and undoing one when the user asked to undo the other is
-// the kind of surprise a lifecycle command cannot afford.
+// It moves the version and keeps the selection: different facts with different
+// lifetimes.
 func cmdRollback(args []string, out, errOut *os.File) int {
 	set := flag.NewFlagSet("rollback", flag.ContinueOnError)
 	set.SetOutput(errOut)

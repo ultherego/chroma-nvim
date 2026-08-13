@@ -19,12 +19,11 @@ import (
 	"github.com/ultherego/chroma-nvim/cli/internal/report"
 )
 
-// cmdInstall places a Chroma Neovim on this machine.
-//
-// The shape is the one in cli/DESIGN.md: resolve where it goes, prepare what to
-// install, read its contract, build a plan, show it, ask, and only then let the
-// installer touch anything. Everything before the confirmation is free to fail,
-// and everything after it is a transaction.
+// cmdInstall places a Chroma Neovim on this machine, in the shape cli/DESIGN.md
+// describes: resolve where it goes, prepare what to install, read its contract,
+// build a plan, show it, ask, and only then let the installer touch anything.
+// Everything before the confirmation is free to fail; everything after it is a
+// transaction.
 func cmdInstall(args []string, out, errOut *os.File) int {
 	set := flag.NewFlagSet("install", flag.ContinueOnError)
 	set.SetOutput(errOut)
@@ -74,42 +73,28 @@ func cmdInstall(args []string, out, errOut *os.File) int {
 		return exitMisuse
 	}
 
-	// Above everything this command says, and not above the plan: the plan comes
-	// after the questions, so a wordmark there was the third thing somebody saw
-	// rather than the first. Misuse of the flags is still reported without one,
-	// because it is printed after they have been read and found to make sense.
-	//
-	// On a screen it starts from a clean one. Not in a pipe or a file, where
-	// there is nothing to clear and the sequence would be noise in a log.
+	// Above everything this command says, and not above the plan, which comes
+	// after the questions. Misuse of the flags is still reported without one.
+	// On a screen it starts from a clean one; not in a pipe or a file, where the
+	// sequence would be noise in a log.
 	report.Clear(out)
 	report.Banner(out)
 
-	// `chroma install` with nothing else is the command README documents and
-	// the one somebody types first, and it used to refuse: "name a release with
-	// --version". An installer whose plain form does not install is not an
-	// installer, so the plain form means the newest release.
-	//
-	// Set after Validate, not as the flag's default: Validate refuses a version
-	// and a source tree together, and a default would make every --source-tree
-	// run look like both were asked for.
+	// `chroma install` with nothing else used to refuse — "name a release with
+	// --version" — and an installer whose plain form does not install is not an
+	// installer. Set after Validate rather than as the flag's default, which
+	// would make every --source-tree run look like both were asked for.
 	if opts.Version == "" && opts.SourceTree == "" {
 		opts.Version = release.Latest
 	}
 
-	// One managed installation per user, and the refusal comes before anything
-	// is downloaded, staged or moved.
-	//
-	// A second one was allowed and produced a state this CLI could not get out
-	// of: with an isolated installation and a `--default` one both recorded,
-	// every lifecycle command answered "this cannot tell which you mean" and no
-	// flag existed to say. Measured — the second install reported success and
-	// update, components, rollback and uninstall all refused afterwards.
-	//
-	// The alternative was to add a way of naming which installation each command
-	// is about. That is a larger product for a configuration nobody asked for,
-	// and it would still be wrong in one place the flag cannot reach: the
-	// component selection is one document per user, shared by both, so two
-	// installations were never two independent things anyway.
+	// One managed installation per user, refused before anything is downloaded,
+	// staged or moved. A second one produced a state this CLI could not get out
+	// of — measured: with an isolated and a `--default` installation both
+	// recorded, update, components, rollback and uninstall all refused
+	// afterwards. Naming which installation each command means would still be
+	// wrong in one place a flag cannot reach: the component selection is one
+	// document per user, shared by both.
 	if code := refuseASecondInstallation(errOut); code != exitOK {
 		return code
 	}
@@ -195,11 +180,9 @@ func cmdInstall(args []string, out, errOut *os.File) int {
 	}
 
 	// One of Chroma's own tools missing means an installation that cannot work,
-	// and finding that out after the configuration has been placed is finding
-	// it out too late. External tools are not part of this: choosing the
-	// kubernetes component asks for Chroma's Kubernetes features, not for
-	// kubectl, and refusing to install an editor because a CLI is absent would
-	// be Chroma deciding what belongs on somebody's machine.
+	// and finding that out after the tree is placed is too late. External tools
+	// are not part of this: choosing the kubernetes component asks for Chroma's
+	// Kubernetes features, not for kubectl.
 	if !built.Complete() {
 		fmt.Fprint(errOut, "\nSomething Chroma itself needs is missing. Install it, or choose fewer components.\n")
 		return exitPreflight
@@ -210,14 +193,11 @@ func cmdInstall(args []string, out, errOut *os.File) int {
 		return exitDeclined
 	}
 
-	// Taken here, and not before: until the interactive flow has answered, this
-	// does not know which installation it is about to touch, and a lock on the
-	// wrong one protects nothing. Everything before this point asks questions,
-	// downloads and prints; everything after it mutates. A dry run therefore
-	// leaves no lock behind either.
-	//
-	// What could have changed while somebody was reading the plan is
-	// revalidated inside the transaction: Apply checks the target again.
+	// Taken here and not before: until the interactive flow has answered, this
+	// does not know which installation it is about to touch. Everything before
+	// this point asks questions, downloads and prints; everything after it
+	// mutates, so a dry run leaves no lock behind either. What could have changed
+	// while somebody read the plan is revalidated inside the transaction.
 	held, code := locked(errOut)
 	if code != exitOK {
 		return code
@@ -304,12 +284,9 @@ func refuseASecondInstallation(errOut *os.File) int {
 	return exitMisuse
 }
 
-// releaseSource turns a version into a tree on this machine.
-//
-// A package variable for the same reason the installer holds its durable writes
-// in one: a test that has to reach the network to find out which version this
-// command asked for is a test that answers a different question. Replaced in
-// tests, never in a released binary.
+// releaseSource turns a version into a tree on this machine. A package variable
+// so a test does not have to reach the network to find out which version this
+// command asked for. Replaced in tests, never in a released binary.
 var releaseSource = func(version string) preparer {
 	return release.GitHubSource{Version: version}
 }
@@ -373,23 +350,17 @@ func asked(out *os.File, prompt string) bool {
 }
 
 // logFile is where this operation's detail goes — every line the editor printed
-// while installing plugins and compiling parsers. The screen gets a status;
-// this gets everything, so that a failure has somewhere to point.
+// while installing plugins and compiling parsers.
 //
-// The file is not opened here. It is opened at the first line written to it,
-// and the reason is a measurement: on a `--default` installation the log
-// directory sits under `~/.local/state/nvim`, which at this point in the run is
-// still somebody else's directory. Creating it eagerly put a Chroma log inside
-// the user's own state directory, and the takeover then moved that directory
-// aside with the log in it and handed it back at uninstall with the log still
-// there. Nothing failed and nothing was lost; Chroma simply left a file behind
-// in a directory it had promised to return untouched.
+// Opened at the first line written to it, not here, and the reason is a
+// measurement: on a `--default` installation the log directory sits under
+// `~/.local/state/nvim`, which at this point is still somebody else's. Creating
+// it eagerly left a Chroma log inside the user's own state directory, which the
+// takeover then moved aside and handed back at uninstall with the log still in
+// it. By the first write the borrowing has happened and the path is Chroma's.
 //
-// By the first write the borrowing has happened and the path belongs to Chroma.
-//
-// It returns an io.Writer rather than an *os.File on purpose: a nil *os.File
-// assigned to an interface is not a nil interface, and the runner would write
-// to it and panic.
+// It returns an io.Writer rather than an *os.File: a nil *os.File assigned to an
+// interface is not a nil interface, and the runner would write to it and panic.
 func logFile(paths install.Paths, errOut *os.File) io.Writer {
 	return &lazyLog{dir: paths.LogDir, errOut: errOut}
 }
