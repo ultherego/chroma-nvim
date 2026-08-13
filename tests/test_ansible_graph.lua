@@ -1,15 +1,11 @@
--- Reading the `ansible-inventory --graph` tree.
+-- Reading the `ansible-inventory --graph` tree. The fixtures under
+-- `tests/fixtures/ansible/graph/` are real output from ansible-core 2.21.2,
+-- because the point of the parser is that it agrees with a program nobody here
+-- controls; the malformed cases are built in the test, since no real Ansible
+-- produces them.
 --
--- The fixtures under `tests/fixtures/ansible/graph/` are real output, captured
--- from ansible-core 2.21.2 rather than typed out here, because the whole point
--- of the parser is that it agrees with a program nobody in this repository
--- controls. The malformed cases are built in the test: no real Ansible produces
--- them, and that is what makes them worth checking.
---
--- Every case is about a refusal or about a name surviving intact. There is no
--- case asserting "it parsed something", because a parser that answers with half
--- an inventory is the failure this module exists to prevent
--- (`doc/chroma-ansible-design.md`, §7.3).
+-- Every case is about a refusal or about a name surviving intact: a parser that
+-- answers with half an inventory is what §7.3 exists to prevent.
 
 local new_set = MiniTest.new_set
 local eq = MiniTest.expect.equality
@@ -123,16 +119,10 @@ T["refuses"]["--graph --vars where the variables belong to a host"] = function()
 end
 
 T["refuses"]["--graph --vars where the variables belong to a group"] = function()
-  -- A different case with a different guard behind it, and the reason the two
-  -- fixtures are separate. A *group's* variables print directly under the
-  -- group, at a depth whose parent is perfectly valid, so depth lets them
-  -- through and only the `{…}` shape refuses them. Without it
-  -- `{api_token = s3cr3t}` is recorded as a host and shown in a picker.
-  --
-  -- The fixture is a group with variables and no hosts on purpose: with hosts,
-  -- their variable lines come first and the file is already refused before the
-  -- group's own line is reached — which is exactly how a first attempt at this
-  -- case passed while proving nothing.
+  -- A different guard, and why the two fixtures are separate: a *group's*
+  -- variables print at a depth whose parent is valid, so only the `{…}` shape
+  -- refuses them. The fixture has no hosts on purpose — with hosts, their
+  -- variable lines are refused first and this case proves nothing.
   eq(refusal(fixture("with-group-vars.txt")) ~= nil, true)
 end
 

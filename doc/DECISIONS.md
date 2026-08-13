@@ -1350,3 +1350,24 @@ would need.
 
 **What would change it.** Each on its own evidence, and each frozen in writing
 before it is built, which is how schema 1 was done.
+
+### blink.cmp is pinned by tag rather than by commit
+
+Every other plugin is pinned by `lazy-lock.json` alone. blink.cmp also carries
+`tag = "v1.10.2"` in its spec, and the reason is a property of that particular
+release rather than a preference about pinning.
+
+v1.10.2 is commit `78336bc`, which the lockfile names — and that commit is
+**not an ancestor of `main`**. It exists only as the tip of the v1 line.
+A ref that a clone always brings with it is a pin that cannot be missed; a
+commit off the default branch is one a narrower fetch can fail to find, and
+what stays on disk then is `main`, which is v2.
+
+Measured on CI: one profile in three came up on v2 and failed with
+`module 'blink.lib' not found`. v2 requires Neovim 0.12+ and a second plugin,
+`saghen/blink.lib`, so adopting it is a decision of its own and not something
+to arrive at because a clone resolved differently one morning.
+
+**What would change it.** Moving to v2 deliberately, which brings the extra
+dependency with it; or upstream making the v1 tag reachable from a branch a
+default clone fetches, which would leave the lockfile enough on its own.

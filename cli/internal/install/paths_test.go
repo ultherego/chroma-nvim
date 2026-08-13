@@ -9,22 +9,14 @@ import (
 	"github.com/ultherego/chroma-nvim/cli/internal/state"
 )
 
-// xdg confines a test to a directory of its own.
+// xdg confines a test to a directory of its own — every variable, not the ones a
+// particular test happens to read. `XDG_CACHE_HOME` was missing once, so the
+// package resolved CacheDir to the real `~/.cache/nvim` of whoever ran it, and
+// the suite was quietly deleting the Neovim cache of its own author.
 //
-// Every variable, not the ones a particular test happens to read. `XDG_CACHE_HOME`
-// was missing, so the whole package resolved CacheDir to the real
-// `~/.cache/nvim` of whoever ran it — and an uninstall removes the cache
-// directory, which means the suite was quietly deleting the Neovim cache of its
-// own author. It was invisible because a cache regenerates; it surfaced only
-// when a takeover test started moving that directory aside instead of removing
-// it, and the moved-aside copy appeared in a home directory.
-//
-// HOME is set too, because every one of these has a documented fallback under
-// the home directory and a test that leaves one unset is one refactor away from
-// resolving there. XDG_RUNTIME_DIR because the lock lives in it.
-//
-// A test harness that can reach outside its own root is not a harness that
-// proves anything about destructive code. See confined.
+// HOME is set too, because each of these has a documented fallback under it, and
+// XDG_RUNTIME_DIR because the lock lives there. A test harness that can reach
+// outside its own root proves nothing about destructive code.
 func xdg(t *testing.T, root string) {
 	t.Helper()
 

@@ -13,22 +13,18 @@ import (
 	"github.com/ultherego/chroma-nvim/cli/internal/installstate"
 )
 
-// A killed process is a different question from a failing one.
+// A killed process is a different question from a failing one. SIGINT and
+// SIGTERM leave a program able to answer; SIGKILL does not — no defer, no
+// handler, no rollback, and the only thing the kernel does is drop the flock.
 //
-// SIGINT and SIGTERM leave a program able to answer: defers run, the
-// transaction rolls back, the guarantees are the ones the fault points already
-// hold. SIGKILL does not. Nothing runs — no defer, no handler, no rollback —
-// and the only thing the kernel does on the way out is drop the flock.
-//
-// So the question here is not "does it undo itself", because it cannot. It is:
+// So the question is not "does it undo itself", because it cannot. It is:
 // **can the next run tell what happened and get out of it without destroying
-// anything?** Two answers are acceptable. Either Chroma can prove what the
-// state is and repair it, or it cannot and refuses, touching nothing and saying
-// precisely what it found. What is not acceptable is believing the record over
-// the filesystem when the two disagree.
+// anything?** Either Chroma proves what the state is and repairs it, or it
+// refuses and says what it found. What is not acceptable is believing the
+// record over the filesystem when the two disagree.
 //
 // The child re-executes this test binary, arms one fault point to kill itself,
-// and dies mid-transaction on a real temporary tree. The parent then looks.
+// and dies mid-transaction on a real temporary tree.
 func killedAt(t *testing.T, scenario string, point faultPoint) Paths {
 	t.Helper()
 
@@ -250,16 +246,13 @@ func TestADeletedBackupIsNotMistakenForAHandover(t *testing.T) {
 }
 
 // The plan is printed before anybody agrees to it, so it has to be built from
-// the reconciled record. Without that, a run interrupted between the restore
+// the reconciled record — without that, a run interrupted between the restore
 // and the record offers to move a configuration it has already given back.
 //
-// Two things changed when borrowing became plural, and both make this stricter.
-// A borrowed path is never on the removal list at all now — whatever its
-// handover says, it is not Chroma's to delete — so what an unreconciled record
-// would produce is not an offer to remove but an offer to hand back a directory
-// that has already gone home, from a backup that is no longer there. That is
-// the one this asserts, and the old assertion is kept as the invariant it has
-// become: neither plan names it.
+// Since borrowing became plural a borrowed path is never on the removal list at
+// all, so what an unreconciled record produces is an offer to hand back a
+// directory that has already gone home. That is what this asserts, and the old
+// assertion is kept as the invariant it has become: neither plan names it.
 func TestThePlanAfterAnInterruptedHandoverDoesNotOfferTheUsersConfiguration(t *testing.T) {
 	fixed(t)
 

@@ -1,16 +1,9 @@
 -- The Ansible component, and the runner that may not come back.
 --
--- `nvim-ansible` can run a playbook by inferring the command from the buffer.
--- That is the execution path Chroma retired, and retiring it is not undone by
--- `chroma-ansible`: the planner asks for the playbook, the directory and the
--- inventory, shows the exact array and waits for a yes, which is the opposite
--- of inferring a command from whatever is open.
---
--- So what these cases guard is unchanged — the plugin must not reach its own
--- runner, and no plugin spec may bind a key to it — while the component itself
--- has changed, because the planner is a feature that needs Ansible installed.
--- The plugin stays for what only it does: the `yaml.ansible` filetype, `K`
--- through `ansible-doc`, `gf` into a role.
+-- `nvim-ansible` can run a playbook by inferring the command from the buffer,
+-- and that is the path Chroma retired. The planner does not undo it: it asks,
+-- shows the exact array and waits for a yes. So these cases still guard that the
+-- plugin cannot reach its own runner and that no spec binds a key to it.
 
 local new_set = MiniTest.new_set
 local eq = MiniTest.expect.equality
