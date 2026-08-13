@@ -7,8 +7,11 @@ The leader is <kbd>Space</kbd>, so `<leader>fg` is <kbd>Space</kbd> then
 
 This is the cheat sheet. `:help chroma-nvim-keymaps` is the same set with the
 reasoning attached — why a key is where it is, and what it does not do. A test
-holds both to the code: every mapping in `lua/` appears in both documents, and
-every mapping either document names exists in `lua/`.
+holds both to the code, for everything under the leader: each such mapping in
+`lua/` appears in both documents, and each one either document names still
+exists in `lua/`. The keys that are not under the leader — `]h`, `gsa`, `K`,
+the ones inside oil and inside a picker — are held there by reading, which is
+why each lives under the plugin that binds it rather than in a list of its own.
 
 Press <kbd>Space</kbd> and wait to have which-key answer this from inside the
 editor. `<leader>?` lists what the current buffer adds.
@@ -165,6 +168,11 @@ A task is the opposite — every run is its own process in its own terminal.
 Above 512 KB a buffer is not formatted on save and says so; `<leader>xf` still
 formats it, because manual formatting runs asynchronously and is not bound by
 the save timeout.
+
+`<leader>xf` refuses exactly one buffer and says why: a decrypted vault. A
+formatter is a subprocess handed the buffer, which is not a thing to do with a
+plaintext secret. Saving never formats one either — this one says it out loud
+because here it was asked for.
 
 ---
 
@@ -333,6 +341,12 @@ vector and asks once. Nothing runs before that yes, and Ansible is only started
 after a separate consent naming the directory, playbook and inventory it is
 about to use.
 
+An inventory source is resolved against the frozen working directory as you
+type it, and one that is not there is refused on the spot, naming the full path
+Ansible would have opened. Ansible would not have refused it: a missing `-i` is
+a warning, an inventory of nothing, and a run that reports `skipping: no hosts
+matched` and exits green.
+
 `<leader>aR` goes straight to that final preview with the last invocation's
 decisions and still asks. It re-resolves `ansible-playbook` and re-checks the
 paths, and it never repeats the previous run's host count — an inventory can
@@ -375,12 +389,17 @@ key of its own.
 
 ---
 
-## Ansible
+## Ansible files
 
 `nvim-ansible` has **no mapping for running a playbook**, and that is a removal
-rather than an omission: the one it had inferred the playbook from the buffer.
-Today a playbook runs the way anything else does — the repository declares the
-command in `.chroma/tasks.json` and `<leader>xr` runs it.
+rather than an omission: the one it had inferred the playbook from the buffer,
+and inference is what was retired, not the running.
+
+There are two ways to run a playbook and neither guesses. `<leader>ar` plans
+one: every part is chosen, then shown, then confirmed. `<leader>xr` runs the
+command the repository declared in `.chroma/tasks.json`, which is the way to
+reach a wrapper — `make`, `uv run`, a company CLI — since the planner starts
+`ansible-playbook` itself and nothing else.
 
 What the plugin still provides:
 

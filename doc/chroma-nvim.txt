@@ -233,8 +233,10 @@ Groups ~
 <
 The last four appear only when the component that defines the keys under them
 is enabled, so which-key describes the editor you have. `<leader>a` follows
-`vault` rather than `ansible`: every key under it is an Ansible Vault key, and
-the two components are independent of each other.
+either `ansible` or `vault`, because the keys under it come from both and the
+two components are independent: with only one of them enabled the heading has
+to appear over the keys that one contributes. It is labelled Ansible either
+way — Ansible Vault is Ansible's.
 
 Find ~
 >
@@ -305,7 +307,13 @@ Ansible ~
     <leader>av   Reveal the encrypted value under the cursor
     <leader>av   Encrypt the selection in place        (visual mode)
     <leader>aV   Show where the vault password comes from
+    <leader>ae   Encrypt the whole file
+    <leader>ad   Decrypt the whole file
+    <leader>aw   View an encrypted file without decrypting it on disk
+    <leader>ak   Rekey an encrypted file
 <
+The first two come from the `ansible` component and the rest from `vault`.
+
 `<leader>ar` asks for the playbook, the working directory, the inventory, the
 tags, a limit and the CLI overrides, then shows the exact argument vector and
 asks once before anything runs. It infers nothing from the buffer: the buffer
@@ -379,7 +387,8 @@ Tools ~
     <leader>xr   Run a task this project declares
     <leader>xs   Shell — a terminal at the bottom, toggled
     <leader>xf   Format buffer or selection   (also works in visual mode)
-    <leader>xF   Toggle format on save
+    <leader>xF   Toggle format on save, globally
+    <leader>xb   Toggle format on save, this buffer
     <leader>xi   Formatter info (:ConformInfo)
     <leader>xl   Lint buffer now
     <leader>xt   Todo comments
@@ -442,11 +451,6 @@ Inside an oil buffer ~
 <
 Note that oil's upstream defaults for splitting and previewing are <C-s>,
 <C-h> and <C-p>. Those are unusable here; see |chroma-nvim-zellij|.
-
-Groups not yet populated ~
-
-AWS and Sessions are declared but still empty. The prefixes are
-reserved so that later layers cannot collide with what already exists.
 
 First run of the cluster view                       *chroma-nvim-kubectl-first*
 
