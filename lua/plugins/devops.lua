@@ -3,9 +3,7 @@
 return {
   {
     "ramilito/kubectl.nvim",
-    -- Which component brings this is `components/kubernetes.json`'s to say, and
-    -- it says it. Naming the component here as well would be the same fact in
-    -- two files, free to disagree.
+    -- Which component brings this is `components/kubernetes.json`'s to say.
     enabled = function()
       return require("chroma.state").contributes("plugins", "kubectl.nvim")
     end,
@@ -58,14 +56,10 @@ return {
     -- file can be detected as yaml.ansible in the first place.
     lazy = false,
 
-    -- No keys, and that is the change rather than an omission. This plugin can
-    -- run a playbook by inferring the command from the buffer, and Chroma no
-    -- longer offers that: how a repository runs Ansible is what its own task
-    -- file says, and two execution models in one editor — one declared, one
-    -- guessed — is the thing the task runner exists to end.
-    --
-    -- What is left is what only this plugin does: detecting `yaml.ansible`,
-    -- which is what activates ansible-lint and ansiblels, pointing `K` at
-    -- `ansible-doc`, and extending `path` so `gf` follows a role.
+    -- No keys, deliberately: this plugin runs a playbook by inferring the
+    -- command from the buffer, and inference is what was retired. Running one
+    -- is `<leader>ar`, which chooses and shows every part, or `<leader>xr` for
+    -- a command the repository declared. What is left here is filetype
+    -- detection, `K` on `ansible-doc`, and `path` extended so `gf` finds a role.
   },
 }

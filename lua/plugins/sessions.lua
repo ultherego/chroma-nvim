@@ -9,13 +9,13 @@ return {
     cmd = "Persisted",
     opts = {
       autostart = true,
-      -- A session per branch: infrastructure repositories tend to keep one branch
-      -- per environment.
+      -- A session per branch: infrastructure repositories tend to keep one
+      -- branch per environment.
       use_git_branch = true,
       follow_cwd = true,
       should_save = function()
-        -- The dashboard is not worth restoring, and saving it means opening
-        -- Neovim into a stale start screen instead of the work.
+        -- Saving the dashboard means reopening into a stale start screen
+        -- instead of the work.
         return vim.bo.filetype ~= "snacks_dashboard"
       end,
     },

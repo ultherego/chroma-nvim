@@ -8,23 +8,21 @@ return {
       signs = {
         add = { text = "▎" },
         change = { text = "▎" },
-        -- Deleted lines have no line of their own, so the mark goes on the boundary;
-        -- leaving it empty hides the deletion entirely.
+        -- Deleted lines have no line of their own, so the mark goes on the
+        -- boundary; empty would hide the deletion entirely.
         delete = { text = "▁" },
         topdelete = { text = "▔" },
         changedelete = { text = "▎" },
         untracked = { text = "▎" },
       },
-      -- Off by default; toggled with <leader>gB when it is actually wanted.
-      -- Permanent inline blame is noise while writing manifests.
+      -- Permanent inline blame is noise while writing manifests; <leader>gB.
       current_line_blame = false,
 
       on_attach = function(buf)
-        -- Staging does not write the working tree, it writes `.git/index` and a
-        -- blob object — so a buffer holding a decrypted vault would put the
-        -- plaintext in git, past everything that guards the file itself.
-        -- Measured: `stage_buffer` on such a buffer left the secret in the index
-        -- and the ciphertext gone. Returning false here means never attaching.
+        -- Staging writes `.git/index` and a blob, not the working tree, so a
+        -- decrypted vault would land in git past everything guarding the file.
+        -- Measured: `stage_buffer` left the secret in the index and the
+        -- ciphertext gone. False here means never attaching.
         if vim.b[buf].ansible_vault_plain then
           return false
         end
@@ -35,8 +33,8 @@ return {
           vim.keymap.set(mode, lhs, rhs, { buffer = buf, desc = desc })
         end
 
-        -- Navigation. In a diff split, ]c and [c are Neovim's own hunk motions
-        -- and are left alone; ]h and [h are used here so both work.
+        -- In a diff split ]c and [c are Neovim's own and are left alone, so
+        -- ]h and [h go here and both idioms work.
         map("n", "]h", function()
           if vim.wo.diff then
             vim.cmd.normal({ "]c", bang = true })
@@ -53,8 +51,8 @@ return {
           end
         end, "Previous hunk")
 
-        -- Staging. stage_hunk on an already-staged sign unstages it, which is
-        -- what replaced the deprecated undo_stage_hunk.
+        -- stage_hunk on an already-staged sign unstages it, which is what
+        -- replaced the deprecated undo_stage_hunk.
         map("n", "<leader>gs", gs.stage_hunk, "Stage hunk (toggles when staged)")
         map("n", "<leader>gr", gs.reset_hunk, "Reset hunk")
         map("v", "<leader>gs", function()
@@ -66,7 +64,6 @@ return {
         map("n", "<leader>gS", gs.stage_buffer, "Stage buffer")
         map("n", "<leader>gR", gs.reset_buffer, "Reset buffer")
 
-        -- Inspection
         map("n", "<leader>gp", gs.preview_hunk_inline, "Preview hunk inline")
         map("n", "<leader>gb", function()
           gs.blame_line({ full = true })

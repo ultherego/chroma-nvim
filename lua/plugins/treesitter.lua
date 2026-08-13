@@ -57,8 +57,7 @@ return {
           return
         end
 
-        -- Fails for any filetype without an installed parser, which is
-        -- expected and not an error worth reporting.
+        -- Fails for any filetype without an installed parser, which is expected.
         if not pcall(vim.treesitter.start, buf) then
           return
         end
@@ -76,14 +75,10 @@ return {
         end,
       })
 
-      -- install() is asynchronous. On a first start the parsers land some time
-      -- after this, and a file opened in between has already had its FileType —
-      -- with nothing installed to start, and nothing to try again later. It stayed
-      -- unhighlighted and unfoldable until the buffer was reopened.
-      --
-      -- Guarded because `await` belongs to nvim-treesitter's own task type rather
-      -- than to a documented interface: if it changes shape, this goes back to
-      -- doing nothing, which is what it did before.
+      -- install() is asynchronous, so on a first start a file opened before the
+      -- parsers land has already had its FileType and stays unhighlighted until
+      -- it is reopened. Guarded because `await` is nvim-treesitter's own task
+      -- type rather than a documented interface.
       if installing then
         pcall(function()
           installing:await(vim.schedule_wrap(function()

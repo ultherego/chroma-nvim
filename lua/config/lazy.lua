@@ -33,10 +33,9 @@ if not (vim.uv or vim.loop).fs_stat(lazypath) then
     give_up("Failed to clone lazy.nvim:", out)
   end
 
-  -- The lockfile pins every plugin including lazy.nvim itself, but it only starts
-  -- meaning anything once lazy is running — so on a fresh machine the first lazy
-  -- to execute was whatever `stable` pointed at that day, not the commit this
-  -- repository was tested with. Checked out before it is put on the runtimepath.
+  -- The lockfile pins lazy.nvim itself but only means anything once lazy is
+  -- running, so on a fresh machine the first lazy to execute would be whatever
+  -- `stable` pointed at that day. Checked out before it reaches the runtimepath.
   local commit = pinned("lazy.nvim")
   if commit then
     out = vim.fn.system({ "git", "-C", lazypath, "checkout", "--quiet", commit })
@@ -49,20 +48,19 @@ end
 vim.opt.rtp:prepend(lazypath)
 
 require("lazy").setup({
-  -- Every file under lua/plugins/ is a spec module. One file per domain.
   spec = { { import = "plugins" } },
 
   -- Tracked in git, so the plugin set is reproducible across machines.
   lockfile = lockfile,
 
-  -- SECURITY. lazy.nvim defaults this to true, which makes it load a
-  -- project-local `.lazy.lua` from whatever directory Neovim was started in.
+  -- SECURITY. Defaults to true, which loads a project-local `.lazy.lua` from
+  -- whatever directory Neovim was started in.
   local_spec = false,
 
   install = {
     missing = true,
-    -- Used only while plugins are still installing on first start. habamax is
-    -- a built-in fallback in case catppuccin is not on disk yet.
+    -- habamax is the built-in fallback for the first start, before catppuccin
+    -- is on disk.
     colorscheme = { "catppuccin-mocha", "habamax" },
   },
 
@@ -70,15 +68,14 @@ require("lazy").setup({
   -- that :checkhealth lazy reports as an error.
   rocks = { enabled = false },
 
-  -- On, because the contract commits to maintained plugins and drift should be
-  -- visible; quiet, because a notification on every start is not.
+  -- On, because drift should be visible; quiet, because a notification on every
+  -- start is not.
   checker = {
     enabled = true,
     notify = false,
     frequency = 3600,
   },
 
-  -- Reload specs on change, but without a popup on every write.
   change_detection = {
     enabled = true,
     notify = false,
@@ -87,7 +84,7 @@ require("lazy").setup({
   performance = {
     cache = { enabled = true },
     rtp = {
-      -- Built-ins that ship with Neovim 0.12 and are unused in this workflow.
+      -- Ship with Neovim 0.12 and are unused in this workflow.
       disabled_plugins = {
         "gzip",
         "tarPlugin",

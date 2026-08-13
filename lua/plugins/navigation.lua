@@ -1,8 +1,7 @@
 -- Navigation layer: pickers, file management, project roots.
 
 return {
-  -- The one icon provider for the whole config: oil recommends it and fzf-lua
-  -- supports it natively.
+  -- The one icon provider for the whole config.
   {
     "nvim-mini/mini.icons",
     lazy = true,
@@ -16,28 +15,25 @@ return {
     end,
   },
 
-  -- fzf-lua: requires fzf > 0.36 and Neovim >= 0.9.
   {
     "ibhagwan/fzf-lua",
     cmd = "FzfLua",
     dependencies = { "nvim-mini/mini.icons" },
-    -- opts must be a function: the action table below requires a fzf-lua
-    -- module, which does not exist until the plugin is on the runtimepath.
+    -- A function: the action table requires a fzf-lua module, which does not
+    -- exist until the plugin is on the runtimepath.
     opts = function()
       local actions = require("fzf-lua.actions")
       return {
         -- Uses fzf's own previewer through bat, which is therefore a requirement.
         "fzf-native",
         actions = {
+          -- The moved keys are all ones Zellij takes first: ctrl-s (scroll
+          -- mode), alt-h / alt-i / alt-f (pane and tab movement). ctrl-t is
+          -- dropped rather than moved, since Zellij owns tabs here.
           files = {
             ["enter"] = actions.file_edit_or_qf,
-            -- ctrl-v (vsplit) is free in Zellij and keeps its default.
             ["ctrl-v"] = actions.file_vsplit,
-            -- Replaces the default ctrl-s, which Zellij takes for scroll mode.
-            -- ctrl-t (new tab) is dropped: Zellij owns tabs in this workflow.
             ["ctrl-x"] = actions.file_split,
-            -- Replaces alt-h / alt-i / alt-f, all of which Zellij binds to
-            -- pane and tab movement. These punctuation keys are free in both.
             ["alt-."] = actions.toggle_hidden,
             ["alt-,"] = actions.toggle_ignore,
             ["alt-/"] = actions.toggle_follow,
@@ -61,41 +57,38 @@ return {
     },
   },
 
-  -- oil.nvim: edit a directory as if it were a buffer. Requires Neovim 0.10+.
-  -- Upstream states lazy loading is not recommended, hence lazy = false.
+  -- oil.nvim: a directory as a buffer. Upstream states lazy loading is not
+  -- recommended, hence lazy = false.
   {
     "stevearc/oil.nvim",
     lazy = false,
     dependencies = { "nvim-mini/mini.icons" },
     opts = {
-      -- oil takes over directory buffers (`nvim .`, `:e src/`). netrw is
-      -- disabled below, so nothing competes for them.
+      -- oil takes over directory buffers; netrw is disabled below, so nothing
+      -- competes for them.
       default_file_explorer = true,
       view_options = {
         show_hidden = true,
       },
       keymaps = {
         -- Four oil defaults land on keys Zellij eats, so they are moved and the
-        -- originals disabled rather than left dead.
+        -- originals disabled rather than left dead. Preview goes to a
+        -- g-prefixed key, matching oil's own idiom (g?, gs, gx, g., g\).
         ["<C-s>"] = false,
         ["<C-h>"] = false,
         ["<C-t>"] = false,
         ["<C-p>"] = false,
         ["<C-v>"] = { "actions.select", opts = { vertical = true } },
         ["<C-x>"] = { "actions.select", opts = { horizontal = true } },
-        -- Preview moves to a g-prefixed key, matching oil's own idiom
-        -- (g?, gs, gx, g., g\).
         ["gp"] = "actions.preview",
       },
     },
     keys = {
-      -- oil's own convention: open the parent directory of the current file.
       { "-", "<cmd>Oil<cr>", desc = "Open parent directory (oil)" },
       { "<leader>fe", "<cmd>Oil<cr>", desc = "File explorer (oil)" },
     },
   },
 
-  -- yazi.nvim: the full-screen file manager from the contract's workflow.
   {
     "mikavilpas/yazi.nvim",
     version = "*",
@@ -107,8 +100,7 @@ return {
       },
     },
     init = function()
-      -- Recommended by yazi.nvim, and consistent with oil owning directory
-      -- buffers: netrw is not wanted in either case.
+      -- Consistent with oil owning directory buffers: netrw is not wanted here.
       vim.g.loaded_netrw = 1
       vim.g.loaded_netrwPlugin = 1
     end,
@@ -119,7 +111,7 @@ return {
     },
   },
 
-  -- project.nvim — the DrKJeff16 fork, not ahmedkhalf/project.nvim.
+  -- The DrKJeff16 fork, not ahmedkhalf/project.nvim.
   {
     "DrKJeff16/project.nvim",
     event = "VeryLazy",

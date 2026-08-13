@@ -1,12 +1,7 @@
--- lua_ls override.
---
--- Loaded after nvim-lspconfig's lsp/lua_ls.lua and merged over it
--- (:help lsp-config-merge). Upstream documents this on_init in a comment but
--- does not apply it, so it is applied here.
---
--- Purpose: make the server aware of the Neovim runtime, so editing this config
--- gets completion and go-to-definition for the vim API instead of a wall of
--- "undefined global vim".
+-- lua_ls override, merged over nvim-lspconfig's (:help lsp-config-merge). Makes
+-- the server aware of the Neovim runtime, so editing this config gets the vim
+-- API instead of a wall of "undefined global vim". Upstream documents this
+-- on_init in a comment but does not apply it.
 
 ---@type vim.lsp.Config
 return {
@@ -29,9 +24,8 @@ return {
       },
       workspace = {
         checkThirdParty = false,
-        -- Only VIMRUNTIME, not the whole runtimepath: pulling in every
-        -- installed plugin makes the server noticeably slower and is called
-        -- out upstream as a problem when editing your own config.
+        -- Only VIMRUNTIME: the whole runtimepath makes the server noticeably
+        -- slower, which upstream calls out.
         library = { vim.env.VIMRUNTIME },
       },
     })

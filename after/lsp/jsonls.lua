@@ -1,8 +1,5 @@
--- jsonls override.
---
--- Merged over nvim-lspconfig's lsp/jsonls.lua. Adds the SchemaStore catalogue
--- so that package.json, tsconfig, GitHub workflows and — relevant here —
--- Terraform state and provider lock files validate against real schemas.
+-- jsonls override, merged over nvim-lspconfig's. Adds the SchemaStore
+-- catalogue, so Terraform state and provider lock files validate too.
 
 return {
   settings = {

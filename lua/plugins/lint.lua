@@ -7,9 +7,7 @@ return {
     config = function()
       local lint = require("lint")
 
-      -- Which linters exist at all is the enabled components' business: a
-      -- selection without Docker registers nothing for dockerfiles rather than
-      -- registering hadolint and failing to find it.
+      -- Which linters exist at all is the enabled components' business.
       local enabled = require("chroma.state").enabled_ids()
       local available = {}
       for _, name in ipairs(require("chroma.components").contributions("linters", enabled)) do
@@ -20,9 +18,6 @@ return {
       local by_ft = {
         yaml = { "yamllint" },
         dockerfile = { "hadolint" },
-
-        -- nvim-ansible detects playbooks as `yaml.ansible`; ansible-lint is slow,
-        -- so it is not one of the fast linters below.
         ["yaml.ansible"] = { "ansible_lint" },
       }
 
@@ -36,6 +31,7 @@ return {
       end
 
       -- Cheap enough to run while typing; everything else waits for a write.
+      -- ansible-lint is deliberately not among them.
       local fast = { yamllint = true, hadolint = true }
 
       -- Both the keymap and the autocmd call this, so "lint now" and "lint on
@@ -43,12 +39,9 @@ return {
       local function linters_for(buf, only_fast)
         local names = {}
 
-        -- A decrypted vault is plaintext secrets in a buffer that looks like
-        -- ordinary YAML. Every linter here is a subprocess fed on stdin, so
-        -- linting one hands the secret to another program — the guarantee this
-        -- configuration makes is about persistence, not about how many local
-        -- processes get to see it, and that is a boundary worth not crossing by
-        -- accident. See :help chroma-nvim-vault-tools.
+        -- Every linter here is a subprocess fed on stdin, so linting a
+        -- decrypted vault hands the plaintext to another program.
+        -- See :help chroma-nvim-vault-tools.
         if vim.b[buf].ansible_vault_plain then
           return names
         end

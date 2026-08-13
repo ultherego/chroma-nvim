@@ -1,6 +1,5 @@
 -- LSP layer, on the native 0.12 API: nvim-lspconfig only ships lsp/<name>.lua
 -- and Neovim discovers them. Per-server overrides go in after/lsp/.
--- See :help chroma-nvim-lsp and :help lsp-config-merge.
 
 return {
   {
@@ -15,9 +14,8 @@ return {
       vim.api.nvim_create_user_command("MasonVersions", function()
         local lines = {}
         for _, pkg in ipairs(require("mason-registry").get_installed_packages()) do
-          -- `_value` is the receipt's internal table, not a promised interface.
-          -- The pcall is why a Mason release reshaping it prints `?` instead of
-          -- breaking the command; check the shape after upgrading Mason.
+          -- `_value` is the receipt's internal table, not a promised interface,
+          -- so a Mason release reshaping it prints `?` rather than breaking.
           local ok, id = pcall(function()
             return pkg:get_receipt()._value.source.id
           end)
@@ -29,42 +27,24 @@ return {
     end,
   },
 
-  -- Everything Mason installs: language servers, linters and formatters.
-  --
-  -- One provisioner, and that is the change worth explaining. mason-lspconfig
-  -- also has an `ensure_installed`, and it deliberately does nothing when
-  -- Neovim is headless — measured: after `chroma install` the servers were
-  -- simply absent, and the first interactive session started fetching them
-  -- while the user watched. An installer whose result finishes installing
-  -- itself the first time somebody opens it has not finished installing.
-  --
-  -- So mason-tool-installer provisions all of it, in headless and out, and
-  -- mason-lspconfig keeps the job it is best at: translating names and enabling
-  -- what is installed.
+  -- One provisioner for everything Mason installs. mason-lspconfig's own
+  -- `ensure_installed` deliberately does nothing when Neovim is headless —
+  -- measured: after `chroma install` the servers were simply absent — which is
+  -- exactly where the installer runs.
   {
     "WhoIsSethDaniel/mason-tool-installer.nvim",
     event = "VeryLazy",
     dependencies = {
       "mason-org/mason.nvim",
-      -- Not decoration: this plugin looks mason-lspconfig up to translate
-      -- `bashls` into `bash-language-server`, and the pins below are written in
-      -- the names the component contract uses.
+      -- Looked up to translate `bashls` into `bash-language-server`.
       "mason-org/mason-lspconfig.nvim",
     },
     opts = function()
-      -- Pinned by hand; which of them are wanted comes from the enabled
-      -- components, so a machine that never selected Ansible fetches neither
-      -- ansiblels nor ansible-lint.
-      --
-      -- `{ name, version = ... }`, never `"name@version"`. This plugin passes a
-      -- string entry to the registry as a package name and nothing splits it,
-      -- so the string form raised `Cannot find package` and installed nothing.
-      --
-      -- One table rather than two, because `tflint` is in it twice over: the
-      -- contract lists it as a server *and* as a Mason package, and two tables
-      -- would be two places to keep one version.
+      -- `{ name, version = ... }`, never `"name@version"`: a string entry goes
+      -- to the registry as a package name and nothing splits it, which raised
+      -- `Cannot find package` and installed nothing. One table rather than two,
+      -- because `tflint` is both a server and a Mason package.
       local pins = {
-        -- Language servers, by the names nvim-lspconfig and the contract use.
         terraformls = "v0.39.0",
         helm_ls = "v0.5.4",
         dockerls = "0.15.0",
@@ -105,8 +85,7 @@ return {
     end,
   },
 
-  -- SchemaStore: JSON and YAML schemas, consumed by after/lsp/yamlls.lua
-  -- and after/lsp/jsonls.lua.
+  -- Consumed by after/lsp/yamlls.lua and after/lsp/jsonls.lua.
   {
     "b0o/SchemaStore.nvim",
     lazy = true,
@@ -120,18 +99,13 @@ return {
     enabled = function()
       return require("chroma.state").contributes("plugins", "vim-helm")
     end,
-    -- Not lazy. Its whole job is detection, and detection cannot be triggered by
-    -- the filetype it is there to decide. Loading it on `ft` meant a chart file
-    -- opened as the first file of a session never loaded it, so nothing detected
-    -- helm and nothing loaded it — a cycle. It ships one ftdetect and one syntax
-    -- file, so eager loading costs nothing worth measuring.
+    -- Not lazy: detection cannot be triggered by the filetype it decides, so
+    -- loading on `ft` was a cycle. One ftdetect and one syntax file.
     lazy = false,
     init = function()
-      -- Upstream hooks `FileType yaml,text,gotmpl`, which assumes Neovim names
-      -- the last of those. Measured: it does not — `vim.filetype.match` answers
-      -- nil for `values.gotmpl` — so a helmfile values template was the one class
-      -- its detection could never see. Naming it is enough; the plugin decides
-      -- from there whether it is Helm's.
+      -- Upstream hooks `FileType yaml,text,gotmpl`, and measured, Neovim does
+      -- not name the last of those — `vim.filetype.match` answers nil for
+      -- `values.gotmpl`. Naming it is enough; the plugin decides from there.
       vim.filetype.add({ extension = { gotmpl = "gotmpl" } })
     end,
   },
@@ -144,20 +118,15 @@ return {
       "neovim/nvim-lspconfig",
     },
     opts = function()
-      -- An allow-list, not `true`: that would enable every server Mason has ever
-      -- installed, including stylua, which would then compete with conform. The
-      -- list is the enabled components' own, so a selection without Kubernetes
-      -- never installs helm_ls and never enables it.
+      -- An allow-list, not `true`: that would enable every server Mason ever
+      -- installed, stylua included, which would then compete with conform.
       local wanted = require("chroma.components").contributions("servers", require("chroma.state").enabled_ids())
 
-      -- Empty on purpose. This plugin's own `ensure_installed` does nothing in
-      -- a headless Neovim, which is exactly where the installer runs, so
-      -- provisioning belongs to mason-tool-installer above. What is left here
-      -- is what this plugin is for: enabling the servers that are installed.
+      -- Empty on purpose; provisioning belongs to mason-tool-installer above.
+      -- What is left here is enabling the servers that are installed.
       return { ensure_installed = {}, automatic_enable = wanted }
     end,
     config = function(_, opts)
-      -- Defaults applied to every server, set before anything is enabled.
       vim.lsp.config("*", {
         root_markers = { ".git" },
       })

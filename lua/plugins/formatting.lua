@@ -1,11 +1,8 @@
 -- Formatting layer. `lsp_format = "fallback"` hands anything without a dedicated
 -- formatter to the language server: yamlls and dockerls format, helm_ls does not.
--- The fallback cannot rescue a missing binary — terraform-ls shells out to
--- `terraform fmt` itself.
 
---- Whichever of the two CLIs is installed, terraform first so nothing changes for
---- anyone who has it. A function, because the answer belongs to the machine and can
---- change while Neovim is running.
+--- Whichever of the two CLIs is installed, terraform first. A function, because
+--- the answer belongs to the machine and can change while Neovim is running.
 ---@param bufnr integer
 ---@return string[]
 local function terraform_formatter(bufnr)
@@ -33,14 +30,10 @@ local function terragrunt_formatter(bufnr)
   return {}
 end
 
---- Which filetypes get a formatter, and which formatter, from the enabled
---- components rather than from this file.
----
---- Formatting was the last thing a selection did not decide: a configuration
---- with `"selected": []` still had `terraform fmt` running on every .tf write,
---- which is Terraform support by any honest reading of the phrase. `needs` is
---- satisfied by any one of the names, because terraform and tofu are two ways
---- to have the same component.
+--- Which filetypes get a formatter, from the enabled components rather than
+--- from this file: `"selected": []` used to leave `terraform fmt` running on
+--- every .tf write. `needs` is satisfied by any one name, because terraform and
+--- tofu are two ways to have the same component.
 ---@return table<string, string[]|fun(bufnr: integer): string[]>
 local function formatters_by_ft()
   local enabled = require("chroma.state").enabled_ids()
@@ -98,21 +91,16 @@ return {
             return
           end
 
-          -- A decrypted vault holds plaintext secrets and formatters are
-          -- subprocesses fed the buffer. Reformatting one would also rewrite the
-          -- plaintext before this plugin's own writer re-encrypts it.
+          -- Formatters are subprocesses fed the buffer, and reformatting a
+          -- decrypted vault would rewrite the plaintext before the writer
+          -- re-encrypts it.
           if vim.b[bufnr].ansible_vault_plain then
             return
           end
 
-          -- Past timeout_ms conform gives up silently, so large files are skipped
-          -- audibly instead. Measured: 900 KB of YAML saved unformatted, no message.
-          -- <leader>xf still formats them, asynchronously.
-          --
-          -- The buffer is what gets formatted, and this runs before the write, so
-          -- the file on disk is the previous version — or nothing at all, for a
-          -- buffer that has never been saved. get_offset past the last line is the
-          -- buffer's own byte count, one byte per line ending.
+          -- Past timeout_ms conform gives up silently — measured: 900 KB of
+          -- YAML saved unformatted, no message — so this says so instead.
+          -- get_offset past the last line is the buffer's own byte count.
           local max_bytes = 512 * 1024
           local bytes = vim.api.nvim_buf_get_offset(bufnr, vim.api.nvim_buf_line_count(bufnr))
           if bytes > max_bytes then
@@ -134,9 +122,8 @@ return {
       {
         "<leader>xf",
         function()
-          -- The same rule as format-on-save: a formatter is a subprocess fed the
-          -- buffer, and a decrypted vault is not something to hand one. Said out
-          -- loud here, because unlike the save path this was asked for.
+          -- The same rule as format-on-save, said out loud because unlike the
+          -- save path this one was asked for.
           if vim.b[vim.api.nvim_get_current_buf()].ansible_vault_plain then
             vim.notify(
               "Not formatting: this buffer holds a decrypted vault, and formatters run as subprocesses.",
