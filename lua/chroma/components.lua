@@ -1,18 +1,11 @@
--- The component contract, from this configuration's side.
---
--- One file per component in `components/`, read by the Lua configuration and by
--- the Go CLI. Neither owns it. See cli/DESIGN.md for the whole arrangement and
--- why the format is JSON rather than YAML.
---
--- This module reads and validates. It does not decide what is enabled — that is
--- the installed state, which the CLI writes and which does not exist yet.
+-- The component contract, from this configuration's side: one file per
+-- component in `components/`, read by this and by the Go CLI, owned by neither.
+-- See cli/DESIGN.md. This reads and validates; what is enabled is state.lua.
 
 local M = {}
 
---- The contract version this configuration understands. A component file
---- declaring a higher one was written for a newer Chroma than this, and reading
---- it as though the difference did not matter is how the two sides drift apart
---- quietly. See cli/DESIGN.md, "The component contract".
+--- The contract version this understands. A file declaring a higher one was
+--- written for a newer Chroma. See cli/DESIGN.md, "The component contract".
 M.CONTRACT = 5
 
 ---Dotted numbers, with an optional leading v and whatever suffix a release
@@ -60,18 +53,15 @@ function M.compare_versions(a, b)
   return 0
 end
 
----Where the component files live: alongside this configuration, not in state.
 ---Resolved from this file rather than from stdpath("config"), so it answers the
----same whether the configuration is installed, symlinked, or being tested from a
----checkout that is nobody's config directory.
+---same whether the configuration is installed, symlinked or under test.
 ---@return string
 local function directory()
   local here = vim.fn.fnamemodify(vim.fn.resolve(debug.getinfo(1, "S").source:sub(2)), ":p")
   return vim.fs.joinpath(vim.fn.fnamemodify(here, ":h:h:h"), "components")
 end
 
---- The fields each level of the contract may carry. Anything else is a mistake
---- worth reporting rather than ignoring.
+--- The fields each level may carry; anything else is reported, not ignored.
 local KNOWN = {
   component = {
     contract = true,
@@ -97,15 +87,10 @@ local KNOWN = {
   },
 }
 
----Whether a decoded value is a JSON array, and whether it is a JSON object.
----
----Asked of the decoder rather than guessed from the table afterwards. Measured
----on Neovim 0.12.4: `[]` decodes to a list and `{}` to `vim.empty_dict`, which
----`vim.islist` tells apart even when both are empty. Counting keys does not,
----and this file promises something stronger than "close enough" — the Go
----reader decodes into typed fields, so an object where `[]string` belongs is
----an error there, and a Lua reader that shrugs at it accepts documents the
----installer refuses.
+---Whether a decoded value is a JSON array, asked of the decoder rather than
+---guessed. Measured on 0.12.4: `[]` decodes to a list and `{}` to
+---`vim.empty_dict`, which `vim.islist` tells apart even when both are empty —
+---counting keys does not, and the Go reader would refuse what that accepts.
 ---@param value any
 ---@return boolean
 local function array(value)
@@ -137,16 +122,10 @@ local function string_array_problem(value, what)
   return nil
 end
 
----Whether the document is shaped like a component at all.
----
----This runs before anything walks it. Everything below iterates with `pairs`
----and `ipairs`, and both of those raise on a value that is not a table —
----measured on 0.12.4: `bad argument #1 to 'ipairs' (table expected, got
----string)`. Raising is the wrong answer twice over: it is not the "component
----is invalid" this module promises to report, and it happens on the startup
----path, where the reader is called before anything has drawn a window. The Go
----side gets this free from decoding into a typed struct, which is exactly why
----it had to be written out here.
+---Whether the document is shaped like a component at all, before anything
+---walks it: `pairs` and `ipairs` raise on a non-table, which on the startup
+---path is a stack trace instead of the "component is invalid" this reports.
+---The Go side gets this free from decoding into a struct.
 ---@param decoded table
 ---@return string|nil problem
 local function shape_problem(decoded)
@@ -250,14 +229,10 @@ local function unknown_fields(decoded)
   return nil
 end
 
----Whether a version constraint says one thing, and says it in numbers.
----The rules are the Go reader's, because a contract with two meanings has none.
----
----`min` and `max` are compatibility boundaries: the earliest version known to
----work, and the latest, the second only where a real incompatibility was found.
----Neither says which version Chroma would prefer. Contract 5 removed `exact`
----because it was the one way to write "the machine must run this release" about
----a tool that belongs to the user, so `exact` now fails as an unknown field.
+---Whether a version constraint says one thing, in numbers. The rules are the Go
+---reader's, because a contract with two meanings has none. `min` and `max` are
+---compatibility boundaries, not preferences; contract 5 removed `exact`, which
+---now fails as an unknown field.
 ---@param version table|nil
 ---@return string|nil problem
 local function version_problem_of(version)
@@ -295,8 +270,8 @@ local function tool_problem(tools)
       local named = type(tool.id) == "string" and tool.id ~= ""
       local alternatives = type(tool.any) == "table" and #tool.any > 0
 
-      -- Exactly one, not at least one: with both set a reader picks a winner and
-      -- drops the other, and whoever wrote the file never finds out.
+      -- Exactly one, not at least one: with both set a reader picks a winner
+      -- and whoever wrote the file never finds out.
       if named and alternatives then
         return ("has a %s tool with both id and any"):format(level)
       end
@@ -335,9 +310,8 @@ local function read_one(path)
   if not ok then
     return nil, "is not valid JSON"
   end
-  -- A bare string parses, and so does a top-level array; neither is a
-  -- component, and saying "is not valid JSON" about a file whose JSON is fine
-  -- sends somebody looking for a syntax error that is not there.
+  -- A bare string parses, and so does a top-level array. Saying "not valid
+  -- JSON" would send somebody looking for a syntax error that is not there.
   if not object(decoded) then
     return nil, "is not a JSON object"
   end
@@ -352,10 +326,8 @@ local function read_one(path)
     return nil, "has no id"
   end
 
-  -- Strict, and for the same reason the Go reader is: `require` written for
-  -- `requires` decodes cleanly and leaves a component with no dependencies,
-  -- which is the worst way to be wrong about a file that decides what an
-  -- installer installs.
+  -- Strict, like the Go reader: `require` written for `requires` decodes
+  -- cleanly and leaves a component with no dependencies.
   local unknown = unknown_fields(decoded)
   if unknown then
     return nil, ("has an unknown field %q"):format(unknown)
@@ -382,19 +354,14 @@ local function read_one(path)
   return decoded
 end
 
---- Read once and kept: the contract ships with the release and does not change
---- while Neovim is running. Measured before it was added: 0.197 ms per read,
---- and a startup asks eight times — parsers, linters, Mason, servers,
---- formatters, schemas and the plugin specs — which is 1.6 ms of a budget the
---- whole configuration keeps at about 26.
+--- Read once and kept. Measured: 0.197 ms per read and eight reads per startup,
+--- so 1.6 ms of a budget the whole configuration keeps at about 26.
 ---@type { components: table<string, table>, problems: string[] }|nil
 local loaded = nil
 
----Forgets the contract, so the next read goes back to the files. For tests, and
----for `:checkhealth chroma`, which is somebody looking at the contract and is
----the one moment a cached copy would be the wrong answer: this repository is
----also somebody's configuration directory, so the files can be edited in the
----session that is reading them.
+---Forgets the contract. For tests, and for `:checkhealth chroma`: this
+---repository is also somebody's config directory, so the files can be edited in
+---the session reading them.
 function M.forget()
   loaded = nil
 end
@@ -428,8 +395,7 @@ function M.load()
   return components, problems
 end
 
----Every component id this configuration ships, sorted. The answer to "what does
----legacy mean", which is: all of it.
+---Every component id this configuration ships, sorted — what legacy means.
 ---@return string[]
 function M.load_ids()
   local ids = vim.tbl_keys(M.load())
@@ -437,9 +403,8 @@ function M.load_ids()
   return ids
 end
 
----Whether the set resolves: every dependency exists, and nothing depends on
----itself through any path. A contract that does not resolve is a broken
----installation plan, so it is worth saying so where someone will read it.
+---Whether the set resolves: every dependency exists and nothing depends on
+---itself through any path.
 ---@param components table<string, table>
 ---@return string[] problems
 function M.resolve_problems(components)
@@ -453,8 +418,8 @@ function M.resolve_problems(components)
     end
   end
 
-  -- Depth-first, colouring as it goes: grey means "on the current path", so
-  -- meeting grey again is a cycle rather than a diamond.
+  -- Grey means "on the current path", so meeting grey again is a cycle rather
+  -- than a diamond.
   local colour = {}
   local function visit(id, trail)
     if colour[id] == "black" then
@@ -505,8 +470,7 @@ function M.tools(component)
 end
 
 ---Everything the enabled components contribute of one kind, deduplicated and
----sorted. The answer to "which servers should be enabled", asked once per kind
----rather than by each spec inventing its own filter.
+---sorted, so no spec invents its own filter.
 ---@param kind string one of servers, mason, linters, parsers, formatters, schemas, plugins, modules
 ---@param enabled string[] component ids
 ---@return string[]
@@ -527,13 +491,8 @@ function M.contributions(kind, enabled)
   return out
 end
 
----Whether any of `enabled` contributes `name` as `kind`.
----
----The question a plugin spec has, which is not "is component X on" but "does
----anything switched on bring this plugin". Asking it this way is what keeps the
----relation in one place: `components/kubernetes.json` says kubectl.nvim is
----Kubernetes', and the spec repeats the plugin's own name rather than repeating
----the mapping.
+---Whether any of `enabled` contributes `name` as `kind` — not "is component X
+---on", so the mapping stays in `components/*.json` and a spec names only itself.
 ---@param kind string one of servers, mason, linters, parsers, formatters, schemas, plugins, modules
 ---@param name string
 ---@param enabled string[] component ids
@@ -552,12 +511,8 @@ function M.contributes(kind, name, enabled)
   return false
 end
 
----Whether any of a tool's accepted names is on PATH.
----
----Presence only. Whether the version meets the contract is checked by `chroma
----doctor`, which owns the knowledge of how to ask each executable what it is;
----duplicating that here would be a second registry to keep in step. The health
----check says so rather than implying it has checked.
+---Whether any of a tool's accepted names is on PATH. Presence only: versions
+---are `chroma doctor`'s, which owns how to ask each executable what it is.
 ---@param tool table
 ---@return boolean
 function M.satisfied(tool)

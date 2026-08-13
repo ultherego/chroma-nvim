@@ -1,18 +1,8 @@
--- What the user chose, from this configuration's side.
+-- What the user chose — their intent, in their configuration directory, not the
+-- component contract that ships with the release.
 --
--- Not the component contract. That describes the product and ships with the
--- release; this describes one person's intent, lives in their configuration
--- directory, and outlives any release being replaced over it.
---
--- The rules here must match cli/internal/state/state.go. Both are driven by the
--- same fixtures in tests/fixtures/component-state, so a disagreement is a
--- failing test rather than an editor behaving differently from the CLI that
--- configured it.
---
--- This decides what loads. Every spec that asks "is my component enabled" ends
--- up here, so the three answers below are the whole of it: a configuration from
--- before any of this ran everything, a selection runs what it names, and a
--- selection that cannot be read runs core alone.
+-- The rules must match cli/internal/state/state.go; both run against the
+-- fixtures in tests/fixtures/component-state, so a disagreement is a failure.
 
 local components = require("chroma.components")
 
@@ -70,16 +60,16 @@ local function problem_with(decoded, set)
     if id == "" then
       return "selects a component with an empty id"
     end
-    -- Refused rather than ignored: core is not an optional choice, and a file
-    -- naming it was written against a different idea of this document.
+    -- Refused rather than ignored: a file naming core was written against a
+    -- different idea of this document.
     if id == M.CORE then
       return ("selects %q, which is always enabled and is not a choice"):format(M.CORE)
     end
     if seen[id] then
       return ("selects %q twice"):format(id)
     end
-    -- Fail closed. A typo and "a newer CLI wrote this for an older Chroma" look
-    -- the same here, and both mean what is about to run is not what was chosen.
+    -- Fail closed: a typo and a newer CLI writing for an older Chroma look the
+    -- same here, and both mean what runs is not what was chosen.
     if set and not set[id] then
       return ("references unknown component %q"):format(id)
     end
@@ -92,9 +82,8 @@ end
 ---Reads the selection.
 ---
 ---A file that is not there is not an empty selection: it is a configuration
----from before any of this existed, and everything runs. An update must not
----switch off the Terraform support somebody has been using. `found` is how a
----caller tells the two apart.
+---from before any of this existed, and everything runs. `found` tells them
+---apart.
 ---@param path string|nil defaults to M.path()
 ---@param set table<string, table>|nil components to check ids against
 ---@return table|nil state, boolean found, string|nil err
@@ -153,10 +142,8 @@ function M.enabled(state, set)
   return ids
 end
 
---- What this configuration is running with, answered once and cached for the
---- session: reading a file per question would put a stat in every code path
---- that ever asks, and — since an unreadable selection is reported when it is
---- read — would say so once per caller rather than once.
+--- Answered once and cached: a stat per question, and one report of an
+--- unreadable selection per caller rather than one in total.
 ---@type { ids: string[], mode: string }|nil
 local resolved = nil
 
@@ -164,8 +151,8 @@ local resolved = nil
 ---@type table<string, boolean>|nil
 local current = nil
 
---- How the answer below was arrived at, which is not the same question as what
---- the answer is. A caller that only wants to know what runs can ignore it.
+--- How the answer was arrived at, which is a different question from what it
+--- is. A caller that only wants to know what runs can ignore it.
 M.LEGACY = "legacy" -- no selection has ever been written: everything runs
 M.SELECTED = "selected" -- a selection was read: it decides
 M.SAFE = "safe" -- the selection or the contract cannot be trusted: core alone
@@ -195,21 +182,11 @@ end
 local function resolve()
   local set, problems = components.load()
 
-  -- The contract is checked before the selection, because the selection is read
-  -- against it: "unknown component" means unknown to a set that may be missing
-  -- the file that declared it.
-  --
-  -- A partial contract is not a contract. `load` reports each file it could not
-  -- read and returns the rest, which is right for `:checkhealth` — it lists what
-  -- is wrong — and wrong for deciding what runs. Ignoring `problems` here meant a
-  -- broken core.json left `core` out of the set, and `enabled` skips ids it does
-  -- not know, so a selection of Terraform resolved to Terraform alone: a
-  -- component running without the one thing every component requires, reported
-  -- as `selected`, which claims nothing is wrong. Measured, not reasoned about.
-  --
-  -- A missing core is the same failure arriving by a different route — no
-  -- components directory at all yields no components and no problems — so it is
-  -- refused by name rather than left to be noticed.
+  -- The contract first, because the selection is read against it. A partial
+  -- contract is refused rather than used: measured, a broken core.json left
+  -- `core` out of the set and a Terraform selection resolved to Terraform
+  -- alone, reported as `selected`. A missing core is the same failure by
+  -- another route. See DECISIONS.md, "A partial contract is not a contract".
   if #problems > 0 then
     return unsafe(set, ("the component contract cannot be read: %s"):format(table.concat(problems, "; ")))
   end
@@ -220,18 +197,9 @@ local function resolve()
   local state, found, err = M.load(nil, set)
 
   if err then
-    -- Loud, and then core alone.
-    --
-    -- Not everything. Before this file existed, "less than yesterday" was the
-    -- worse outcome because nothing recorded what anybody wanted; running it
-    -- all was the only honest answer. A file changes that. Its presence says
-    -- somebody made a choice, and a choice we cannot read is still a choice —
-    -- possibly `"selected": []`, which is core alone deliberately. Running
-    -- every component would then start Terraform, Vault, AWS and the rest for
-    -- someone who switched them off, on the strength of a byte we could not
-    -- parse. Core alone is wrong in the direction that leaves the editor
-    -- usable enough to fix the file, and switches nothing on that nobody asked
-    -- for.
+    -- Loud, and then core alone rather than everything: the file's presence
+    -- says somebody chose, possibly `"selected": []`. See DECISIONS.md, "An
+    -- unreadable selection runs core alone".
     return unsafe(set, err)
   end
 
@@ -267,9 +235,8 @@ end
 
 ---Whether anything enabled contributes `name` as `kind`.
 ---
----What a plugin spec asks. The mapping from component to plugin lives in
----`components/*.json` and is not repeated here: a spec names itself, and the
----contract decides whether that name is switched on.
+---What a plugin spec asks: it names itself, and the contract decides whether
+---that name is switched on.
 ---@param kind string
 ---@param name string
 ---@return boolean

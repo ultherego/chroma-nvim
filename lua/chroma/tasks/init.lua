@@ -1,30 +1,18 @@
--- Run Task: the one place the pieces are put in order.
---
--- Every step below belongs to a module that decides it alone; what this file
--- owns is the sequence, and the sequence is the contract:
+-- Run Task: the one place the pieces are put in order, and the order is the
+-- contract:
 --
 --     availability → discovery → trust → schema → picker
 --                  → cwd → argv → preview → confirmation → run
 --
--- Three of those positions are load-bearing and none of them is convenience.
---
--- **Trust comes before the picker.** The trust question is Neovim's own modal,
--- and a modal on top of a picker is a question about a list somebody can no
--- longer see. It also means the explanation Chroma prints reaches the screen
--- before the thing it explains.
---
--- **The working directory and the executable are resolved after it.** They are
--- properties of the run somebody chose, not conditions for showing a list: one
--- task naming a command this machine does not have must not hide every other
--- task in the document.
---
--- **The preview and the executor read one prepared execution.** Not two calls
--- to the same function around a confirmation — between the question and the
--- answer a PATH can change, and then the command that ran is not the command
--- that was agreed to.
+-- Three positions are load-bearing. Trust comes before the picker, because a
+-- modal on top of a picker is a question about a list somebody can no longer
+-- see. The directory and the executable resolve after it, so one task naming a
+-- missing command cannot hide every other task in the document. And the preview
+-- and the executor read one prepared execution, because between the question
+-- and the answer a PATH can change.
 --
 -- Nothing here decides whether a task may run; it reports what the modules
--- decided. Everything that is not an explicit yes ends in nothing happening.
+-- decided, and anything that is not an explicit yes ends in nothing happening.
 
 local M = {}
 
@@ -43,12 +31,9 @@ M.notify = function(message, level)
   vim.notify(message, level or vim.log.levels.INFO)
 end
 
----How a task is chosen.
----
----`vim.ui.select` and nothing more: tasks are core, and a core feature may not
----need an external program to be usable — `fzf` is recommended in the contract,
----not required. A better-looking picker can replace this without touching a
----line of what a task means.
+---How a task is chosen. `vim.ui.select` and nothing more: tasks are core, and
+---a core feature may not need an external program — `fzf` is recommended in the
+---contract, not required.
 ---@type fun(items: table[], opts: table, on_choice: fun(choice: table|nil))
 M.select = function(items, opts, on_choice)
   vim.ui.select(items, opts, on_choice)
@@ -75,10 +60,9 @@ local function refusal(decision)
   end
 
   if decision.state == "untrusted" then
-    -- The adapter has already explained itself and put Neovim's question on
-    -- screen. Nothing is resumed from here: `read()` gives no answer to wait
-    -- for, and the next step is the user's — view the file, `:trust`, and ask
-    -- for the task again.
+    -- The adapter has already put Neovim's question on screen, and `read()`
+    -- gives no answer to wait for. The next step is the user's: view the file,
+    -- `:trust`, and ask for the task again.
     return "Project tasks were not loaded. Trust the file and run this again.", vim.log.levels.INFO
   end
 
@@ -102,9 +86,8 @@ local function start(chosen, project)
     return
   end
 
-  -- One prepared execution, shown and then run. Preparing it again after the
-  -- confirmation would let the answer be about a different command than the
-  -- question was.
+  -- One prepared execution, shown and then run: preparing it again after the
+  -- confirmation would let the answer be about a different command.
   if not preview.confirm(preview.render(chosen, directory, prepared)) then
     return
   end
@@ -143,8 +126,7 @@ function M.run()
     return
   end
 
-  -- The bytes the adapter authorised, not a second reading of the file: what
-  -- was hashed, what was trusted and what is parsed are one byte string.
+  -- The bytes the adapter authorised, not a second reading of the file.
   local tasks
   tasks, problem = schema.read(decision.bytes)
   if problem then
@@ -157,10 +139,8 @@ function M.run()
     return
   end
 
-  -- The tasks themselves, not their labels. Two tasks may share a name — the
-  -- schema requires unique ids and says nothing about names — so a picker that
-  -- answered with a string would leave this looking one up and finding the
-  -- wrong one.
+  -- The tasks themselves, not their labels: two may share a name, since the
+  -- schema requires unique ids and says nothing about names.
   M.select(tasks, { prompt = "Run task", format_item = label }, function(chosen)
     if not chosen then
       return

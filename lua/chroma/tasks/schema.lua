@@ -1,30 +1,21 @@
--- Schema 1: what a `.chroma/tasks.json` may say, and what it may not.
+-- Schema 1: what a `.chroma/tasks.json` may say. Handed the bytes of a
+-- document, it answers with the tasks or with one problem naming where the
+-- document is wrong. It reads no files, resolves no paths and runs nothing.
 --
--- This is the first half of reading project tasks, and deliberately the half
--- that touches nothing: it is handed the bytes of a document and answers with
--- the tasks it declares, or with one problem naming where the document is
--- wrong. It does not read files, resolve paths, ask about trust or run
--- anything. The contract these rules implement is `doc/CONTRACT.md`, under
--- "The execution layer".
+-- Strict like `chroma.components`: a `cmd` written for `argv` decodes cleanly
+-- and would leave a task that runs nothing. Every rule is a refusal, and every
+-- refusal names the task and the field.
 --
--- Strict, in the same way and for the same reason as `chroma.components`: a
--- `cmd` written for `argv` decodes cleanly and would leave a task that runs
--- nothing, and a file that decides what a machine executes is the worst place
--- to be quietly generous. Every rule here is a refusal, and every refusal names
--- the task and the field.
---
--- The bytes come from the caller rather than being read here. That is not
--- fastidiousness either: the trust adapter authorises one exact byte string,
--- and hashing one representation of a file while parsing another would answer a
--- different question from the one Neovim's trust database answered.
+-- The bytes come from the caller because the trust adapter authorises one exact
+-- byte string, and hashing one representation while parsing another would
+-- answer a different question from the one Neovim's trust database answered.
 
 local M = {}
 
 --- The only schema this configuration understands.
 M.VERSION = 1
 
---- The fields each level may carry. Anything else is a mistake worth reporting
---- rather than ignoring.
+--- The fields each level may carry; anything else is reported, not ignored.
 local KNOWN = {
   document = { schema = true, tasks = true },
   task = { id = true, name = true, group = true, cwd = true, argv = true, env = true },
@@ -36,25 +27,18 @@ local KNOWN = {
 --- half-honoured.
 local MODES = { project = true, relative = true }
 
----Whether a decoded value is a non-empty string.
----
----`vim.NIL` is what a JSON `null` decodes to, so a field written as null is
----present and not a string, which is the answer we want: absent is absent, and
----present has a value.
+---Whether a decoded value is a non-empty string. `vim.NIL` is what a JSON
+---`null` decodes to, so a field written as null is present and not a string.
 ---@param value any
 ---@return boolean
 local function text(value)
   return type(value) == "string" and value ~= ""
 end
 
----Whether a decoded value is a JSON array, and whether it is a JSON object.
----
----Asked of the decoder rather than guessed from the shape of the table.
----Measured on Neovim 0.12.4: `[]` decodes to a list and `{}` to `vim.empty_dict`,
----which `vim.islist` tells apart, so the distinction survives an empty
----container. Counting keys does not: it read `"tasks": {}` as an array of no
----tasks and `"env": []` as an object of no variables, which is the exact
----confusion between JSON types that schema 1 exists to refuse.
+---Whether a decoded value is a JSON array, asked of the decoder rather than
+---guessed. Measured on 0.12.4: `[]` decodes to a list and `{}` to
+---`vim.empty_dict`, which `vim.islist` tells apart even when both are empty.
+---Counting keys read `"tasks": {}` as an array and `"env": []` as an object.
 ---@param value any
 ---@return boolean
 local function array(value)
@@ -101,9 +85,8 @@ local function cwd_problem(cwd)
   end
 
   if cwd.mode == "project" then
-    -- Refused rather than ignored: a path written beside `project` means
-    -- somebody expected it to be used, and the difference between "ignored"
-    -- and "used" is which directory an apply runs in.
+    -- Refused rather than ignored: a path beside `project` means somebody
+    -- expected it to be used.
     if cwd.path ~= nil then
       return "cwd.path is not allowed when mode is project"
     end
@@ -113,9 +96,8 @@ local function cwd_problem(cwd)
   if not text(cwd.path) then
     return "cwd.path is required when mode is relative"
   end
-  -- Always relative to the project root. An absolute path is refused here
-  -- rather than left to the containment check, so the message names the
-  -- mistake in the document instead of its consequence.
+  -- Refused here rather than left to the containment check, so the message
+  -- names the mistake in the document instead of its consequence.
   if vim.startswith(cwd.path, "/") then
     return "cwd.path must not be absolute"
   end
@@ -135,9 +117,9 @@ local function argv_problem(argv)
   end
 
   for index, word in ipairs(argv) do
-    -- Numbers and booleans are refused rather than coerced. A task that means
-    -- `8080` writes "8080"; a document that leaves it to the reader produces a
-    -- different command in a different JSON library.
+    -- Refused rather than coerced: a task that means `8080` writes "8080",
+    -- and a document that leaves it to the reader gets a different command out
+    -- of a different JSON library.
     if type(word) ~= "string" then
       return ("argv[%d] is %s, which is not a string"):format(index, vim.inspect(word))
     end
@@ -210,12 +192,10 @@ local function called(task, index)
   return ("task #%d"):format(index)
 end
 
----Reads one task document.
+---Reads one task document. The problem, when there is one, is a fragment the
+---caller prefixes with the path, so the whole reads:
 ---
----The problem, when there is one, is a sentence fragment the caller prefixes
----with the path it came from, so the whole reads:
----
----    .chroma/tasks.json: task "ansible-run": cwd.mode "foo" is not supported
+---    .chroma/tasks.json: task "deploy": cwd.mode "foo" is not supported
 ---
 ---@param bytes string the exact bytes of the document
 ---@return table|nil tasks, string|nil problem
@@ -229,8 +209,7 @@ function M.read(bytes)
     return nil, "is not valid JSON"
   end
   -- Valid JSON and still not a document: a top-level array or a bare string
-  -- parses cleanly and has no schema to check, so it is refused for what it is
-  -- rather than reported as a syntax error somebody will go looking for.
+  -- parses cleanly and has no schema to check.
   if not object(decoded) then
     return nil, "is not a JSON object"
   end
@@ -240,8 +219,8 @@ function M.read(bytes)
     return nil, ("has an unknown field %q"):format(unknown)
   end
 
-  -- An unsupported schema is a different answer from a malformed document, and
-  -- says so: one is a file from a newer Chroma, the other is a mistake.
+  -- A different answer from a malformed document: one is a file from a newer
+  -- Chroma, the other is a mistake.
   if decoded.schema == nil then
     return nil, "has no schema"
   end
@@ -260,8 +239,8 @@ function M.read(bytes)
       return nil, ("%s: %s"):format(called(task, index), problem)
     end
 
-    -- Neither last nor first wins. Both are a silent choice between two things
-    -- somebody wrote on purpose, and one of them would never run.
+    -- Neither last nor first wins: both are a silent choice between two things
+    -- somebody wrote on purpose.
     if seen[task.id] then
       return nil, ("task %q is declared twice"):format(task.id)
     end

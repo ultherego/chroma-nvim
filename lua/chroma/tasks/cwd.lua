@@ -1,29 +1,20 @@
--- Which directory a task runs in.
---
--- Two modes in schema 1 and one invariant over both of them, from
+-- Which directory a task runs in. One invariant over both schema-1 modes, from
 -- `doc/CONTRACT.md`, "The execution layer":
 --
 --     realpath(resolved cwd) MUST equal realpath(project root),
 --     or be a descendant of it, compared by path components
 --
--- Both sides are resolved before they are compared, so neither a `..` in the
--- task nor a symlink in the repository can put a command somewhere outside the
--- project that declared it. A textual prefix does not implement this: `/project`
--- is a prefix of `/project-evil`, and the difference between those two is the
--- difference between a plan and somebody else's infrastructure.
---
--- Neovim's current directory is not consulted here at all. Discovery used it
--- once, to know where to start looking; from then on a task's directory comes
--- from the project it was declared in, because `:cd`, `:lcd`, `:tcd` and any
--- plugin can move the editor's idea of where it is between reading a plan and
+-- Both sides are resolved first, so neither a `..` nor a symlink puts a command
+-- outside the project that declared it. Neovim's current directory is never
+-- consulted: `:cd` and any plugin can move it between reading a plan and
 -- agreeing to it.
 
 local M = {}
 
 ---Whether `path` is the directory `root` or something inside it.
 ---
----Compared by path components. The separator appended to the root is what does
----that: without it `/project-evil` passes a prefix test against `/project`.
+---By path components: the appended separator is what does that, since
+---`/project-evil` passes a textual prefix test against `/project`.
 ---@param path string canonical
 ---@param root string canonical
 ---@return boolean
@@ -64,9 +55,8 @@ end
 ---@return string|nil cwd canonical, and inside the project
 ---@return string|nil problem
 function M.resolve(source, task)
-  -- The project root is resolved too, and it is not enough for it to resolve:
-  -- discovery looked a moment ago, and a root that has since become a regular
-  -- file would otherwise be compared against as though it were a directory.
+  -- Resolved and stat'ed again: discovery looked a moment ago, and a root that
+  -- has since become a file would be compared against as though it were not.
   local root, problem = directory(source.root, "the project root")
   if problem then
     return nil, problem
@@ -74,9 +64,7 @@ function M.resolve(source, task)
 
   local candidate
   if task.cwd.mode == "project" then
-    -- The root itself, and nothing else is read. `path` beside `project` is
-    -- refused by the schema; re-deciding that here would be a second reader of
-    -- the same document.
+    -- Nothing else is read: `path` beside `project` is the schema's to refuse.
     candidate = source.root
   elseif task.cwd.mode == "relative" then
     candidate = vim.fs.joinpath(source.root, task.cwd.path)

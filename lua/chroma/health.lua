@@ -15,8 +15,7 @@ local tools = require("chroma.tools")
 local function check_all(entries, severity)
   for _, tool in ipairs(entries) do
     if tools.have(tool.cmd) then
-      -- Version output is noisy and inconsistent between tools, so only the
-      -- fact of presence is reported.
+      -- Presence only: version output is noisy and inconsistent between tools.
       health.ok(("`%s` found — %s"):format(tool.cmd, tool.what))
     else
       severity(("`%s` not found — %s"):format(tool.cmd, tool.what), tool.advice)
@@ -24,8 +23,8 @@ local function check_all(entries, severity)
   end
 end
 
--- The editor APIs this configuration calls, and what calls them. Measured by
--- reading `lua/`, not assumed from a release note.
+-- The editor APIs this configuration calls, read out of `lua/` rather than
+-- taken from a release note.
 local editor_api = {
   { path = "lsp.config", what = "declaring every language server" },
   { path = "lsp.enable", what = "starting them, through mason-lspconfig's automatic_enable" },
@@ -33,7 +32,7 @@ local editor_api = {
   { path = "lsp.buf_detach_client", what = "and detaching them, so no server sees a decrypted buffer" },
 }
 
--- resolve walks a dotted path under `vim`, returning nil if any step is absent.
+---Walks a dotted path under `vim`, nil if any step is absent.
 local function resolve(path)
   local at = vim
   for part in path:gmatch("[^.]+") do
@@ -48,11 +47,8 @@ end
 local function check_neovim()
   health.start("Neovim")
 
-  -- Asked as "does this editor provide what Chroma calls", not "is this the
-  -- version Chroma was written on". A floor is what compatibility needs;
-  -- 0.13 and later are expected to work, and are not refused for being newer
-  -- than the machine this was developed on. The version is here to make the
-  -- message useful, not to decide the answer.
+  -- "Does this editor provide what Chroma calls", not "is this the version
+  -- Chroma was written on": the version is in the message, not in the answer.
   local absent = {}
   for _, api in ipairs(editor_api) do
     if resolve(api.path) == nil then
@@ -82,14 +78,10 @@ end
 local function check_project_tasks()
   health.start("Project tasks")
 
-  -- The version, and nothing else. Nothing here looks for a `.chroma/tasks.json`,
-  -- reads one, or asks the trust database about it: trust is evaluated on an
-  -- explicit Run Task and nowhere else, and a health check that raised the
-  -- trust modal — or recorded a decision — would be doing the one thing the
-  -- contract forbids it to do.
-  --
-  -- The floor itself belongs to chroma.tasks.availability, which is also what
-  -- Run Task refuses on. Asked in one place, so the two cannot drift.
+  -- The version and nothing else: no task file is looked for or read here, and
+  -- the trust database is not asked. Trust is evaluated on an explicit Run Task
+  -- and nowhere else. The floor belongs to availability, which is also what Run
+  -- Task refuses on, so the two cannot drift.
   local availability = require("chroma.tasks.availability")
 
   if availability.available() then
@@ -97,8 +89,7 @@ local function check_project_tasks()
     return
   end
 
-  -- A warning, not an error: Chroma itself supports this editor and everything
-  -- else in it works. One feature does not.
+  -- A warning, not an error: one feature is unavailable, not the editor.
   local summary, advice = availability.reason()
   health.warn(("Project tasks unavailable — %s"):format(summary), advice)
 end
@@ -110,7 +101,6 @@ local function check_core()
     { cmd = "git", what = "plugin management", advice = "git >= 2.19 is required for partial clones" },
     { cmd = "curl", what = "downloading parsers and prebuilt binaries" },
     { cmd = "tar", what = "unpacking treesitter grammars" },
-    -- Mason unpacks its packages with these, and fails at unpacking without them.
     { cmd = "unzip", what = "unpacking Mason packages" },
     { cmd = "gzip", what = "unpacking Mason packages" },
     {
@@ -143,7 +133,7 @@ local function check_lockfile()
   end
 
   -- A corrupted lockfile does not stop Neovim starting; it silently costs the
-  -- pinned versions and any chance of :Lazy restore.
+  -- pins and any chance of :Lazy restore.
   local ok, decoded = pcall(vim.json.decode, contents)
   if not ok or type(decoded) ~= "table" then
     health.error(
@@ -176,11 +166,7 @@ end
 local function check_devops()
   health.start("External tools")
 
-  -- Named the same as the report `chroma install` and `chroma doctor` print,
-  -- and said the same way: these belong to the machine, not to Chroma, which
-  -- neither installs nor upgrades them. The editor works without every one of
-  -- them; each is wanted by the workflow it belongs to, and the feature that
-  -- wants it says so when used.
+  -- Said the same way as the report `chroma install` and `chroma doctor` print.
   health.info("Chroma does not install or manage these. A feature that needs one says so when you use it.")
 
   check_all({
@@ -191,8 +177,8 @@ local function check_devops()
     { cmd = "aws", what = "the AWS profile and region switcher (<leader>Ap)" },
   }, health.warn)
 
-  -- Terraform is called out separately because its absence has a specific,
-  -- easily misdiagnosed symptom.
+  -- Called out separately: its absence has a specific, easily misdiagnosed
+  -- symptom.
   local runner = tools.first({ "terraform", "tofu" })
   if runner then
     health.ok(("`%s` found — .tf files can be formatted"):format(runner))
@@ -204,8 +190,8 @@ local function check_devops()
     )
   end
 
-  -- A plan quotes variable values, so a runtime directory that is not private is
-  -- a refusal rather than a warning.
+  -- A plan quotes variable values, so a directory that is not private is a
+  -- refusal rather than a warning.
   local plan_dir, plan_err = require("chroma-terraform.runtime").secure_dir("chroma-terraform.nvim")
   if plan_dir then
     health.ok(("Plan files will be written to %s (private, 0700)"):format(plan_dir))
@@ -264,16 +250,14 @@ local function check_terminal()
   end
 end
 
---- One line per component: whether the machine can actually run it. The checks
---- above ask "is this tool here"; this asks "is this feature usable", which is
---- the question the installer will ask too, from the same files.
+--- One line per component: not "is this tool here" but "is this feature
+--- usable", which is what the installer asks too, from the same files.
 local function check_components()
   health.start("Components")
 
   local contract = require("chroma.components")
-  -- From the files, not from the session's copy: this repository is also a
-  -- configuration directory, so a health check run after editing a component
-  -- should report the component as it now is.
+  -- From the files, not the session's copy: this repository is also somebody's
+  -- configuration directory.
   contract.forget()
   require("chroma.state").forget()
 
@@ -283,15 +267,13 @@ local function check_components()
     health.error(("component contract: %s"):format(problem))
   end
 
-  -- Which of the three the editor is in. Safe mode is the one worth finding
-  -- here: its error is printed once at startup, and startup is exactly when
-  -- nobody is reading messages.
+  -- Safe mode is the one worth finding here: its error is printed once at
+  -- startup, which is exactly when nobody is reading messages.
   local state = require("chroma.state")
   local enabled, mode = state.enabled_ids()
   if mode == state.SAFE and (#problems > 0 or components[state.CORE] == nil) then
-    -- Safe mode has two causes and they need different advice. Naming the
-    -- selection here when the contract is what broke would send somebody to
-    -- edit a file that is perfectly fine.
+    -- Two causes, two pieces of advice: naming the selection when the contract
+    -- broke sends somebody to edit a file that is fine.
     health.error(
       ("The component contract could not be read in full, so nothing optional is running (%s)"):format(
         #enabled > 0 and table.concat(enabled, ", ") or "not even core"
@@ -316,10 +298,8 @@ local function check_components()
   local ids = vim.tbl_keys(components)
   table.sort(ids)
 
-  -- Said once, rather than implied nine times: this checks presence. Whether a
-  -- tool is new enough is `chroma doctor`, which owns the knowledge of how to
-  -- ask each executable what version it is. A second copy of that here would be
-  -- a second thing to keep in step with reality.
+  -- Said once at the end rather than implied nine times: this checks presence,
+  -- versions are `chroma doctor`'s.
   local constrained = false
 
   for _, id in ipairs(ids) do
@@ -352,10 +332,8 @@ end
 
 function M.check()
   check_neovim()
-  -- Its own section, deliberately. Folded into the one above, an editor that
-  -- provides every API Chroma calls would either be reported unhealthy for
-  -- lacking one feature, or — as it was — reported as having everything while
-  -- one thing refuses to run.
+  -- Its own section: folded into the one above, an editor with every API Chroma
+  -- calls read as healthy while one feature refused to run.
   check_project_tasks()
   check_core()
   check_lockfile()

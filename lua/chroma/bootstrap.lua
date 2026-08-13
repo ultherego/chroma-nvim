@@ -1,33 +1,19 @@
--- The headless entrypoint the installer drives.
+-- The headless entrypoint the installer drives, so Go never has to know how
+-- lazy.nvim, Mason and nvim-treesitter install things. Part of the contract
+-- between a release and the CLI, like `components/`.
 --
--- Go must not know how lazy.nvim, Mason and nvim-treesitter install things.
--- Three plugin APIs in a language that cannot call them, kept in step with
--- versions a lockfile pins, is a copy of this configuration's knowledge living
--- somewhere it cannot be tested. So the configuration exposes two verbs and the
--- installer runs them:
---
---   nvim --headless -c 'lua require("chroma.bootstrap").run("install")' -c 'qa!'
---
--- This module is therefore part of the contract between a release and the CLI
--- that installs it, in the same way `components/` is. A release without it
--- cannot be installed by a CLI that expects it, which is why the source is
--- checked for it before anything is placed rather than after.
---
--- Nothing here waits on an event. Every step polls for the state it wants:
--- measured, mason-tool-installer's `MasonToolsUpdateCompleted` never fires when
--- its list is empty, and its synchronous command loops forever with no timeout
--- at all. "Did an event arrive" is a different question from "is the thing
--- installed", and only the second one is what an installation needs to know.
+-- Nothing waits on an event; every step polls. Measured:
+-- `MasonToolsUpdateCompleted` never fires when the list is empty, and the
+-- synchronous command loops forever with no timeout.
 
 local M = {}
 
---- How long any one step may take. Parsers are compiled from source on a
---- machine whose speed nobody here knows, so this is generous; the installer
---- bounds the whole process as well, and that bound is the one that matters.
+--- Generous, because parsers compile from source on an unknown machine. The
+--- installer bounds the whole process too, and that bound is the one that counts.
 M.TIMEOUT = 15 * 60 * 1000
 
---- How often to look again. Polling drives the event loop, which is what lets
---- the downloads this is waiting for make progress.
+--- Polling also drives the event loop, which is what lets the downloads this is
+--- waiting for make progress.
 local INTERVAL = 200
 
 ---What the enabled components contribute of one kind.
@@ -69,17 +55,10 @@ local function wait_for(wanted, installed, timeout)
   return absent(wanted, installed)
 end
 
----Makes lazy load the plugins a step is about to drive.
----
----This exists for a bug that a real installation found and no unit test could
----have. mason-tool-installer's list of packages comes from its `opts`, and lazy
----applies those when it loads the plugin — on `VeryLazy`, which in a headless
----Neovim may never arrive at all. Calling `check_install()` before that gives
----an empty list: nothing is installed, nothing fails, and the wait below
----reports four packages missing a quarter of an hour later.
----
----So the step loads what it is about to use, and does not assume a startup
----sequence that a headless editor has no reason to run.
+---Makes lazy load the plugins a step is about to drive, rather than assuming a
+---startup sequence a headless editor has no reason to run. mason-tool-installer
+---gets its package list from `opts`, applied on `VeryLazy` — which may never
+---arrive — so `check_install()` before that installs nothing and fails silently.
 ---@param names string[]
 local function load_plugins(names)
   local ok, lazy = pcall(require, "lazy")
@@ -88,25 +67,15 @@ local function load_plugins(names)
   end
 
   for _, name in ipairs(names) do
-    -- One at a time: lazy reports an unknown plugin by raising, and a name
-    -- that is not in this release should not stop the ones that are.
+    -- One at a time: lazy raises on an unknown plugin, and a name that is not
+    -- in this release should not stop the ones that are.
     pcall(lazy.load, { plugins = { name }, wait = true })
   end
 end
 
----Every Mason package the enabled components need, by the name the registry
----knows it as.
----
----Two lists in the contract, one registry. `mason` already holds registry
----names; `servers` holds nvim-lspconfig names, and `bashls` is a package called
----`bash-language-server`. mason-lspconfig owns that translation and publishes
----it, so it is asked rather than guessed at — a hand-written second mapping
----would be a third place for these names to live.
----
----Servers are in here at all because mason-lspconfig's own `ensure_installed`
----does nothing when Neovim is headless, which is exactly where the installer
----runs. Measured: after an install, the servers were absent and the first
----interactive session started fetching them.
+---Every Mason package the enabled components need, by registry name. `servers`
+---holds nvim-lspconfig names — `bashls` is `bash-language-server` — and
+---mason-lspconfig owns that translation, so it is asked rather than copied.
 ---@param servers string[] nvim-lspconfig names, from the contract
 ---@param tools string[] Mason package names, from the contract
 ---@return string[]
@@ -137,30 +106,18 @@ local function mason_packages(servers, tools)
   return wanted
 end
 
----Installs the plugins, tools and parsers the enabled components need.
----
----Loud on failure, and failure means failure: a parser that did not compile is
----not a warning to be printed beside the word "installed". The caller decides
----what to do with that, and for the installer the answer is a rollback.
+---Installs the plugins, tools and parsers the enabled components need. A parser
+---that did not compile is a failure, not a warning printed beside "installed".
 ---@param opts { timeout: integer? }|nil
 ---@return boolean ok, string|nil problem
 function M.install(opts)
   local timeout = (opts or {}).timeout or M.TIMEOUT
 
-  -- Plugins first: everything below is a plugin's API.
-  --
-  -- `install` with the lockfile, then `restore` — deliberately not `sync`.
-  -- Measured, by unpacking a release archive beside the installation it
-  -- produced: sync updates every plugin to the head of its branch and then
-  -- rewrites the lockfile, so an installation of v0.0.0-installer-dev.2 came up
-  -- with catppuccin and project.nvim at commits the release did not name. Two
-  -- people installing one release on two days would get two different editors,
-  -- which is the whole thing a lockfile is shipped to prevent — and which this
-  -- CLI refuses to package a tree without.
-  --
-  -- install clones what is missing at the pinned commit; restore moves anything
-  -- already present onto it, which is what makes a second run agree with the
-  -- first.
+  -- Plugins first: everything below is a plugin's API. `install` then
+  -- `restore`, deliberately not `sync` — measured, sync updates every plugin to
+  -- the head of its branch and rewrites the lockfile, so one release installed
+  -- on two days gives two different editors. install clones what is missing at
+  -- the pinned commit, restore moves what is present onto it.
   local ok, err = pcall(function()
     require("lazy").install({ wait = true, show = false, lockfile = true })
     require("lazy").restore({ wait = true, show = false })
@@ -169,9 +126,8 @@ function M.install(opts)
     return false, ("installing plugins failed: %s"):format(err)
   end
 
-  -- Mason packages. Asked for through the same plugin the configuration
-  -- normally uses, then waited for by asking the registry, because that is the
-  -- question with an answer: is it installed.
+  -- Asked for through the plugin the configuration normally uses, then waited
+  -- for by asking the registry, which is the question with an answer.
   local servers = contributions("servers")
   local tools = contributions("mason")
   if #servers > 0 or #tools > 0 then
@@ -183,13 +139,9 @@ function M.install(opts)
       return registry.is_installed(name)
     end
 
-    -- Whether anything is still being fetched. `is_installed` alone is true too
-    -- early: measured, the first end-to-end install saw every package as
-    -- present, returned, and `qa!` closed the editor while one of them was
-    -- still downloading — mason said so on the way out ("Neovim is exiting
-    -- while packages are still installing"), the package was aborted, and the
-    -- installation reported success over it. A step that asks "is it there yet"
-    -- has to also ask "and has it stopped arriving".
+    -- `is_installed` alone is true too early: measured, the first end-to-end
+    -- install saw every package present, returned, and `qa!` aborted one that
+    -- was still downloading — reported as success.
     local function settled(packages)
       for _, name in ipairs(packages) do
         local found, package = pcall(registry.get_package, name)
@@ -200,8 +152,7 @@ function M.install(opts)
       return true
     end
 
-    -- The plugin says when it has finished with all of them, which is the only
-    -- signal that covers a package that failed rather than arrived.
+    -- The only signal that covers a package that failed rather than arrived.
     local completed = false
     vim.api.nvim_create_autocmd("User", {
       group = vim.api.nvim_create_augroup("chroma_bootstrap_mason", { clear = true }),
@@ -223,16 +174,10 @@ function M.install(opts)
       return completed
     end, INTERVAL)
 
-    -- Only now are the names askable.
-    --
-    -- The contract says `bashls`; the registry knows `bash-language-server`.
-    -- mason-lspconfig owns that translation, and it builds it from the registry
-    -- index — which does not exist on a machine Chroma has never been installed
-    -- on until something downloads it. `check_install` above is what does.
-    -- Asking any earlier returns an empty table, and the wait below then
-    -- watches for packages under names nothing will ever have: measured, the
-    -- first attempt at this reported `bashls, jsonls, lua_ls, yamlls` missing
-    -- after everything had installed correctly.
+    -- Only now are the names askable: mason-lspconfig builds its translation
+    -- from the registry index, which `check_install` above is what downloads.
+    -- Measured, asking earlier reported `bashls, jsonls, lua_ls, yamlls`
+    -- missing after everything had installed correctly.
     local packages = mason_packages(servers, tools)
 
     -- A short second wait for anything still writing itself out.
@@ -246,10 +191,8 @@ function M.install(opts)
     end
   end
 
-  -- Treesitter parsers. install() returns while its per-parser jobs are still
-  -- running — measured during CI work, where the check reported one missing
-  -- while the log was still installing others — so the result is polled rather
-  -- than awaited.
+  -- install() returns while its per-parser jobs are still running — measured on
+  -- CI — so the result is polled rather than awaited.
   local parsers = contributions("parsers")
   if #parsers > 0 then
     load_plugins({ "nvim-treesitter" })
@@ -277,11 +220,9 @@ function M.install(opts)
   return true, nil
 end
 
----Whether this is a Chroma that starts and is the one that was asked for.
----
----Small and binary on purpose. It is not `:checkhealth`, which reports on the
----machine; this reports on the installation, and the only two answers it may
----give are yes and a reason.
+---Whether this is a Chroma that starts and is the one that was asked for. Not
+---`:checkhealth`, which reports on the machine: the answers here are yes and a
+---reason.
 ---@param expected string[]|nil component ids the installer selected
 ---@return boolean ok, string|nil problem
 function M.verify(expected)
@@ -289,9 +230,8 @@ function M.verify(expected)
 
   local enabled, mode = state.enabled_ids()
 
-  -- Safe mode is a Chroma that came up with the selection or the contract
-  -- unreadable. It starts, which is the point of safe mode, and it is not what
-  -- anybody asked to have installed.
+  -- Safe mode starts, which is its point, and is not what anybody asked to
+  -- have installed.
   if mode == state.SAFE then
     return false, "the installed Chroma came up in safe mode: its selection or its component contract could not be read"
   end
@@ -321,8 +261,7 @@ function M.verify(expected)
     return false, ("these components were selected but are not running: %s"):format(table.concat(missing, ", "))
   end
 
-  -- Whatever the enabled components bring has to be loadable, or the
-  -- installation is a list of names and nothing behind them.
+  -- Or the installation is a list of names with nothing behind them.
   local components = require("chroma.components")
   local broken = {}
   for _, module in ipairs(components.contributions("modules", enabled)) do
@@ -337,12 +276,9 @@ function M.verify(expected)
   return true, nil
 end
 
----The entry point the installer calls, and the only one that exits.
----
----`nvim --headless -c 'lua ...'` reports a Lua error and then carries on to the
----next command, so a step that failed would end in a process that exited zero.
----This is where that is turned into an exit code, which is what the installer
----reads.
+---The entry point the installer calls, and the only one that exits. A headless
+---`-c 'lua ...'` reports a Lua error and then carries on to the next command,
+---so a failed step would otherwise end in a process that exited zero.
 ---@param step string "install" or "verify"
 ---@param expected string[]|nil
 function M.run(step, expected)

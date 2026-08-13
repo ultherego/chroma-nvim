@@ -1,30 +1,21 @@
--- What is about to run, and the question asked about it.
+-- What is about to run, and the question asked about it: the resolved
+-- directory, the declared overrides, and the argument vector exactly as the
+-- process will get it, `argv[0]` included.
 --
--- The preview shows the prepared execution and nothing else: the directory the
--- resolver produced, the overrides the task declared, and the argument vector
--- exactly as it will be handed to the process — including `argv[0]` resolved to
--- the path that was found, because that is what will start.
---
--- Nothing is resolved here. This module is handed what the earlier steps
--- decided and represents it; a preview that worked anything out for itself
--- would be a second opinion about the command, and the one on screen is the one
+-- Nothing is resolved here. A preview that worked anything out for itself would
+-- be a second opinion about the command, and the one on screen is the one
 -- somebody agrees to.
 --
--- **There is no shell rendering.** No line joins the arguments into something
--- that looks like a command line, because the array never passes through a
--- shell and a rendering joined with spaces misrepresents any argument with a
--- space, a quote or a semicolon in it — and that is the line people copy.
--- Presentation may not distort what it presents.
+-- **There is no shell rendering.** The array never passes through a shell, and
+-- a line joined with spaces misrepresents any argument holding a space, a quote
+-- or a semicolon — and that is the line people copy.
 
 local M = {}
 
----How a string is shown when it may contain anything.
----
----Every argument stays one visible argument. A newline inside one would
----otherwise draw a second line that reads exactly like the next argument, and a
----tab would silently become spacing. The escapes are unambiguous in both
----directions, which is why the backslash is escaped too: without it a literal
----`\n` and a real newline would appear identical.
+---How a string is shown when it may contain anything: every argument stays one
+---visible argument, since a newline would draw a second line that reads like
+---the next one. The backslash is escaped too, so a literal `\n` and a real
+---newline cannot look identical.
 ---@param text string
 ---@return string
 local function visible(text)
@@ -64,9 +55,8 @@ function M.render(task, directory, prepared)
     directory,
   }
 
-  -- Sorted, so that two previews of the same task read the same. `pairs` has no
-  -- order to promise, and a list that rearranges itself between two runs is one
-  -- somebody has to read twice.
+  -- Sorted, so two previews of the same task read the same: `pairs` promises
+  -- no order.
   local names = vim.tbl_keys(prepared.env)
   table.sort(names)
 
@@ -87,20 +77,16 @@ function M.render(task, directory, prepared)
   return lines
 end
 
----Asks whether to run what the preview showed.
----
----Only an explicit affirmative starts anything. Escape, cancel, a dismissed
----dialog and an answer that never arrives are all the same answer, and the
----default is the one that runs nothing — this is the last gate before something
----applies infrastructure.
+---Asks whether to run what the preview showed. Escape, cancel, a dismissed
+---dialog and an answer that never arrives are all no: this is the last gate
+---before something applies infrastructure.
 ---@param lines string[] the preview, as rendered above
 ---@return boolean
 function M.confirm(lines)
   local question = ("%s\n\nRun this task?"):format(table.concat(lines, "\n"))
 
   -- The default is the first choice, and the first choice is No. `confirm`
-  -- answers 0 when the dialog is dismissed, which is neither choice and is
-  -- therefore also no.
+  -- answers 0 when dismissed, which is neither choice and therefore also no.
   return vim.fn.confirm(question, "&No\n&Yes", 1) == 2
 end
 

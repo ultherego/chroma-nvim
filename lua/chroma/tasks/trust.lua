@@ -1,33 +1,20 @@
 -- Whether Neovim's trust database authorises this project's task definitions.
---
--- The security boundary of the task runner is here, and it is narrower than it
--- looks: this module decides nothing about tasks, runs nothing, and reads no
--- file except the one discovery pointed at and Neovim's own trust database.
--- What it produces is a state and, in exactly one of those states, the bytes
--- that were authorised.
---
---     trusted     the file hashes to the decision recorded for it;
---                 its exact bytes come back, and Neovim is not consulted
---     untrusted   no decision, or one for different contents; Neovim's own
---                 question is put on screen and nothing is loaded this time
---     denied      somebody chose deny; Neovim would return nil and ask
---                 nothing, so it is not called at all
---     unknown     the trust database could not be understood
---     refused     the file discovery found is no longer usable
+-- This decides nothing about tasks, runs nothing, and reads no file except the
+-- one discovery pointed at and the database itself. Five states, of which only
+-- `trusted` returns bytes; `denied` skips Neovim entirely, since it would
+-- return nil and ask nothing.
 --
 -- **One snapshot is authoritative, and it is this one.** Hashing a file and
--- then letting `vim.secure.read()` read it again leaves a window in which the
--- contents change between the two, so a trusted answer would authorise one
--- byte string and hand back another. The bytes hashed, the bytes authorised
--- and the bytes parsed are the same bytes — see `doc/DECISIONS.md`, "The bytes
--- that were trusted are the bytes that are parsed".
+-- letting `vim.secure.read()` read it again leaves a window in which a trusted
+-- answer authorises one byte string and hands back another. See
+-- `doc/DECISIONS.md`, "The bytes that were trusted are the bytes that are
+-- parsed".
 --
--- Measured on Neovim 0.12.4, `runtime/lua/vim/secure.lua`: the database is
+-- Measured on 0.12.4, `runtime/lua/vim/secure.lua`: the database is
 -- `$XDG_STATE_HOME/nvim/trust`, one entry per line as a token, a space and the
--- path; a file's decision is a `sha256` of its exact bytes, and a denial is
--- the token `!`. For a file the prompt offers ignore, view and deny — there is
--- no allow — so trusting one means viewing it and running `:trust`, and this
--- module's part in that is to call `read()` once and load nothing.
+-- path; a decision is a `sha256` of the exact bytes and a denial is `!`. The
+-- prompt offers ignore, view and deny — there is no allow — so trusting a file
+-- means viewing it and running `:trust`.
 
 local M = {}
 
@@ -45,11 +32,8 @@ local function database()
 end
 
 ---The exact bytes of a file, read the way Neovim reads them to hash them.
----
----Binary, and whole. `readfile()` would give lines, and joining lines is a
----second representation of the file: it can differ in its line endings and in
----whether a final newline survives, and then this module would be hashing
----something other than what the trust database recorded.
+---Binary and whole: `readfile()` gives lines, and rejoining them is a second
+---representation that can differ in line endings and in the final newline.
 ---@param path string
 ---@return string|nil bytes
 local function contents(path)
@@ -63,24 +47,18 @@ local function contents(path)
 end
 
 ---Every decision Neovim has recorded, or nil when the file cannot be read as
----one.
+---one. A missing database means nobody has decided anything yet, which is
+---"untrusted"; one that does not parse is a different answer, because guessing
+---at it means guessing at a security state.
 ---
----A missing database is not a problem: it means nobody has decided anything
----yet, which is exactly "untrusted". A database that exists and does not parse
----is a different answer, because guessing at it would mean guessing at a
----security state.
----
----Each line is a token, a space, and the rest of the line. The path is the
----rest of the line rather than the next word: a project under a directory with
----a space in its name is somebody's ordinary Documents folder, and a parser
----that split on whitespace would read a different path and answer confidently
----about the wrong file.
+---The path is the rest of the line rather than the next word: a directory with
+---a space in its name is somebody's ordinary Documents folder, and splitting on
+---whitespace would answer confidently about the wrong file.
 ---@param token string
 ---@return boolean
 local function recognised(token)
   -- The two tokens Neovim writes: a denial, or the `sha256` of the contents
-  -- the decision was taken for. Anything else is a format this does not
-  -- understand, and understanding it badly is the one outcome worth avoiding.
+  -- the decision was taken for.
   return token == "!"
     or token:match(
         "^%x%x%x%x%x%x%x%x%x%x%x%x%x%x%x%x%x%x%x%x%x%x%x%x%x%x%x%x%x%x%x%x%x%x%x%x%x%x%x%x%x%x%x%x%x%x%x%x%x%x%x%x%x%x%x%x%x%x%x%x%x%x%x%x$"
@@ -92,12 +70,11 @@ end
 local function decisions()
   local path = database()
 
-  -- "Nobody has decided anything yet" and "I could not read the decisions" are
-  -- two answers, and only the first is untrusted. `lstat` first, as in
-  -- discovery and for the same reason: a trust database that is a broken
-  -- symlink exists, and treating a failed open as absence would quietly
-  -- downgrade an unreadable security state to "not decided yet". Neovim's own
-  -- reader does treat them alike — this adapter exists in order not to.
+  -- "Nobody has decided yet" and "I could not read the decisions" are two
+  -- answers and only the first is untrusted. `lstat` first: a trust database
+  -- that is a broken symlink exists, and reading a failed open as absence
+  -- downgrades an unreadable security state. Neovim's own reader treats them
+  -- alike, which is why this adapter exists.
   local entry, failure, code = vim.uv.fs_lstat(path)
   if not entry then
     if code == "ENOENT" or code == "ENOTDIR" then
@@ -111,9 +88,8 @@ local function decisions()
     return nil, ("%s exists and cannot be opened"):format(path)
   end
 
-  -- One read, then split. Reading a directory opens without complaint and
-  -- fails at the read — measured on 0.12.4 — so the failure has an answer here
-  -- rather than escaping from a line iterator part-way through.
+  -- One read, then split: reading a directory opens without complaint and
+  -- fails at the read (measured on 0.12.4).
   local blob = file:read("*a")
   file:close()
   if not blob then
@@ -137,17 +113,15 @@ end
 ---Consults the trust database about the task file discovery found.
 ---
 ---`explain` is called immediately before Neovim's modal appears, and only when
----it is going to appear. The wording belongs to the caller — the modal says
----"exrc: Found untrusted code", which names a feature nobody asked for — but
----the ordering belongs here, so that nothing can announce a question that is
----not coming.
+---it is going to appear — the modal says "exrc: Found untrusted code", which
+---names a feature nobody asked for. The wording is the caller's; the ordering
+---is here, so nothing announces a question that is not coming.
 ---@param source chroma.tasks.Source
 ---@param explain fun(path: string)|nil
 ---@return chroma.tasks.Decision
 function M.consult(source, explain)
-  -- Resolved again, now. The path discovery reported was true when it looked,
-  -- and a symlink can be pointed somewhere else between then and here; the
-  -- decision has to be about the file this call is looking at.
+  -- Resolved again, now: a symlink can be pointed elsewhere between discovery
+  -- and here, and the decision has to be about the file this call is looking at.
   local path = vim.uv.fs_realpath(source.path)
   if not path then
     return { state = "refused", path = source.path, problem = ("%s is no longer there"):format(source.path) }
@@ -167,9 +141,8 @@ function M.consult(source, explain)
     return { state = "refused", path = path, problem = ("%s cannot be read"):format(source.path) }
   end
 
-  -- Nothing is remembered between calls, for the same reason discovery
-  -- remembers nothing: `:trust` between two Run Tasks has to be visible to the
-  -- second one, and so does an edit that invalidates a decision.
+  -- Nothing is remembered between calls: `:trust` between two Run Tasks has to
+  -- be visible to the second, and so does an edit that invalidates a decision.
   local recorded, problem = decisions()
   if not recorded then
     return { state = "unknown", path = path, problem = problem }
@@ -177,8 +150,7 @@ function M.consult(source, explain)
 
   local decision = recorded[path]
 
-  -- An entry about this file written in a token this does not recognise. Other
-  -- files' entries are none of Chroma's business, but its own has to be
+  -- Other files' entries are none of Chroma's business; its own has to be
   -- understood or admitted to be ununderstood.
   if decision ~= nil and not recognised(decision) then
     return {
@@ -190,7 +162,7 @@ function M.consult(source, explain)
 
   if decision == "!" then
     -- Neovim sees the same `!`, returns nil and asks nothing, so calling it
-    -- here would announce a question that never appears.
+    -- would announce a question that never appears.
     return { state = "denied", path = path }
   end
 
@@ -199,7 +171,7 @@ function M.consult(source, explain)
   end
 
   -- No decision, or one taken for contents that have changed since. Both are
-  -- untrusted, and both are Neovim's question to ask.
+  -- Neovim's question to ask.
   if explain then
     explain(path)
   end

@@ -1,20 +1,10 @@
--- Where a project's task definitions are, if it has any.
+-- Which file holds a project's tasks, and which directory is its root. Nothing
+-- here reads, hashes or parses it: the trust adapter takes exactly one byte
+-- snapshot, and reading first would make that the second reading.
 --
--- This module answers one question — which file, and which directory is the
--- project root — and deliberately stops there. It does not read the file, hash
--- it, ask Neovim whether it is trusted or parse anything: the trust adapter
--- takes exactly one byte snapshot of what this points at, and a module that
--- had already read the file would make that snapshot the second reading of it.
---
--- Three answers, and the caller must be able to tell them apart:
---
---     found      a source, and no problem
---     missing    neither; this project has no tasks, which is not an error
---     refused    no source, and a problem naming the path and the reason
---
--- The rules are the ones in `doc/CONTRACT.md`, "The execution layer": search
--- upward from where the editor is, stop at the first entry with that name
--- whatever it turns out to be, and require a readable regular file.
+-- Three answers the caller must tell apart: a source; nothing, which is not an
+-- error; or a problem naming the path. The rules are `doc/CONTRACT.md`, "The
+-- execution layer".
 
 local M = {}
 
@@ -27,14 +17,10 @@ local FILE = "tasks.json"
 ---@field path string the entry as it was found
 ---@field resolved string the same file with every symlink resolved
 
----What is wrong with a candidate entry, if anything.
----
----Two questions, not one, and in this order. `lstat` asks whether an entry
----exists *here* without following it anywhere; `realpath` then says what it
----leads to. Asking only about the target would make a broken symlink
----indistinguishable from nothing at all — and discovery would step over it and
----run the tasks of the repository above, which is the silent fallback the
----contract forbids.
+---What is wrong with a candidate entry, if anything. The caller's `lstat` asks
+---whether an entry exists here at all; this asks what it leads to. Asking only
+---the target would make a broken symlink look like nothing, and discovery would
+---step over it into the repository above.
 ---@param path string
 ---@return string|nil resolved, string|nil problem
 local function acceptable(path)
@@ -51,9 +37,8 @@ local function acceptable(path)
     return nil, ("%s is a %s, not a file"):format(path, target.type)
   end
 
-  -- Readable, and asked of the filesystem rather than assumed from the mode
-  -- bits: the answer depends on who is running, and a task file nobody can
-  -- read is refused by name rather than a decode error two layers later.
+  -- Asked of the filesystem rather than read off the mode bits: the answer
+  -- depends on who is running.
   if not vim.uv.fs_access(resolved, "R") then
     return nil, ("%s cannot be read"):format(path)
   end
@@ -63,29 +48,23 @@ end
 
 ---Finds the project whose tasks apply here.
 ---
----`from` is a seam for tests. The answer in a running editor is Neovim's
----effective working directory, which is what the contract says discovery starts
----from — `getcwd()` rather than the process directory, so a window-local `:lcd`
----is respected. Nothing else about a task is ever taken from it.
+---`from` is a seam for tests; in a running editor it is `getcwd()`, so a
+---window-local `:lcd` is respected. Nothing else about a task comes from it.
 ---@param from string|nil directory to start at; defaults to the editor's
 ---@return chroma.tasks.Source|nil source, string|nil problem
 function M.find(from)
   local directory = from or vim.fn.getcwd()
 
-  -- Nothing is remembered between calls, and that is the contract rather than
-  -- an oversight: a file trusted since the last look, a file just written, a
-  -- file just deleted and a different project all have to be seen by the next
-  -- explicit Run Task. `chroma.components` caches for the opposite reason —
-  -- it reads an immutable release tree; this reads a file somebody is editing.
+  -- Nothing is remembered between calls: this reads a file somebody is
+  -- editing, where `chroma.components` reads an immutable release tree.
   while directory do
     local path = vim.fs.joinpath(directory, DIRECTORY, FILE)
 
     local entry, failure, code = vim.uv.fs_lstat(path)
 
     if entry then
-      -- Found something with that name. Whatever it is, the search ends here:
-      -- stepping over an unusable entry would hand this project's Run Task to
-      -- whichever repository happens to be above it.
+      -- Whatever it is, the search ends here: stepping over an unusable entry
+      -- would hand this project's Run Task to the repository above it.
       local resolved, problem = acceptable(path)
       if problem then
         return nil, problem
@@ -93,13 +72,9 @@ function M.find(from)
       return { root = directory, path = path, resolved = resolved }, nil
     end
 
-    -- "There is nothing here" and "I was not allowed to look" are two answers,
-    -- and only the first may continue upward. Measured: luv fails with the code
-    -- as its third value, so an unreadable `.chroma/` answers EACCES while a
-    -- missing one answers ENOENT — and reading both as absence turns a
-    -- permission problem into somebody else's tasks running. ENOTDIR is
-    -- absence too: it means a path component is not a directory, so no entry
-    -- of that name exists here either.
+    -- "Nothing here" and "not allowed to look" are two answers and only the
+    -- first may continue upward: measured, an unreadable `.chroma/` answers
+    -- EACCES and a missing one ENOENT. ENOTDIR is absence too.
     if code ~= "ENOENT" and code ~= "ENOTDIR" then
       return nil, ("%s cannot be inspected: %s"):format(path, failure or code or "unknown filesystem error")
     end
