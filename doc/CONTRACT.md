@@ -124,7 +124,7 @@ declares what to run.
 │   ├── KEYMAPS.md              every mapping, on one page
 │   ├── CONTRACT.md             this file
 │   ├── DECISIONS.md            why each of it is the way it is
-│   └── chroma-ansible-design.md  frozen, not yet implemented
+│   └── chroma-ansible-design.md  what `chroma-ansible` guarantees
 ├── tests                       mini.test suites and their fixtures
 ├── docker                      a machine to test installations onto
 ├── assets
@@ -207,10 +207,10 @@ Terraform · Terragrunt · Helm · Docker · Kubernetes · YAML · Ansible
   replaced the planned `kube.nvim`)
 - `nvim-ansible` — the `yaml.ansible` filetype that ansible-lint and ansiblels
   need, `K` on a module through `ansible-doc`, and `gf` into a role. Its own
-  playbook runner is deliberately not exposed: how a repository runs Ansible is
-  what that repository says, and an editor with one declared and one inferred
-  way of running things has two. A separate concern from vault handling. Note:
-  the upstream repo ships no licence.
+  playbook runner is deliberately not exposed, because it infers the command
+  from the buffer: running one is `<leader>ar`, which chooses and shows every
+  part, or `<leader>xr` for a command the repository declared. A separate
+  concern from vault handling. Note: the upstream repo ships no licence.
 
 ---
 
@@ -437,12 +437,13 @@ The invariants that matter most, each with a section behind it:
 | Authority | Ansible is asked what an inventory and a playbook mean; no YAML is parsed here. §10 |
 | Inspection | Never at startup, never in the background, never as a side effect of a selection. One consent, bound to the working directory, the playbooks and the inventory sources it named, before the first subprocess. §6 |
 | Data | `--graph`, never `--list`: `--list` prints every host variable in plaintext and no flag suppresses it. No subprocess output is written to a message, a notification or a file. §7 |
-| Context | One frozen directory, one environment and one set of sources for every subprocess and for the run. `:cd` afterwards cannot move it. Inventory sources are resolved against that directory as they are typed and stored resolved, because Ansible answers a missing `-i` with a warning and exit 0 rather than a failure. §3, §5 |
+| Context | One frozen directory, one frozen environment and one set of sources for every subprocess **and** for the run: the environment is captured when the run starts, so the inspections that produced a host count and the playbook that acts on it cannot be in different ones. `:cd` afterwards cannot move it. Inventory sources are resolved against that directory as they are typed and stored resolved, because Ansible answers a missing `-i` with a warning and exit 0 rather than a failure. §3, §5 |
 | Degradation | A failed inspection offers Ansible's own output and a way to carry on by hand. Failure to inspect is not failure to execute. §16 |
 | Overrides | Inherit or override, never on/off: an omitted flag is not a claim that the behaviour is off. §10 |
 | Credentials | No password is collected, stored, forwarded or logged. `-K` and `--ask-vault-pass` ask Ansible to prompt in its own terminal. §11 |
 | Gates | The exact array is shown, and only an explicit affirmative starts it. §15 |
-| Repeat | `<leader>aR` goes to that same preview, re-resolves the executable, re-checks the paths, and never repeats the previous run's host count. §14 |
+| Repeat | `<leader>aR` goes to that same preview, re-resolves the executable, re-checks the paths, and never repeats the previous run's host count or its environment. §14 |
+| Ownership | One run owns the planner. Starting either key ends whatever was running, and an answer to a question that outlived its run changes nothing. An inspection is visible while it runs and `:AnsibleCancel` ends it; there is no timeout, because the system being asked has no schedule. §13 |
 
 **There is no bridge to Project Tasks**, in either direction. A task declaring
 `argv: ["ansible-playbook", …]` is a task, and this planner is not reachable
@@ -502,10 +503,16 @@ plan` produces nothing `:TerraformApply` may accept; the managed lifecycle is
 keyed by one directory holding one hashed plan. `lua/chroma/tasks/**` may not
 depend on Managed Terraform, and an architecture test enforces it.
 
-There is exactly one way to run something, and it is declared. That is why
-`<leader>ar` and `require("ansible").run()` were removed rather than shipped
-beside this: an editor with one declared and one inferred way of running things
-has two.
+There is exactly one way to run something **generically**, and it is declared.
+That is why the old `<leader>ar` and `require("ansible").run()` were removed
+rather than shipped beside this: they inferred the command from the buffer, and
+an editor with one declared and one inferred way of running things has two.
+
+What inference cost is not what a domain runner costs. `chroma-terraform` runs
+`terraform`, and `chroma-ansible` runs `ansible-playbook` through a planner
+where the operator chooses every part and reads the exact array before it
+starts. Neither guesses, and neither is reachable from a task. The generic layer
+stays domain-blind in both directions.
 
 ---
 
@@ -525,7 +532,7 @@ Nothing accidental. Everything grouped under `<Space>`.
 | `x` | Tools | always |
 | `t` | Terraform | with `terraform` |
 | `k` | Kubernetes | with `kubernetes` |
-| `a` | Ansible | with `vault` |
+| `a` | Ansible | with `ansible` or `vault` |
 | `A` | AWS | with `aws` |
 
 Letter prefixes are assigned once, globally — a keymap conflict is a bug,
@@ -565,3 +572,6 @@ say it was.
 | 2026-08-12 | The `ansible` component requires `ansible-playbook` and `ansible-inventory`, and contributes the `chroma-ansible` module; `ansible-doc` stays optional | the planner promises to run playbooks and to list what an inventory declares, so a machine without either binary cannot do what the component says. Both ship in ansible-core, so requiring both costs no extra installation and stops a partial install from looking healthy. This reverses the other half of `568c28e` |
 | 2026-08-12 | The `<leader>a` group heading is gated on `ansible` **or** `vault` | the planner gave `ansible` two keys of its own. Gating on `vault` alone was right only while `ansible` contributed none |
 | 2026-08-13 | `chroma-ansible` resolves an inventory source against the frozen working directory as it is typed, refuses one that is not a readable file or a directory, and stores the resolved path | found in use. Ansible answers a `-i` that is not there with a warning on stderr and **exit 0** — an empty inventory for the graph, and `skipping: no hosts matched` for the run — so nothing downstream could tell a mistyped path from an inventory with nothing in it. The prompt's completion is anchored at Neovim's directory and the run at the frozen one, which is exactly where the two disagree |
+| 2026-08-14 | One planner run owns the interaction: starting `<leader>ar` or `<leader>aR` ends whatever was running, and a question that outlived its run changes nothing when answered | generations settle which answer inside a run is current and cannot settle anything between two, because starting a second leaves the first's generation where it was. The half that bit: answering a picker calls a setter, and a setter bumps a generation — so a run the operator had left made itself current again by being answered, and carried on towards a preview nobody was looking for |
+| 2026-08-14 | `:AnsibleCancel` — an inspection is visible while it runs and can be stopped | §13.4 always said cancelling was the operator's, and there was nothing to cancel with: between two questions the editor did nothing at all, for as long as the system being asked took. There is still no timeout, because a dynamic inventory has no schedule to hold it to |
+| 2026-08-14 | One planner run uses one frozen environment, captured when the run starts, for every inspection and for the execution | §3.5 promised an exact environment and two of the three exactnesses were kept. Chroma changes `vim.env` itself — `chroma-aws` writes the profile and the region — so switching profile mid-planning had `--list-hosts` resolve against one account and the playbook run against another, with the same argv and a host count that described neither. The preview names the few values that change what an invocation means and prints no others: an environment holds credentials |
