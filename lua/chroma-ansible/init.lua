@@ -657,12 +657,24 @@ function M.again()
   confirm_and_run(run, { refreshed = false })
 end
 
+---Ends whatever the planner is doing — `:AnsibleCancel`, and what the progress
+---window offers. §13.4: an inspection has no timeout because the system it asks
+---has no schedule, so the way out is the operator's and has to exist.
+function M.stop()
+  if not planner.supersede() then
+    refuse("there is no Ansible run to cancel")
+  end
+end
+
 ---@param opts table|nil
 function M.setup(opts)
   M.options = vim.tbl_deep_extend("force", vim.deepcopy(defaults), opts or {})
 
   vim.api.nvim_create_user_command("AnsibleRun", M.plan, { desc = "Plan and run an Ansible playbook" })
   vim.api.nvim_create_user_command("AnsibleRepeat", M.again, { desc = "Repeat the last Ansible invocation" })
+  -- A command and not a key: it is reached while an inspection is running,
+  -- which is the one moment the planner is not holding the keyboard.
+  vim.api.nvim_create_user_command("AnsibleCancel", M.stop, { desc = "Cancel the Ansible run in flight" })
 
   if M.options.keymaps then
     vim.keymap.set("n", "<leader>ar", M.plan, { desc = "New Ansible run" })

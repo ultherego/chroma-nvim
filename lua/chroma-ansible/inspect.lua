@@ -9,7 +9,9 @@
 -- hand Ansible's own output to the caller (§7.4, §19.16).
 --
 -- There is no timeout: dynamic inventory takes as long as the system it talks
--- to takes. Cancelling is the operator's (§13.4).
+-- to takes. Cancelling is the operator's (§13.4) — which is why every
+-- subprocess here is opened with something on screen saying so, from the same
+-- place that asks the gate.
 
 local argv = require("chroma-ansible.argv")
 local context = require("chroma-ansible.context")
@@ -17,6 +19,7 @@ local gate = require("chroma-ansible.gate")
 local graph = require("chroma-ansible.graph")
 local listing = require("chroma-ansible.listing")
 local planner = require("chroma-ansible.planner")
+local progress = require("chroma-ansible.progress")
 
 local M = {}
 
@@ -75,8 +78,20 @@ end
 ---@param mine integer the generation the inspection started under
 ---@param on_done fun(answer: chroma_ansible.Answer)
 ---@param answer chroma_ansible.Answer
-local function deliver(run, mine, on_done, answer)
+---@param showing { close: fun() }|nil this inspection's window, where it got one
+local function deliver(run, mine, on_done, answer, showing)
   vim.schedule(function()
+    -- Its own window and no other: a newer inspection of this run has its own,
+    -- and an answer arriving this late must not take that one away. Closed
+    -- whatever the answer turns out to be worth, including for a run that has
+    -- been superseded — the window was that run's.
+    if showing then
+      if run.stop == showing.close then
+        run.stop = nil
+      end
+      pcall(showing.close)
+    end
+
     -- Before anything else is touched, and not in a renderer (§13.2).
     if not planner.current(run, mine) then
       return
@@ -147,11 +162,12 @@ end
 ---to skip by adding an inspection.
 ---@param run chroma_ansible.Run
 ---@param tool string the name reported when the process cannot be started
+---@param label string what the operator is told is happening
 ---@param command string[]|nil the prepared array, or nil when it could not be built
 ---@param problem string|nil why it could not be built
 ---@param interpret fun(result: vim.SystemCompleted): chroma_ansible.Answer
 ---@param on_done fun(answer: chroma_ansible.Answer)
-local function inspection(run, tool, command, problem, interpret, on_done)
+local function inspection(run, tool, label, command, problem, interpret, on_done)
   -- Claimed before anything can await, so every way out of this call belongs
   -- to one generation.
   local mine = run.generation
@@ -174,10 +190,24 @@ local function inspection(run, tool, command, problem, interpret, on_done)
     return deliver(run, mine, on_done, { declined = true })
   end
 
+  -- Whatever the last inspection of this run left on screen goes first: one
+  -- run has one window, and two would be two claims about what is happening.
+  if run.stop then
+    pcall(run.stop)
+    run.stop = nil
+  end
+
+  -- Opened before the process, not after: the gap this closes is the one where
+  -- Ansible had already started and the editor was still showing nothing.
+  local showing = progress.open(label, function()
+    planner.cancel(run)
+  end)
+  run.stop = showing.close
+
   -- The frozen directory, and the environment inherited unchanged: §3.5 is
   -- kept by never editing one rather than by copying one around.
   local started, process = pcall(M.system, command, { cwd = run.directory, text = true }, function(result)
-    deliver(run, mine, on_done, interpret(result))
+    deliver(run, mine, on_done, interpret(result), showing)
   end)
 
   if not started then
@@ -185,7 +215,7 @@ local function inspection(run, tool, command, problem, interpret, on_done)
     -- raising past the caller would leave the planner waiting for a callback.
     return deliver(run, mine, on_done, {
       problem = ("%s could not be started in %s: %s"):format(tool, run.directory, tostring(process)),
-    })
+    }, showing)
   end
 
   run.process = process
@@ -200,7 +230,7 @@ end
 ---@param on_done fun(answer: chroma_ansible.Answer)
 function M.inventory(run, executable, on_done)
   local command, problem = argv.graph(run.plan, executable)
-  inspection(run, "ansible-inventory", command, problem, graph_answer, on_done)
+  inspection(run, "ansible-inventory", "Resolving inventory", command, problem, graph_answer, on_done)
 end
 
 ---Asks Ansible which tags the chosen playbooks report. The same context as
@@ -212,7 +242,7 @@ end
 ---@param on_done fun(answer: chroma_ansible.Answer)
 function M.tags(run, on_done)
   local command, problem = argv.listing(run.plan, "tags")
-  inspection(run, "ansible-playbook", command, problem, tags_answer, on_done)
+  inspection(run, "ansible-playbook", "Inspecting tags", command, problem, tags_answer, on_done)
 end
 
 ---Asks Ansible which hosts the run would address as things stand. The only
@@ -223,7 +253,7 @@ end
 ---@param on_done fun(answer: chroma_ansible.Answer)
 function M.targets(run, on_done)
   local command, problem = argv.listing(run.plan, "hosts")
-  inspection(run, "ansible-playbook", command, problem, targets_answer, on_done)
+  inspection(run, "ansible-playbook", "Resolving targets", command, problem, targets_answer, on_done)
 end
 
 return M

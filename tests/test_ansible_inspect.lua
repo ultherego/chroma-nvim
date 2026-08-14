@@ -14,6 +14,7 @@ local eq = MiniTest.expect.equality
 local gate = require("chroma-ansible.gate")
 local inspect = require("chroma-ansible.inspect")
 local planner = require("chroma-ansible.planner")
+local progress = require("chroma-ansible.progress")
 
 --- A graph the parser accepts, as `ansible-inventory --graph` writes one.
 local GRAPH = table.concat({
@@ -25,13 +26,30 @@ local GRAPH = table.concat({
   "",
 }, "\n")
 
-local asked, answer, spawned, notified, restore
+local asked, answer, spawned, notified, shown, restore
 
 local T = new_set({
   hooks = {
     pre_case = function()
-      asked, answer, spawned, notified = 0, true, {}, {}
-      restore = { confirm = gate.confirm, system = inspect.system, notify = vim.notify }
+      asked, answer, spawned, notified, shown = 0, true, {}, {}, {}
+      restore = {
+        confirm = gate.confirm,
+        system = inspect.system,
+        notify = vim.notify,
+        open = progress.open,
+      }
+
+      -- The window is somebody else's module and is checked there. Here it is
+      -- a record of what the operator was told and when.
+      progress.open = function(label, on_cancel)
+        local entry = { label = label, cancel = on_cancel, closed = false, at = #spawned }
+        table.insert(shown, entry)
+        return {
+          close = function()
+            entry.closed = true
+          end,
+        }
+      end
 
       gate.confirm = function()
         asked = asked + 1
@@ -58,6 +76,7 @@ local T = new_set({
       gate.confirm = restore.confirm
       inspect.system = restore.system
       vim.notify = restore.notify
+      progress.open = restore.open
     end,
   },
 })
@@ -646,6 +665,127 @@ T["generations"]["a stale answer leaves a newer inspection's process alone"] = f
   end)
 
   eq(run.process, spawned[2].process)
+end
+
+-- ---------------------------------------------------------------------------
+-- What the operator can see, and stop
+--
+-- An inspection has no timeout because the system it asks has no schedule
+-- (§13.4). Before this the editor showed nothing at all while one ran — no sign
+-- it was working, and no way to say no. Both halves are the same window.
+
+T["progress"] = new_set()
+
+T["progress"]["is on screen before the process starts"] = function()
+  -- Not after: the gap being closed is the one where Ansible had already been
+  -- running for a while and the editor was still showing nothing.
+  local run = prepared()
+  inspecting(run)
+
+  eq(#shown, 1)
+  eq(shown[1].label, "Resolving inventory")
+  eq(shown[1].at, 0)
+  eq(#spawned, 1)
+end
+
+T["progress"]["says which question is being asked"] = function()
+  local run = prepared()
+  tagging(run)
+
+  eq(shown[1].label, "Inspecting tags")
+end
+
+T["progress"]["goes when the answer arrives"] = function()
+  local run = prepared()
+  local seen = inspecting(run)
+
+  exits({ stdout = GRAPH })
+  settle(function()
+    return seen.calls > 0
+  end)
+
+  eq(shown[1].closed, true)
+end
+
+T["progress"]["goes when the answer is one nobody wants any more"] = function()
+  local run = prepared()
+  inspecting(run)
+
+  planner.start()
+  exits({ stdout = GRAPH })
+  settle(function()
+    return shown[1].closed
+  end)
+
+  eq(shown[1].closed, true)
+end
+
+T["progress"]["goes when the run is cancelled"] = function()
+  local run = prepared()
+  inspecting(run)
+
+  planner.cancel(run)
+
+  eq(shown[1].closed, true)
+end
+
+T["progress"]["is one window, however many inspections a run makes"] = function()
+  local run = prepared()
+  inspecting(run)
+  tagging(run)
+
+  eq(shown[1].closed, true)
+  eq(shown[2].closed, false)
+end
+
+T["progress"]["a late answer does not take a newer inspection's window"] = function()
+  local run = prepared()
+  inspecting(run)
+  local first = spawned[1]
+
+  planner.set_inventory(run, { "inventories/prod/hosts.yml" })
+  inspecting(run)
+
+  first.on_exit({ code = 0, stdout = GRAPH, stderr = "" })
+  settle(function()
+    return false
+  end)
+
+  eq(shown[2].closed, false)
+  eq(run.stop ~= nil, true)
+end
+
+T["progress"]["cancelling from it ends the run and stops the process"] = function()
+  local run = prepared()
+  local seen = inspecting(run)
+  local mine = run.generation
+
+  shown[1].cancel()
+
+  eq(planner.current(run, mine), false)
+  eq(planner.owns(run), false)
+  eq(spawned[1].process.killed, "sigterm")
+
+  -- And nothing arrives afterwards, whatever the process was in the middle of.
+  exits({ stdout = GRAPH })
+  settle(function()
+    return seen.calls > 0
+  end)
+  eq(seen.calls, 0)
+end
+
+T["progress"]["is not opened for an inspection that never reaches a process"] = function()
+  -- Nothing is running, so there is nothing to show or to stop.
+  answer = false
+  local run = prepared()
+  local seen = inspecting(run)
+
+  settle(function()
+    return seen.calls > 0
+  end)
+
+  eq(#shown, 0)
+  eq(seen.answer.declined, true)
 end
 
 -- ---------------------------------------------------------------------------

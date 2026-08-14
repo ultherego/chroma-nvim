@@ -659,6 +659,31 @@ T["superseded"]["an input still open when another run starts answers nothing"] =
   eq(#started, 0)
 end
 
+T["superseded"]["cancelling ends the run that is in flight"] = function()
+  local held = holding()
+
+  ansible.plan()
+  ansible.stop()
+
+  -- Whatever was on screen for that run is no longer answering into it.
+  local drawn = #prompts
+  held.choose(held.items[#held.items])
+
+  eq(#prompts, drawn)
+  eq(#started, 0)
+end
+
+T["superseded"]["cancelling with nothing running says so"] = function()
+  local said
+  vim.notify = function(message)
+    said = message
+  end
+
+  ansible.stop()
+
+  eq(said ~= nil and said:find("no Ansible run to cancel", 1, true) ~= nil, true)
+end
+
 T["the answers"] = new_set()
 
 T["the answers"]["put the tags and the limit into the command"] = function()

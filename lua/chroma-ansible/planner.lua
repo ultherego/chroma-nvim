@@ -34,6 +34,7 @@ local active = nil
 ---@field plan chroma_ansible.Plan the decisions so far, as `argv` wants them
 ---@field gate table the consent, one per run and never shared (§6.4)
 ---@field process vim.SystemObj|nil the inspection in flight, if there is one
+---@field stop fun()|nil takes down whatever this run has on screen, set by whatever put it there
 
 ---A copy of a list of strings, on the way in and on the way out. The caller
 ---owns the list it passed and may keep editing it; a shared table would change
@@ -50,10 +51,13 @@ end
 ---key — not by getting as far as a run object. A repeat that refuses because
 ---the executable moved still means "not that one any more", and leaving the
 ---previous run its authority would let it open a picker minutes later.
+---@return boolean ended whether anything was there to end
 function M.supersede()
-  if active then
-    M.cancel(active)
+  if not active then
+    return false
   end
+  M.cancel(active)
+  return true
 end
 
 ---A run that has decided nothing. The plan starts complete and empty rather
@@ -85,6 +89,7 @@ function M.start()
     },
     gate = gate.new(),
     process = nil,
+    stop = nil,
   }
 
   active = run
@@ -185,6 +190,15 @@ function M.cancel(run)
 
   if active == run then
     active = nil
+  end
+
+  -- Whatever this run has on screen goes with it, without this module having to
+  -- know what that is. A run that has been ended but is still showing something
+  -- is an inspection nobody can stop, which is the thing being fixed.
+  local stop = run.stop
+  run.stop = nil
+  if stop then
+    pcall(stop)
   end
 
   local process = run.process
