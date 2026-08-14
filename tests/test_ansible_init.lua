@@ -191,6 +191,20 @@ local function offered(text)
   return nil
 end
 
+---What the command carries after `flag`. Adjacency rather than presence: a
+---value that reached the command in the wrong place is not the same answer.
+---@param command string[]
+---@param flag string
+---@return string|nil
+local function after(command, flag)
+  for index, word in ipairs(command) do
+    if word == flag then
+      return command[index + 1]
+    end
+  end
+  return nil
+end
+
 ---What a path prompt was pre-filled with, found by the text in its prompt.
 ---@param text string
 ---@return string|nil
@@ -613,6 +627,59 @@ T["the answers"]["pass a custom pattern through untouched"] = function()
   ansible.plan()
 
   eq(vim.tbl_contains(started[1].command, "webservers:&production"), true)
+end
+
+-- ---------------------------------------------------------------------------
+-- A value that reads like one of the picker's own options
+--
+-- Every choice carries what kind of thing it is, so nothing Ansible or the
+-- operator named can be mistaken for `No tag filter`, `Custom…` or `Done`.
+-- Comparing values put the two in one namespace, and a tag reported as `none`
+-- cleared the filter instead of applying it — the run got wider than the
+-- operator asked for.
+
+T["the answers"]["a tag named like a control choice is a tag"] = new_set({
+  parametrize = { { "none" }, { "custom" }, { "done" } },
+})
+
+T["the answers"]["a tag named like a control choice is a tag"][""] = function(tag)
+  inspect.tags = function(_, on_done)
+    on_done({ tags = { tag } })
+  end
+  local steps = straight_through()
+  steps[5] = { pick = tag }
+  table.insert(steps, 6, { pick = "Done" })
+  answering(steps)
+
+  ansible.plan()
+
+  eq(after(started[1].command, "--tags"), tag)
+end
+
+T["the answers"]["a group named like a control choice is a group"] = function()
+  inspect.inventory = function(_, _, on_done)
+    on_done({ graph = { groups = { "custom" }, hosts = { "web01" }, children = {} } })
+  end
+  local steps = straight_through()
+  steps[6] = { pick = "Group: custom" }
+  answering(steps)
+
+  ansible.plan()
+
+  eq(after(started[1].command, "-l"), "custom")
+end
+
+T["the answers"]["a host named like a control choice is a host"] = function()
+  inspect.inventory = function(_, _, on_done)
+    on_done({ graph = { groups = { "all" }, hosts = { "custom" }, children = {} } })
+  end
+  local steps = straight_through()
+  steps[6] = { pick = "Host: custom" }
+  answering(steps)
+
+  ansible.plan()
+
+  eq(after(started[1].command, "-l"), "custom")
 end
 
 T["the answers"]["emit nothing for No limit"] = function()

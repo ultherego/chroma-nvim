@@ -45,7 +45,34 @@ local PROMPT = "%s: "
 
 ---@class chroma_ansible.Choice
 ---@field label string what the operator reads
----@field value any what the step does with it
+---@field value table what the step does with it, carrying what it is
+
+---A picker's own option, which is never something Ansible or the operator
+---named. Kept apart by kind rather than by string: comparing values put
+---`No tag filter` and a tag reported as `none` in one namespace, and choosing
+---that tag cleared the filter instead of applying it (§8.1).
+---@param action string
+---@return table
+local function control(action)
+  return { kind = "control", action = action }
+end
+
+---A value, carried with what kind of value it is.
+---@param kind string
+---@param value string|integer
+---@return table
+local function datum(kind, value)
+  return { kind = kind, value = value }
+end
+
+---Whether a choice is the control `action`, and never a value that reads like
+---one.
+---@param choice table
+---@param action string
+---@return boolean
+local function chose(choice, action)
+  return choice.kind == "control" and choice.action == action
+end
 
 ---Asks the operator to choose, and ends the run if they decline to.
 ---@param run chroma_ansible.Run
@@ -118,16 +145,16 @@ local function ask_playbook(run, picked)
   if suggestion then
     table.insert(choices, {
       label = ("Current buffer: %s"):format(vim.fn.fnamemodify(suggestion, ":~:.")),
-      value = suggestion,
+      value = datum("playbook", suggestion),
     })
   end
-  table.insert(choices, { label = "Choose another…", value = false })
+  table.insert(choices, { label = "Choose another…", value = control("another") })
 
   choose(run, "Playbook", choices, function(value)
-    if value then
-      return accept(value)
+    if chose(value, "another") then
+      return ask_path(run, "Playbook", nearby(), accept)
     end
-    ask_path(run, "Playbook", nearby(), accept)
+    accept(value.value)
   end)
 end
 
@@ -158,16 +185,16 @@ local function ask_directory(run, playbook, frozen)
         candidate.why,
         candidate.config and "ansible.cfg present" or "no ansible.cfg"
       ),
-      value = candidate.path,
+      value = datum("directory", candidate.path),
     })
   end
-  table.insert(choices, { label = "Choose another…", value = false })
+  table.insert(choices, { label = "Choose another…", value = control("another") })
 
   choose(run, "Working directory", choices, function(value)
-    if value then
-      return accept(value)
+    if chose(value, "another") then
+      return ask_path(run, "Working directory", nearby(), accept)
     end
-    ask_path(run, "Working directory", nearby(), accept)
+    accept(value.value)
   end)
 end
 
@@ -184,22 +211,24 @@ local function ask_inventory(run, sources, settled)
     -- §5.3: this means one thing — no `-i` is passed. Looking up Ansible's
     -- default and passing it explicitly would replace its precedence with a
     -- guess at it.
-    table.insert(choices, { label = "Use Ansible configuration", value = "inherit" })
+    table.insert(choices, { label = "Use Ansible configuration", value = control("inherit") })
   end
-  table.insert(choices, { label = "Add a source…", value = "add" })
+  table.insert(choices, { label = "Add a source…", value = control("add") })
   if #sources > 0 then
-    table.insert(choices, { label = ("Done (%d source(s))"):format(#sources), value = "done" })
+    table.insert(choices, { label = ("Done (%d source(s))"):format(#sources), value = control("done") })
     for index, source in ipairs(sources) do
-      table.insert(choices, { label = ("Remove %d: %s"):format(index, source), value = index })
+      -- The position, not the path: two `-i` sources may be the same one twice,
+      -- and removing "the one that reads like this" would remove the wrong one.
+      table.insert(choices, { label = ("Remove %d: %s"):format(index, source), value = datum("source", index) })
     end
   end
 
   choose(run, "Inventory", choices, function(value)
-    if value == "inherit" or value == "done" then
+    if chose(value, "inherit") or chose(value, "done") then
       planner.set_inventory(run, sources)
       return settled()
     end
-    if value == "add" then
+    if chose(value, "add") then
       -- A file or a directory, and never called a `hosts.yml`: an inventory
       -- may be a directory, an executable script or a plugin configuration
       -- (§5.2). The prompt opens at the frozen directory and the answer is
@@ -221,7 +250,7 @@ local function ask_inventory(run, sources, settled)
       end)
     end
     -- The order is never sorted, so removing one keeps the rest as they were.
-    table.remove(sources, value)
+    table.remove(sources, value.value)
     ask_inventory(run, sources, settled)
   end)
 end
@@ -249,29 +278,29 @@ end
 ---@param picked string[] chosen so far
 ---@param settled fun()
 local function pick_tags(run, reported, picked, settled)
-  local choices = { { label = "No tag filter", value = "none" } }
+  local choices = { { label = "No tag filter", value = control("none") } }
   for _, tag in ipairs(reported) do
     if not vim.tbl_contains(picked, tag) then
-      table.insert(choices, { label = tag, value = tag })
+      table.insert(choices, { label = tag, value = datum("tag", tag) })
     end
   end
   -- §8.1: the list is what Ansible *reported*. Tags inside dynamically
   -- included files are not in it, so this is how they are reached.
-  table.insert(choices, { label = "Custom tag…", value = "custom" })
+  table.insert(choices, { label = "Custom tag…", value = control("custom") })
   if #picked > 0 then
-    table.insert(choices, { label = ("Done (%s)"):format(table.concat(picked, ", ")), value = "done" })
+    table.insert(choices, { label = ("Done (%s)"):format(table.concat(picked, ", ")), value = control("done") })
   end
 
   choose(run, "Tags reported by Ansible", choices, function(value)
-    if value == "none" then
+    if chose(value, "none") then
       planner.set_tags(run, {})
       return settled()
     end
-    if value == "done" then
+    if chose(value, "done") then
       planner.set_tags(run, picked)
       return settled()
     end
-    if value == "custom" then
+    if chose(value, "custom") then
       return vim.ui.input({ prompt = PROMPT:format("Tag") }, function(entered)
         if not entered or entered == "" then
           return planner.cancel(run)
@@ -280,7 +309,7 @@ local function pick_tags(run, reported, picked, settled)
         pick_tags(run, reported, picked, settled)
       end)
     end
-    table.insert(picked, value)
+    table.insert(picked, value.value)
     pick_tags(run, reported, picked, settled)
   end)
 end
@@ -298,18 +327,18 @@ local function ask_tags(run, settled)
     end
 
     degraded(run, "Tag inspection failed", answer, {
-      { label = "Retry", value = "retry" },
-      { label = "No tag filter", value = "none" },
-      { label = "Custom tag…", value = "custom" },
-      { label = "Cancel", value = "cancel" },
+      { label = "Retry", value = control("retry") },
+      { label = "No tag filter", value = control("none") },
+      { label = "Custom tag…", value = control("custom") },
+      { label = "Cancel", value = control("cancel") },
     }, function(value)
-      if value == "retry" then
+      if chose(value, "retry") then
         return ask_tags(run, settled)
       end
-      if value == "cancel" then
+      if chose(value, "cancel") then
         return planner.cancel(run)
       end
-      if value == "none" then
+      if chose(value, "none") then
         planner.set_tags(run, {})
         return settled()
       end
@@ -325,7 +354,7 @@ end
 ---@param graph chroma_ansible.Graph|nil what discovery found, if it ran
 ---@param settled fun()
 local function pick_limit(run, graph, settled)
-  local choices = { { label = "No limit", value = false } }
+  local choices = { { label = "No limit", value = control("none") } }
   local prompt = "Limit"
 
   -- An inventory with no hosts is a graph, not a failure: `--graph` answers
@@ -343,18 +372,18 @@ local function pick_limit(run, graph, settled)
     -- Groups first (§7.5): thirty thousand hosts must not become thirty
     -- thousand rows before anybody has chosen anything.
     for _, group in ipairs(discovered.groups) do
-      table.insert(choices, { label = ("Group: %s"):format(group), value = group })
+      table.insert(choices, { label = ("Group: %s"):format(group), value = datum("group", group) })
     end
     for _, host in ipairs(discovered.hosts) do
-      table.insert(choices, { label = ("Host: %s"):format(host), value = host })
+      table.insert(choices, { label = ("Host: %s"):format(host), value = datum("host", host) })
     end
   end
   -- §9.1: no multi-select of hosts. Combining two means generating a pattern,
   -- and whether that is a comma or a colon is the operator's decision.
-  table.insert(choices, { label = "Custom pattern…", value = "custom" })
+  table.insert(choices, { label = "Custom pattern…", value = control("custom") })
 
   choose(run, prompt, choices, function(value)
-    if value == "custom" then
+    if chose(value, "custom") then
       return vim.ui.input({ prompt = PROMPT:format("Host pattern") }, function(entered)
         if not entered or entered == "" then
           return planner.cancel(run)
@@ -365,7 +394,7 @@ local function pick_limit(run, graph, settled)
       end)
     end
     -- §9.2: `No limit` emits nothing at all, never `-l all`.
-    planner.set_limit(run, value or nil)
+    planner.set_limit(run, not chose(value, "none") and value.value or nil)
     settled()
   end)
 end
@@ -389,14 +418,14 @@ local function ask_limit(run, inventory_tool, settled)
     end
 
     degraded(run, "Inventory inspection failed", answer, {
-      { label = "Retry", value = "retry" },
-      { label = "Continue without discovered groups and hosts", value = "continue" },
-      { label = "Cancel", value = "cancel" },
+      { label = "Retry", value = control("retry") },
+      { label = "Continue without discovered groups and hosts", value = control("continue") },
+      { label = "Cancel", value = control("cancel") },
     }, function(value)
-      if value == "retry" then
+      if chose(value, "retry") then
         return ask_limit(run, inventory_tool, settled)
       end
-      if value == "cancel" then
+      if chose(value, "cancel") then
         return planner.cancel(run)
       end
       pick_limit(run, nil, settled)
@@ -410,6 +439,10 @@ end
 --- Every question here is inherit-or-override, never on/off: command-line
 --- options do not outrank playbook keywords in every case, so `Become: no`
 --- would be a claim about the run that Chroma cannot make (§10).
+---
+--- The only values in this module that are not tagged with a kind. They are
+--- applied and never compared, so there is nothing here for a value to be
+--- mistaken for.
 local OVERRIDES = {
   {
     prompt = "Become CLI override",
@@ -490,10 +523,10 @@ end
 ---@param settled fun()
 local function ask_remote_user(run, settled)
   choose(run, "Remote user", {
-    { label = "Inherit from Ansible", value = false },
-    { label = "Custom…", value = true },
+    { label = "Inherit from Ansible", value = control("inherit") },
+    { label = "Custom…", value = control("custom") },
   }, function(value)
-    if not value then
+    if chose(value, "inherit") then
       run.plan.remote_user = nil
       return settled()
     end
