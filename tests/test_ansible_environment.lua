@@ -176,21 +176,37 @@ end
 
 T["the execution"] = new_set()
 
----Starts the probe with the options the run module builds, in a terminal
----buffer, and answers with what the terminal showed.
+---Starts the probe with the options the run module builds — the real ones,
+---`term = true` included, in a real terminal buffer — and answers with what the
+---child saw.
+---
+---The child writes to a file rather than to its terminal, and the file is what
+---is read. What is under test is the environment a process is given, and
+---scraping a terminal buffer would add the rendering of a pty to that: a
+---measurement of two things reports on neither. The first version of this did
+---scrape, passed on two machines and a loaded container, and failed on CI.
 ---@param run chroma_ansible.Run
 ---@return string
 local function terminal_sees(run)
   local buffer = vim.api.nvim_create_buf(false, true)
+  local answer = vim.fn.tempname()
   local options = runner.job({ cwd = run.directory, env = run.environment })
 
   local job = vim.api.nvim_buf_call(buffer, function()
-    return vim.fn.jobstart(PROBE, options)
+    return vim.fn.jobstart({
+      SH,
+      "-c",
+      ('printf "%%s|%%s" "${CHROMA_EXISTING-absent}" "${CHROMA_LATER-absent}" > %s'):format(answer),
+    }, options)
   end)
-  vim.fn.jobwait({ job }, 5000)
+  -- A job id is positive; 0 and -1 are "invalid arguments" and "not executable",
+  -- and either would otherwise read as a child that saw nothing.
+  eq({ "the probe started", job > 0 }, { "the probe started", true })
 
-  local shown = table.concat(vim.api.nvim_buf_get_lines(buffer, 0, -1, false), "")
-  return (shown:gsub("%s+$", ""))
+  local waited = vim.fn.jobwait({ job }, 5000)
+  eq({ "the probe exited", waited[1] }, { "the probe exited", 0 })
+
+  return table.concat(vim.fn.readfile(answer), "")
 end
 
 T["the execution"]["starts in the environment the inspections ran in"] = function()
