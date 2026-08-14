@@ -8,6 +8,12 @@
 -- loads. The consent is bound to the directory, the playbooks and the sources in
 -- order (§6.4), and `vim.secure` is not used because it binds to one file's
 -- bytes while the risk here is the whole execution context (§6.5).
+--
+-- The three values are consented to as raw bytes and shown escaped. A path is
+-- allowed to hold a newline, and this is the screen where somebody decides
+-- whether to let a workspace run code.
+
+local text = require("chroma-ansible.text")
 
 local M = {}
 
@@ -70,27 +76,32 @@ M.confirm = function(question)
   return vim.fn.confirm(question, "&No\n&Yes", 1) == 2
 end
 
----What the operator is shown before the first subprocess.
+---What the operator is shown before the first subprocess. Every path goes
+---through `visible`: one row is one path, and a name carrying a newline cannot
+---draw a second row reading like an inventory nobody chose. What is escaped is
+---only what is read — `covers` compares the bytes.
 ---@param subject chroma_ansible.Subject
 ---@return string
 function M.question(subject)
+  local visible = text.visible
+
   local lines = {
     "Ansible inspection",
     "",
     "Chroma is about to run Ansible using:",
     "",
-    ("  Working directory   %s"):format(subject.directory),
+    ("  Working directory   %s"):format(visible(subject.directory)),
   }
 
   for index, playbook in ipairs(subject.playbooks) do
-    table.insert(lines, ("  %-19s %s"):format(index == 1 and "Playbook" or "", playbook))
+    table.insert(lines, ("  %-19s %s"):format(index == 1 and "Playbook" or "", visible(playbook)))
   end
 
   if #subject.inventory == 0 then
     table.insert(lines, ("  %-19s %s"):format("Inventory", FROM_CONFIG))
   else
     for index, source in ipairs(subject.inventory) do
-      table.insert(lines, ("  %-19s %s"):format(index == 1 and "Inventory" or "", source))
+      table.insert(lines, ("  %-19s %s"):format(index == 1 and "Inventory" or "", visible(source)))
     end
   end
 

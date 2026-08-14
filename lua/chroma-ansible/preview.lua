@@ -8,6 +8,8 @@
 -- And nothing says a value will win — playbook keywords can outrank a
 -- command-line option (§10.2), so an option nobody chose reads `inherited`.
 
+local text = require("chroma-ansible.text")
+
 local M = {}
 
 --- Where every value starts, so that the labels form a column and two previews
@@ -26,23 +28,9 @@ local NOT_REFRESHED = "not refreshed"
 ---@field targets string[]|nil the hosts Ansible resolved during this planning
 ---@field refreshed boolean|nil false when this is a repeat that did not re-ask
 
----How a string is shown when it may contain anything: every value stays one
----visible line, since a newline would draw a second line reading like the next
----argument. The backslash is escaped too, so a literal `\n` and a real newline
----are not shown identically.
----@param text string
----@return string
-local function visible(text)
-  local escaped = text:gsub("[\\\n\r\t]", {
-    ["\\"] = "\\\\",
-    ["\n"] = "\\n",
-    ["\r"] = "\\r",
-    ["\t"] = "\\t",
-  })
-  return (escaped:gsub("%c", function(control)
-    return ("\\x%02x"):format(control:byte())
-  end))
-end
+--- Every value stays one visible line: a newline would draw a second line
+--- reading like the next argument. The gate is shown the same way (§6.4).
+local visible = text.visible
 
 ---Adds one labelled row.
 ---@param lines string[]

@@ -1,5 +1,5 @@
--- chroma-ansible — the Ansible execution planner. The seven modules beside this
--- one each answer one question; this is the order, and every step names its
+-- chroma-ansible — the Ansible execution planner. The modules beside this one
+-- each answer one question; this is the order, and every step names its
 -- section in `doc/chroma-ansible-design.md`:
 --
 --     playbook → working directory → inventory → tags → limit → overrides

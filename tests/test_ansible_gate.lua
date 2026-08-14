@@ -218,6 +218,87 @@ T["the question"]["lists every playbook and every source"] = function()
 end
 
 -- ---------------------------------------------------------------------------
+-- What a path is allowed to hold
+--
+-- A filename may carry a newline, a tab or any other control byte, and this is
+-- the screen where somebody agrees to let a workspace run code. So the three
+-- values are shown escaped and consented to raw: one row is one path, and the
+-- bytes the gate remembers are the bytes a subprocess will get.
+
+--- A spoof that reads as a second, calmer row of the same dialog.
+local SPOOF = "site_upgrade.yml\n  Inventory           trusted.yml"
+
+---How many lines the operator is shown.
+---@param question string
+---@return integer
+local function rows(question)
+  return #vim.split(question, "\n", { plain = true })
+end
+
+T["what a path may hold"] = new_set()
+
+T["what a path may hold"]["a newline in a playbook cannot draw a second row"] = function()
+  gate.allow(gate.new(), subject({ playbooks = { "site_upgrade.yml" } }))
+  gate.allow(gate.new(), subject({ playbooks = { SPOOF } }))
+
+  eq(rows(questions[2]), rows(questions[1]))
+  eq(questions[2]:find("\\n  Inventory", 1, true) ~= nil, true)
+end
+
+T["what a path may hold"]["a newline in an inventory source cannot either"] = function()
+  gate.allow(gate.new(), subject({ inventory = { "inventories/dev" } }))
+  gate.allow(gate.new(), subject({ inventory = { SPOOF } }))
+
+  eq(rows(questions[2]), rows(questions[1]))
+end
+
+T["what a path may hold"]["a tab in the working directory is shown, not obeyed"] = function()
+  gate.allow(gate.new(), subject({ directory = "/work/operations\tnot this one" }))
+
+  eq(questions[1]:find("\\t", 1, true) ~= nil, true)
+  eq(questions[1]:find("\t", 1, true), nil)
+end
+
+T["what a path may hold"]["a backslash is doubled, so it cannot be read as an escape"] = function()
+  gate.allow(gate.new(), subject({ directory = [[/work/a\nb]] }))
+
+  eq(questions[1]:find([[/work/a\\nb]], 1, true) ~= nil, true)
+end
+
+T["what a path may hold"]["any other control byte is shown as its number"] = function()
+  gate.allow(gate.new(), subject({ playbooks = { "site\7upgrade.yml" } }))
+
+  eq(questions[1]:find("site\\x07upgrade.yml", 1, true) ~= nil, true)
+end
+
+T["what a path may hold"]["escaping is presentation, so the consent is over the bytes"] = function()
+  local g = gate.new()
+  -- All three, because all three are shown and all three are compared.
+  local spoofed = subject({ directory = "/work/" .. SPOOF, playbooks = { SPOOF }, inventory = { SPOOF } })
+
+  eq(gate.allow(g, spoofed), true)
+  eq(gate.allow(g, spoofed), true)
+
+  -- Asked once, and what was agreed to is what a subprocess would be handed.
+  eq(asked, 1)
+  eq(g.granted.directory, "/work/" .. SPOOF)
+  eq(g.granted.playbooks[1], SPOOF)
+  eq(g.granted.inventory[1], SPOOF)
+end
+
+T["what a path may hold"]["two paths that only look alike are two consents"] = function()
+  -- A real newline and the two characters `\` and `n` are different paths. They
+  -- are also shown differently, which is why the backslash is escaped first.
+  local g = gate.new()
+
+  eq(gate.allow(g, subject({ playbooks = { "site\nupgrade.yml" } })), true)
+  eq(gate.allow(g, subject({ playbooks = { [[site\nupgrade.yml]] } })), true)
+
+  eq(asked, 2)
+  eq(questions[1] ~= questions[2], true)
+end
+
+-- ---------------------------------------------------------------------------
 -- The default
 
 T["the default"] = new_set()
