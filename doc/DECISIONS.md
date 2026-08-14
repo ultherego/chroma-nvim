@@ -1438,3 +1438,56 @@ not taken in M1.
 the thing they navigate by rather than a filter they apply once — where "the
 hosts in `dbservers`" is a question asked often enough that answering it with a
 custom pattern is friction. That is a report from use, not a guess made here.
+
+### The environment is frozen with the run, and shown by allowlist or not at all
+
+Design §3.5 promises an exact argv, an exact working directory and an exact
+environment. Two of the three were kept: the environment was whatever the editor
+happened to hold when each subprocess spawned.
+
+That is not a theoretical gap, because Chroma is one of the things that changes
+it. `chroma-aws` writes `AWS_PROFILE`, `AWS_REGION` and `AWS_DEFAULT_REGION`
+into `vim.env`. Switch profile between choosing an inventory and confirming the
+preview, and `--list-hosts` resolved against one account while `ansible-playbook`
+ran against another — same argv, same directory, same playbook, and a
+`Targets reported now` that described neither.
+
+A run takes `vim.fn.environ()` when it starts, and that is what every subprocess
+of the run is given. The snapshot belongs to the run rather than to the
+preparation of a command: taken per subprocess it would be a different
+environment per subprocess, which is the original bug wearing a copy.
+
+**`clear_env` is the whole of it.** Measured on 0.12.4, the pinned version: both
+`vim.system` and `jobstart` merge `env` over the editor's current environment. A
+variable that existed at snapshot time is overridden correctly; a variable
+invented afterwards arrives in the child anyway. So passing the snapshot without
+`clear_env` produces options that look exactly right and a child that is not
+frozen — which is why the tests for this cross a real process boundary and
+assert on what the child printed, not on the table it was spawned with.
+
+**The final process needed the terminal library's own escape hatch.** The pinned
+Snacks passes `jobstart` only `cwd`, `env` and `term`, with no way through to
+`clear_env`. `terminal.open` takes an `override` hook before any window or job
+exists — documented as *use a different terminal implementation* — so the window
+is still resolved and created by the library and only the spawn is ours. The
+alternative considered and rejected was editing `vim.env` around the call and
+restoring it after: a global mutable window in place of the problem it fixes,
+and one that any error in between would leave open.
+
+**A repeat takes a new snapshot**, because `recall` starts a new run. §14 recalls
+an invocation, not a world; the previous run's host count is already deliberately
+not carried, and the environment is the one the operator is in now. The preview a
+repeat stops at is where they see it.
+
+**The preview names four values and prints no others.** Exactness is a guarantee
+about the run, not an undertaking to display an environment that holds
+credentials onto a screen people copy from. `ANSIBLE_CONFIG`, `AWS_PROFILE`,
+`AWS_REGION` and `AWS_DEFAULT_REGION` are shown when set, because they change
+what an invocation means without changing an argument. An allowlist and not a
+prefix match: `AWS_*` prints `AWS_SECRET_ACCESS_KEY`. `PATH` is not among them —
+`argv[0]` is absolute and already says which program this is.
+
+**What would change it.** A wrapper that legitimately needs to see the editor's
+environment as it is at execution time rather than at planning time. That is a
+task, not a planner run: `.chroma/tasks.json` declares its own environment and
+inherits the rest, deliberately.

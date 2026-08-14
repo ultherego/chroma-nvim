@@ -21,6 +21,7 @@ local gate = require("chroma-ansible.gate")
 local inspect = require("chroma-ansible.inspect")
 local planner = require("chroma-ansible.planner")
 local progress = require("chroma-ansible.progress")
+local runner = require("chroma-ansible.run")
 
 --- Something that exists on any machine this suite runs on, and is already what
 --- the other Ansible suites stand a tool in for.
@@ -163,6 +164,64 @@ T["the inspection"]["passes the environment it froze and not an empty one"] = fu
 
   eq(run.environment.PATH, vim.env.PATH)
   eq(child_sees(run), "A|absent")
+end
+
+-- ---------------------------------------------------------------------------
+-- The execution half, across the same boundary
+--
+-- The final process does not go through `vim.system`. It is a terminal job, and
+-- the library that opens the terminal hands `jobstart` only `cwd`, `env` and
+-- `term` — so this half had to be taken over rather than configured, and is
+-- worth proving separately from the half above.
+
+T["the execution"] = new_set()
+
+---Starts the probe with the options the run module builds, in a terminal
+---buffer, and answers with what the terminal showed.
+---@param run chroma_ansible.Run
+---@return string
+local function terminal_sees(run)
+  local buffer = vim.api.nvim_create_buf(false, true)
+  local options = runner.job({ cwd = run.directory, env = run.environment })
+
+  local job = vim.api.nvim_buf_call(buffer, function()
+    return vim.fn.jobstart(PROBE, options)
+  end)
+  vim.fn.jobwait({ job }, 5000)
+
+  local shown = table.concat(vim.api.nvim_buf_get_lines(buffer, 0, -1, false), "")
+  return (shown:gsub("%s+$", ""))
+end
+
+T["the execution"]["starts in the environment the inspections ran in"] = function()
+  local run = started_with("A")
+
+  vim.env.CHROMA_EXISTING = "B"
+  vim.env.CHROMA_LATER = "LEAKED"
+
+  eq(terminal_sees(run), "A|absent")
+end
+
+T["the execution"]["is handed the same environment the inspection was"] = function()
+  -- Not a second snapshot taken at preparation time. One run, one environment,
+  -- and the hosts the preview reported were resolved in it.
+  local run = started_with("A")
+
+  vim.env.CHROMA_EXISTING = "B"
+
+  eq(child_sees(run), "A|absent")
+  eq(terminal_sees(run), "A|absent")
+end
+
+T["the execution"]["clears rather than overlays"] = function()
+  -- The assertion that `env` alone cannot pass: merge semantics would set
+  -- CHROMA_EXISTING correctly and let CHROMA_LATER through, which is a child
+  -- that looks right until somebody invents a variable.
+  local run = started_with("A")
+  vim.env.CHROMA_LATER = "LEAKED"
+
+  eq(runner.job({ cwd = run.directory, env = run.environment }).clear_env, true)
+  eq(terminal_sees(run), "A|absent")
 end
 
 -- ---------------------------------------------------------------------------

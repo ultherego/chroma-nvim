@@ -282,4 +282,66 @@ T["the question"]["starts the run only on an explicit yes"] = function()
   eq(answered, true)
 end
 
+-- ---------------------------------------------------------------------------
+-- The environment, said without being shown
+--
+-- §3.5 makes the environment exact. That is a guarantee about the run, not an
+-- undertaking to display it: an environment holds credentials, tokens and
+-- whatever else somebody's shell put there, and this screen is read and copied.
+
+T["the environment"] = new_set()
+
+T["the environment"]["says that it was frozen, whether or not anything is set"] = function()
+  local run = prepared()
+  run.environment = {}
+
+  eq(value_of(run, "Environment"), "frozen when this run started")
+end
+
+T["the environment"]["names the few values that change what an invocation means"] = function()
+  local run = prepared()
+  run.environment = {
+    ANSIBLE_CONFIG = "/work/operations/ansible.cfg",
+    AWS_PROFILE = "production",
+    AWS_REGION = "eu-central-1",
+  }
+
+  eq(value_of(run, "  ANSIBLE_CONFIG"), "/work/operations/ansible.cfg")
+  eq(value_of(run, "  AWS_PROFILE"), "production")
+  eq(value_of(run, "  AWS_REGION"), "eu-central-1")
+end
+
+T["the environment"]["shows nothing else in it, by name or by value"] = function()
+  -- An allowlist and not a prefix match: `AWS_*` would print the secret below.
+  local run = prepared()
+  run.environment = {
+    AWS_PROFILE = "production",
+    AWS_SECRET_ACCESS_KEY = "DO_NOT_RENDER",
+    CHROMA_TEST_SECRET = "DO_NOT_RENDER_EITHER",
+    GITHUB_TOKEN = "ghp_DO_NOT_RENDER",
+  }
+
+  local text = shown(run)
+  eq(text:find("AWS_PROFILE", 1, true) ~= nil, true)
+  for _, forbidden in ipairs({
+    "AWS_SECRET_ACCESS_KEY",
+    "DO_NOT_RENDER",
+    "CHROMA_TEST_SECRET",
+    "DO_NOT_RENDER_EITHER",
+    "GITHUB_TOKEN",
+    "ghp_",
+  }) do
+    eq({ forbidden, text:find(forbidden, 1, true) }, { forbidden, nil })
+  end
+end
+
+T["the environment"]["escapes what it does show"] = function()
+  -- The same rule as every other value here: one row is one value, and a path
+  -- is allowed to hold a newline.
+  local run = prepared()
+  run.environment = { ANSIBLE_CONFIG = "/work/a\nb" }
+
+  eq(value_of(run, "  ANSIBLE_CONFIG"), "/work/a\\nb")
+end
+
 return T

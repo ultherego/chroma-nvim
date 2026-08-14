@@ -946,6 +946,24 @@ holding a space or a quote.
 inventory an autoscaling group can change between the preview and the run;
 what Chroma guarantees is the `argv`, the directory and the environment.
 
+`Environment` says the third of those out loud. The environment is captured
+when the run starts and every subprocess of that run gets exactly it — the
+inspections that produced the host count above, and the playbook itself. So
+switching an AWS profile halfway through planning cannot make the preview
+describe one account and the run address another.
+
+It is not printed. An environment holds credentials, tokens and whatever else
+your shell put there, and this screen is read and copied. Four names are shown
+when they are set, and only these four, because they change what an invocation
+means without changing an argument:
+>
+    ANSIBLE_CONFIG
+    AWS_PROFILE
+    AWS_REGION
+    AWS_DEFAULT_REGION
+<
+An allowlist rather than a prefix: `AWS_*` would print your secret key.
+
 The run opens in a terminal that survives every exit status, including zero,
 so a playbook that succeeded is still there to read. Prompts from Ansible —
 `BECOME password:`, an SSH passphrase — are answered in that terminal.

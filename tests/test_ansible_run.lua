@@ -33,6 +33,10 @@ end)()
 --- An executable this user can run, for `argv[0]`.
 local ANSIBLE = vim.fn.exepath("sh")
 
+--- The real implementations, taken at load time — before any case replaces
+--- them — so the lifecycle cases can run the module rather than a stand-in.
+local REAL = { open = run.open, status = run.status }
+
 local saved, opened, reported
 
 ---A fake terminal that records the handlers it is given.
@@ -106,13 +110,21 @@ T["starting"]["opens a terminal on the prepared array, in the frozen directory"]
   eq(opened[1].opts.cwd, WORKING)
 end
 
-T["starting"]["passes no environment of its own"] = function()
-  -- §3.5: the same effective environment for every subprocess of the run, and
-  -- the way to have one is to edit none. The library extends the inherited
-  -- environment rather than replacing it, so passing nothing inherits it whole.
-  run.start(prepared(), command())
+T["starting"]["passes the environment the run froze, and the hook that makes it exact"] = function()
+  -- §3.5: the same effective environment for every subprocess of the run. It
+  -- used to pass none at all and inherit whatever the editor held — which is a
+  -- different environment for every subprocess, since Chroma edits `vim.env`
+  -- itself while a run is being planned.
+  --
+  -- The hook is half the assertion. `env` on its own is merged over the
+  -- editor's current environment, so passing the snapshot without it would look
+  -- exactly like this and still leak.
+  local this = prepared()
 
-  eq(opened[1].opts.env, nil)
+  run.start(this, command())
+
+  eq(opened[1].opts.env, this.environment)
+  eq(opened[1].opts.override, run.override)
 end
 
 T["starting"]["keeps the terminal after the process ends"] = function()
@@ -143,6 +155,157 @@ T["starting"]["says nothing about a run that succeeded"] = function()
   opened[1].terminal.handlers.TermClose()
 
   eq(reported, {})
+end
+
+T["the hook"] = new_set()
+
+T["the hook"]["starts the process itself, with clear_env"] = function()
+  -- `override` stands where the library's own spawn was. The library passes
+  -- `jobstart` only `cwd`, `env` and `term`, and `env` alone is merged over the
+  -- editor's environment — so this is the one place the execution half of §3.5
+  -- is kept, and it has to be wired to the options the run built.
+  local buffer = vim.api.nvim_create_buf(false, true)
+  local shown = false
+  local snacks = package.loaded.snacks
+  package.loaded.snacks = {
+    win = function()
+      return {
+        buf = buffer,
+        show = function()
+          shown = true
+        end,
+        on = function() end,
+      }
+    end,
+  }
+
+  local spawn, seen = run.spawn, nil
+  run.spawn = function(cmd, options)
+    seen = { cmd = cmd, options = options }
+  end
+
+  local ok, made = pcall(run.override, command(), { cwd = WORKING, env = { PATH = "/usr/bin" }, win = {} })
+
+  run.spawn, package.loaded.snacks = spawn, snacks
+
+  eq({ ok, type(made) }, { true, "table" })
+  eq(shown, true)
+  eq(seen.cmd, command())
+  eq(seen.options, { cwd = WORKING, env = { PATH = "/usr/bin" }, clear_env = true, term = true })
+end
+
+-- ---------------------------------------------------------------------------
+-- What the terminal does when the process ends
+--
+-- Taking `override` moved this contract. The library's `auto_close`, its own
+-- `TermClose`, its `ExitPre` and its registry are all wired *after* the point
+-- the hook takes, so `auto_close = false` no longer implements anything — it
+-- only declares. What keeps the output on screen now is that nothing here
+-- closes anything, and what reports a failure is this module's own handler.
+--
+-- So both exit paths are run for real: a real job in a real terminal buffer, a
+-- real `TermClose`, and `vim.v.event.status` read by the real `M.status`.
+
+T["the terminal"] = new_set()
+
+---A stand-in for the library that does the two things the pinned one does
+---before `override` is called, and nothing after: resolve a window config, and
+---hand it with the command to the hook.
+---
+---`win` answers with a real buffer, a real window and real autocommands, so
+---what is being checked is what actually happens to them.
+---@return table restore, integer buffer, integer window
+local function library_stub()
+  local buffer = vim.api.nvim_create_buf(false, true)
+  local window = vim.api.nvim_open_win(buffer, false, {
+    relative = "editor",
+    row = 1,
+    col = 1,
+    width = 40,
+    height = 5,
+    style = "minimal",
+  })
+
+  local before = package.loaded.snacks
+  package.loaded.snacks = {
+    terminal = {
+      open = function(cmd, opts)
+        return opts.override(cmd, vim.tbl_extend("force", opts, { win = {} }))
+      end,
+    },
+    win = function()
+      return {
+        buf = buffer,
+        show = function() end,
+        -- Offered because the real `Snacks.win` offers it: a mutation that
+        -- closes the terminal on success has to have something to call.
+        close = function()
+          pcall(vim.api.nvim_win_close, window, true)
+        end,
+        on = function(self, event, handler, opts)
+          vim.api.nvim_create_autocmd(event, {
+            buffer = opts and opts.buf and self.buf or nil,
+            callback = function()
+              handler()
+            end,
+          })
+        end,
+      }
+    end,
+  }
+
+  return function()
+    package.loaded.snacks = before
+    pcall(vim.api.nvim_win_close, window, true)
+    pcall(vim.api.nvim_buf_delete, buffer, { force = true })
+  end,
+    buffer,
+    window
+end
+
+---Runs a command to completion through the real module, and answers with what
+---is left of the terminal.
+---@param code integer what the process should exit with
+---@return { valid_buffer: boolean, valid_window: boolean }
+local function after_exiting(code)
+  run.open, run.status = REAL.open, REAL.status
+  local restore, buffer, window = library_stub()
+
+  run.start(prepared(), { ANSIBLE, "-c", ("exit %d"):format(code) })
+
+  -- The job the hook started, found the way Neovim names it on a terminal
+  -- buffer. Waited for, and then the loop is given time to deliver TermClose.
+  local job = vim.b[buffer].terminal_job_id
+  vim.fn.jobwait({ job }, 5000)
+  vim.wait(500, function()
+    return #reported > 0
+  end, 10)
+
+  local left = {
+    -- Asserted too, so neither case can pass by never having run anything.
+    ran = job ~= nil,
+    valid_buffer = vim.api.nvim_buf_is_valid(buffer),
+    valid_window = vim.api.nvim_win_is_valid(window),
+  }
+  restore()
+  return left
+end
+
+T["the terminal"]["survives a process that succeeded"] = function()
+  -- What `auto_close = false` used to buy, and no longer does: the library
+  -- closes a terminal that exited 0, and a playbook that succeeded is exactly
+  -- what somebody opened this to read.
+  local left = after_exiting(0)
+
+  eq(left, { ran = true, valid_buffer = true, valid_window = true })
+  eq(reported, {})
+end
+
+T["the terminal"]["survives a process that failed, and says what it exited with"] = function()
+  local left = after_exiting(17)
+
+  eq(left, { ran = true, valid_buffer = true, valid_window = true })
+  eq(reported, { "ansible-playbook exited with 17" })
 end
 
 -- ---------------------------------------------------------------------------

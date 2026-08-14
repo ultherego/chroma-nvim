@@ -24,6 +24,17 @@ local NOT_REPORTED = "not reported"
 --- is never repeated as though it were still true.
 local NOT_REFRESHED = "not refreshed"
 
+--- The only environment names this screen will show, and an allowlist rather
+--- than a prefix match on purpose: `AWS_*` prints `AWS_SECRET_ACCESS_KEY`.
+---
+--- §3.5 makes the environment exact, which is a guarantee about the run and not
+--- an undertaking to display it — an environment holds credentials, tokens and
+--- whatever else the operator's shell put there. These four are the ones that
+--- change what an invocation means without changing a single argument, which is
+--- the whole reason the freeze exists. `PATH` is not among them: `argv[0]` is
+--- absolute and already says which program this is.
+local CONTEXT = { "ANSIBLE_CONFIG", "AWS_PROFILE", "AWS_REGION", "AWS_DEFAULT_REGION" }
+
 ---@class chroma_ansible.Snapshot
 ---@field targets string[]|nil the hosts Ansible resolved during this planning
 ---@field refreshed boolean|nil false when this is a repeat that did not re-ask
@@ -101,6 +112,17 @@ function M.render(run, command, snapshot)
   -- to the value, because this is the screen where somebody decides.
   row(lines, "Diff", plan.diff and "on — may print sensitive file contents" or "off")
   row(lines, "Targets reported now", targets(snapshot))
+
+  -- Said whether or not any of the four are set, because the sentence people
+  -- need is that the run and the inspections behind that host count happened in
+  -- one environment.
+  row(lines, "Environment", "frozen when this run started")
+  for _, name in ipairs(CONTEXT) do
+    local value = (run.environment or {})[name]
+    if value and value ~= "" then
+      row(lines, ("  %s"):format(name), value)
+    end
+  end
 
   vim.list_extend(lines, { "", "argv", "" })
 

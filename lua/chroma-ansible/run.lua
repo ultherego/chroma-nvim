@@ -25,6 +25,68 @@ M.open = function(cmd, opts)
   return require("snacks").terminal.open(cmd, opts)
 end
 
+---How the process itself is started, once there is a buffer to start it in.
+---A variable for the same reason, and separately from `M.open`, because the
+---window is the library's and the process is not.
+---@type fun(cmd: string[], options: table): integer
+M.spawn = function(cmd, options)
+  return vim.fn.jobstart(cmd, options)
+end
+
+---What the playbook's process starts with. The one place §3.5's execution half
+---is kept, named so that a test can cross a real process boundary with exactly
+---this table.
+---
+---`clear_env`, not `env` alone: measured on 0.12.4, both `jobstart` and
+---`vim.system` merge `env` over the editor's current environment. A variable
+---invented after the run began would reach the playbook, having reached none of
+---the inspections that decided what the playbook would do.
+---@param opts table the library's resolved options, carrying `cwd` and `env`
+---@return table
+function M.job(opts)
+  return {
+    cwd = opts.cwd,
+    env = opts.env,
+    clear_env = true,
+    term = true,
+  }
+end
+
+---Starts the process in the window the library was about to make.
+---
+---`override` is the library's own hook for this — *use a different terminal
+---implementation* — and it is taken before any window or job exists, so what
+---changes is the spawn and nothing about the window: `opts.win` has already
+---been resolved and is used as it stands.
+---
+---It has to change because the library passes `jobstart` only `cwd`, `env` and
+---`term`, and `clear_env` is what makes the frozen environment the whole answer
+---rather than an overlay on the editor's. There is no way to reach it through
+---`terminal.open`, and the alternative — editing `vim.env` around the call —
+---would be a global mutable window in place of the problem it fixes.
+---@param cmd string[]
+---@param opts table
+---@return table terminal
+function M.override(cmd, opts)
+  local terminal = require("snacks").win(opts.win)
+  terminal:show()
+
+  vim.api.nvim_buf_call(terminal.buf, function()
+    M.spawn(cmd, M.job(opts))
+  end)
+
+  -- §11: `BECOME password:` has to be answerable. The library arranges this
+  -- after the point `override` takes, so it is arranged here instead.
+  terminal:on("BufEnter", function()
+    vim.cmd.startinsert()
+  end, { buf = true })
+  if vim.api.nvim_get_current_buf() == terminal.buf then
+    vim.cmd.startinsert()
+  end
+
+  return terminal
+end
+
 ---How a failure is reported. Also a variable, and for the same reason.
 ---@type fun(message: string)
 M.report = function(message)
@@ -78,14 +140,21 @@ function M.start(run, command)
   local id = (vim.g[COUNTER] or 0) + 1
   vim.g[COUNTER] = id
 
-  -- No `env`: §3.5 wants one effective environment for every subprocess of the
-  -- run, and the library extends the inherited one rather than replacing it.
   local terminal = M.open(command, {
     cwd = run.directory,
+    -- §3.5: the environment the inspections ran in, not the one the editor
+    -- happens to hold now. `M.override` is what makes it exact.
+    env = run.environment,
     count = id,
     -- The output outlives the process; a playbook that exited 0 is what was
     -- opened to be read.
+    --
+    -- Inert while `override` is in place — the library's auto-close is wired
+    -- after the point the hook takes — and passed anyway, because it is the
+    -- declared policy and removing the hook must not silently flip it back to
+    -- the library's interactive default of closing on success.
     auto_close = false,
+    override = M.override,
   })
 
   terminal:on("TermClose", function()
