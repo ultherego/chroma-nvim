@@ -204,9 +204,18 @@ local function inspection(run, tool, label, command, problem, interpret, on_done
   end)
   run.stop = showing.close
 
-  -- The frozen directory, and the environment inherited unchanged: §3.5 is
-  -- kept by never editing one rather than by copying one around.
-  local started, process = pcall(M.system, command, { cwd = run.directory, text = true }, function(result)
+  -- The frozen directory and the frozen environment (§3.5). `clear_env`, not
+  -- `env` alone: measured on 0.12.4, `env` is merged over the editor's current
+  -- environment, so a variable that did not exist when the run began arrives in
+  -- the child anyway. Only `clear_env` makes the snapshot the whole answer.
+  local options = {
+    cwd = run.directory,
+    env = run.environment,
+    clear_env = true,
+    text = true,
+  }
+
+  local started, process = pcall(M.system, command, options, function(result)
     deliver(run, mine, on_done, interpret(result), showing)
   end)
 

@@ -31,6 +31,7 @@ local active = nil
 ---@field id integer this session's nth planner run
 ---@field generation integer bumped by every decision; inspections carry it
 ---@field directory string|nil the frozen working directory, once chosen (§3.4)
+---@field environment table<string, string> the frozen environment, from the moment the run began (§3.5)
 ---@field plan chroma_ansible.Plan the decisions so far, as `argv` wants them
 ---@field gate table the consent, one per run and never shared (§6.4)
 ---@field process vim.SystemObj|nil the inspection in flight, if there is one
@@ -74,6 +75,15 @@ function M.start()
     id = started,
     generation = 0,
     directory = nil,
+
+    -- §3.5, and taken here rather than before each subprocess. Chroma itself
+    -- edits `vim.env` while a run is being planned — `chroma-aws` switches
+    -- `AWS_PROFILE` and the region — so an environment read per subprocess is a
+    -- different environment per subprocess, and the hosts the preview reports
+    -- would have been resolved somewhere other than where the playbook runs.
+    -- `environ()` answers with a fresh table, so this is a copy and not a view.
+    environment = vim.fn.environ(),
+
     plan = {
       executable = nil,
       playbooks = {},
