@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
@@ -56,13 +57,32 @@ func Path() (string, error) {
 // file that is not there is not an error and not an empty selection: it is a
 // configuration that predates any of this, and everything is enabled. `found`
 // distinguishes the two.
+//
+// The question asked first is whether there is an entry here at all, which is
+// not the same as whether it can be read. ReadFile follows a link and reports a
+// dangling one as ErrNotExist, so a selection somebody made read as a selection
+// nobody had ever made — the one answer that means "run everything". Only an
+// absent entry means that now; an entry with anything wrong with it is
+// reported. Must match lua/chroma/state.lua.
 func Load(path string, set component.Set) (state State, found bool, err error) {
-	contents, err := os.ReadFile(path)
-	if os.IsNotExist(err) {
+	if _, err := os.Lstat(path); errors.Is(err, fs.ErrNotExist) {
 		return State{Schema: Schema}, false, nil
+	} else if err != nil {
+		return State{}, true, fmt.Errorf("looking at %s: %w", path, err)
 	}
+
+	// A symlink to a real file is somebody's own arrangement and is followed.
+	target, err := os.Stat(path)
 	if err != nil {
-		return State{}, false, fmt.Errorf("reading %s: %w", path, err)
+		return State{}, true, fmt.Errorf("%s is a link to something that cannot be reached: %w", path, err)
+	}
+	if !target.Mode().IsRegular() {
+		return State{}, true, fmt.Errorf("%s is not a regular file", path)
+	}
+
+	contents, err := os.ReadFile(path)
+	if err != nil {
+		return State{}, true, fmt.Errorf("reading %s: %w", path, err)
 	}
 
 	decoder := json.NewDecoder(bytes.NewReader(contents))

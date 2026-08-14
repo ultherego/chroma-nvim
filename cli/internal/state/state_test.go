@@ -103,6 +103,74 @@ func TestMissingFileIsNotAnEmptySelection(t *testing.T) {
 	}
 }
 
+// The one answer that enables everything belongs to an absent entry, and to
+// nothing else. These cases are built at runtime rather than committed beside
+// the shared fixtures, because a dangling symlink is not a file with contents.
+func TestAnEntryThatIsNotAFileIsFound(t *testing.T) {
+	set := shipped(t)
+	dir := t.TempDir()
+
+	good := filepath.Join(dir, "real.json")
+	if err := os.WriteFile(good, []byte(`{"schema": 1, "selected": []}`+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	dangling := filepath.Join(dir, "dangling.json")
+	if err := os.Symlink(filepath.Join(dir, "gone.json"), dangling); err != nil {
+		t.Fatal(err)
+	}
+
+	linked := filepath.Join(dir, "linked.json")
+	if err := os.Symlink(good, linked); err != nil {
+		t.Fatal(err)
+	}
+
+	directory := filepath.Join(dir, "components.json")
+	if err := os.Mkdir(directory, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	// The reason is asserted, not just its existence: reading a directory fails
+	// on its own, so "there was an error" cannot tell the guard from the
+	// accident. A fifo is the case where the difference is the whole point —
+	// nothing would fail, the read would block.
+	for _, c := range []struct {
+		name string
+		path string
+		want string
+	}{
+		{"a link to a file that is not there", dangling, "cannot be reached"},
+		{"an entry of the wrong kind", directory, "not a regular file"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			_, found, err := Load(c.path, set)
+			if err == nil {
+				t.Fatal("no error, so this reads as a selection nobody ever made")
+			}
+			if !found {
+				t.Error("found = false for an entry that is there")
+			}
+			if !strings.Contains(err.Error(), c.want) {
+				t.Errorf("error = %q, want it to name %q", err, c.want)
+			}
+		})
+	}
+
+	// And a link to a real file is somebody's own arrangement, not a problem.
+	t.Run("a link to a file that is there", func(t *testing.T) {
+		state, found, err := Load(linked, set)
+		if err != nil {
+			t.Fatalf("Load: %v", err)
+		}
+		if !found {
+			t.Error("found = false for a link to a file that is there")
+		}
+		if got := state.Enabled(set); len(got) != 1 || got[0] != Core {
+			t.Errorf("enables %v, want core alone", got)
+		}
+	})
+}
+
 // Resolved on read, never stored: a component whose dependencies change must
 // not be described by a list written before the change.
 func TestEnabledResolvesThroughTheGraph(t *testing.T) {

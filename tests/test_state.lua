@@ -126,14 +126,16 @@ T["runtime"] = new_set({
   },
 })
 
----Runs `fn` with the selection file pointed at a throwaway directory.
----@param contents string|nil written when given; absent otherwise
+---Runs `fn` against a throwaway configuration directory, where `make` has built
+---whatever sits at the selection path. A function rather than contents, because
+---the cases that matter here are not files with contents in them.
+---@param make fun(path: string)|nil nothing is built when absent
 ---@param fn function
-local function with_selection(contents, fn)
+local function with_entry(make, fn)
   local home = vim.fn.tempname()
   vim.fn.mkdir(vim.fs.joinpath(home, "chroma"), "p")
-  if contents then
-    vim.fn.writefile(vim.split(contents, "\n"), vim.fs.joinpath(home, "chroma", "components.json"))
+  if make then
+    make(vim.fs.joinpath(home, "chroma", "components.json"))
   end
 
   local saved = vim.env.XDG_CONFIG_HOME
@@ -146,6 +148,14 @@ local function with_selection(contents, fn)
   state.forget()
   vim.fn.delete(home, "rf")
   assert(ok, err)
+end
+
+---@param contents string|nil written when given; absent otherwise
+---@param fn function
+local function with_selection(contents, fn)
+  with_entry(contents and function(path)
+    vim.fn.writefile(vim.split(contents, "\n"), path)
+  end, fn)
 end
 
 -- The migration promise: somebody who has been using this for months and has
@@ -233,6 +243,60 @@ T["runtime"]["safe mode says what was wrong with the file"] = function()
     end)
 
     eq(table.concat(notices, " "):find("unknown component") ~= nil, true)
+  end)
+end
+
+-- An entry that is there but is not a readable file is not "nobody ever chose".
+-- `fs_stat` follows a link, so a link to nothing answered exactly like nothing
+-- at all — and the one answer that means nothing at all is the one that enables
+-- every component. Built here rather than committed beside the shared corpus,
+-- because neither of these is a file with contents in it.
+T["runtime"]["a selection that links to nothing is safe mode, not legacy"] = function()
+  with_entry(function(path)
+    vim.uv.fs_symlink(vim.fs.joinpath(vim.fs.dirname(path), "gone.json"), path)
+  end, function()
+    local ids, mode
+    local notices = notices_from(function()
+      ids, mode = state.enabled_ids()
+    end)
+
+    eq(mode, state.SAFE)
+    eq(ids, { "core" })
+    -- The half that matters: legacy would have switched all of these on.
+    eq(#components.load_ids() > 1, true)
+    eq(table.concat(notices, " "):find("not there", 1, true) ~= nil, true)
+  end)
+end
+
+-- The kind of entry is asked about before it is read, and the report says so.
+-- A directory would fail the read anyway; a fifo would not — it would block the
+-- editor at startup, which is why this is a question and not a consequence.
+T["runtime"]["a selection that is not a file at all is safe mode"] = function()
+  with_entry(function(path)
+    vim.fn.mkdir(path, "p")
+  end, function()
+    local ids, mode
+    local notices = notices_from(function()
+      ids, mode = state.enabled_ids()
+    end)
+
+    eq(mode, state.SAFE)
+    eq(ids, { "core" })
+    eq(table.concat(notices, " "):find("not a file", 1, true) ~= nil, true)
+  end)
+end
+
+-- And a link to a real file is somebody's own arrangement, not a problem.
+T["runtime"]["a selection reached through a link is read"] = function()
+  with_entry(function(path)
+    local real = vim.fs.joinpath(vim.fs.dirname(path), "elsewhere.json")
+    vim.fn.writefile({ '{ "schema": 1, "selected": ["terraform"] }' }, real)
+    vim.uv.fs_symlink(real, path)
+  end, function()
+    local ids, mode = state.enabled_ids()
+
+    eq(mode, state.SELECTED)
+    eq(ids, { "core", "terraform" })
   end)
 end
 

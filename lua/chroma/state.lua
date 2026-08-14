@@ -84,14 +84,36 @@ end
 ---A file that is not there is not an empty selection: it is a configuration
 ---from before any of this existed, and everything runs. `found` tells them
 ---apart.
+---
+---The question is whether anything is *here*, not whether it can be read.
+---`fs_stat` follows a link, so a link to nothing used to answer exactly like
+---nothing at all — and a selection somebody made became "nobody has ever
+---chosen", which enables every component instead of core alone. Only the
+---absence of an entry is that answer; an entry with anything wrong with it is
+---a problem to report. Must match `cli/internal/state/state.go`.
 ---@param path string|nil defaults to M.path()
 ---@param set table<string, table>|nil components to check ids against
 ---@return table|nil state, boolean found, string|nil err
 function M.load(path, set)
   path = path or M.path()
 
-  if not vim.uv.fs_stat(path) then
+  local entry, why = vim.uv.fs_lstat(path)
+  if not entry then
+    -- Anything other than "it is not there" leaves the question unanswered,
+    -- and an unanswered question is not a licence to run everything.
+    if why and not vim.startswith(why, "ENOENT") then
+      return nil, true, ("%s could not be looked at: %s"):format(path, why)
+    end
     return { schema = M.SCHEMA, selected = {} }, false, nil
+  end
+
+  -- A symlink to a real file is somebody's own arrangement and is followed.
+  local target = vim.uv.fs_stat(path)
+  if not target then
+    return nil, true, ("%s is a link to something that is not there"):format(path)
+  end
+  if target.type ~= "file" then
+    return nil, true, ("%s is a %s, not a file"):format(path, target.type)
   end
 
   local ok, contents = pcall(vim.fn.readfile, path)

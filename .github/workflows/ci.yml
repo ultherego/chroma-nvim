@@ -492,6 +492,33 @@ jobs:
             io.write("Safe mode: core alone, and it said why.\n")
           ' -c 'qa!'
 
+      # A different failure from the one above: there the file was readable and
+      # said something wrong, here there is an entry and nothing behind it.
+      # A dangling link reads as ENOENT through anything that follows it, so
+      # this used to answer "nobody has ever chosen" — the one answer that
+      # enables every component. Not a fixture, because it has no contents.
+      - name: A dangling selection symlink starts in safe mode
+        run: |
+          set -euo pipefail
+
+          config="$GITHUB_WORKSPACE/.ci/dangling/config"
+          mkdir -p "$config/chroma"
+          ln -s "$GITHUB_WORKSPACE" "$config/nvim"
+          ln -s "$config/chroma/gone.json" "$config/chroma/components.json"
+
+          export XDG_CONFIG_HOME="$config"
+          export XDG_DATA_HOME="$GITHUB_WORKSPACE/.ci/legacy/data"
+
+          nvim --headless -c 'lua
+            local state = require("chroma.state")
+            local ids, mode = state.enabled_ids()
+            if mode ~= state.SAFE or #ids ~= 1 or ids[1] ~= "core" then
+              io.write(("expected safe mode with core alone, got %s: %s\n"):format(mode, table.concat(ids, " ")))
+              vim.cmd("cquit 1")
+            end
+            io.write("Safe mode: a link to nothing is not a missing selection.\n")
+          ' -c 'qa!'
+
       - name: Help tags are current
         env:
           XDG_CONFIG_HOME: ${{ github.workspace }}/.ci/legacy/config
