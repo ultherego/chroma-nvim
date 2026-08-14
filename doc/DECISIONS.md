@@ -1371,3 +1371,44 @@ to arrive at because a clone resolved differently one morning.
 **What would change it.** Moving to v2 deliberately, which brings the extra
 dependency with it; or upstream making the v1 tag reachable from a branch a
 default clone fetches, which would leave the lockfile enough on its own.
+
+### Only the run that owns the interaction may consume the operator's next answer
+
+Generations and ownership answer two different questions, and the planner needs
+both:
+
+    generation  does this answer still describe the current state of this run?
+    ownership   may this run still be talking to the operator at all?
+
+The first was carrying the second, and it cannot. Starting a second planner run
+leaves the first's generation exactly where it was, so everything the first run
+had outstanding still passed the check. There are two kinds of outstanding
+thing, and they arrive from different places:
+
+    external   the vim.system callback of an inspection in flight
+    human      a vim.ui.select or vim.ui.input callback, still on screen
+
+The external one is the obvious half. The human one is the half that bites,
+because the answer to a picker calls a setter — and a setter **bumps the
+generation**. A run that had been left behind therefore made itself current
+again by being answered, and carried on through the remaining questions to a
+preview the operator was not looking for. The very mechanism meant to discard
+stale work was what revived it.
+
+So `planner.owns` is asked separately, by every picker and every input in the
+planner, before anything else. Silently: the run being answered is not the run
+the operator is in, and a message about it would be a message about a workflow
+they have already left.
+
+Ownership is taken before anything is stopped. Killing a subprocess is a request
+to something else — it can fail, and it can arrive after the process has already
+exited — so it may never be what decides whether a callback still counts. Both
+entry points take ownership as their first statement, before resolving an
+executable or recalling a repeat, because pressing the key is the act; a repeat
+that then refuses still means the previous run is not the one being planned.
+
+**What would change it.** A planner that could legitimately run more than once
+at a time — several independent inventories being resolved side by side. That is
+a different interface, not a relaxation of this one: it would need a way to say
+which run each question belongs to, which is exactly what a single owner makes
+unnecessary.
