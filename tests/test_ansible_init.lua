@@ -562,12 +562,58 @@ end
 
 T["the limit"] = new_set()
 
-T["the limit"]["offers the groups Ansible reported before its hosts"] = function()
+T["the limit"]["offers the groups Ansible reported, and hosts behind one row"] = function()
   answering(straight_through())
 
   ansible.plan()
 
-  eq(offered("Limit"), { "No limit", "Group: all", "Group: webservers", "Host: web01", "Custom pattern…" })
+  eq(offered("Limit"), { "No limit", "Group: all", "Group: webservers", "Search hosts (1)…", "Custom pattern…" })
+end
+
+T["the limit"]["costs the number of groups, not the number of hosts"] = function()
+  -- §7.5, and the reason this screen was rebuilt: the first thing offered for a
+  -- fifty-thousand-host inventory is the same size as for a two-host one. The
+  -- hosts are not built into it — the row that leads to them carries a count,
+  -- which says how big the inventory is without being that big.
+  local hosts = {}
+  for index = 1, 50000 do
+    hosts[index] = ("web%05d"):format(index)
+  end
+  inspect.inventory = function(_, _, on_done)
+    on_done({ graph = { groups = { "all", "ungrouped" }, hosts = hosts, children = {} } })
+  end
+  answering(straight_through())
+
+  ansible.plan()
+
+  eq(offered("Limit"), { "No limit", "Group: all", "Group: ungrouped", "Search hosts (50000)…", "Custom pattern…" })
+end
+
+T["the limit"]["reaches a host through the screen that lists them"] = function()
+  local steps = straight_through()
+  steps[6] = { pick = "Search hosts" }
+  table.insert(steps, 7, { pick = "web01" })
+  answering(steps)
+
+  ansible.plan()
+
+  eq(asked("Host (1)"), true)
+  eq(after(started[1].command, "-l"), "web01")
+end
+
+T["the limit"]["comes back from that screen without having decided anything"] = function()
+  -- Asking to see the hosts is not choosing one, so there has to be a way out
+  -- of it that is not the end of the run.
+  local steps = straight_through()
+  steps[6] = { pick = "Search hosts" }
+  table.insert(steps, 7, { pick = "Back" })
+  table.insert(steps, 8, { pick = "No limit" })
+  answering(steps)
+
+  ansible.plan()
+
+  eq(#started, 1)
+  eq(vim.tbl_contains(started[1].command, "-l"), false)
 end
 
 T["the limit"]["says so when the inventory reported no hosts"] = function()
@@ -597,7 +643,7 @@ T["the limit"]["still offers a group that has hosts under it"] = function()
   ansible.plan()
 
   eq(asked("the inventory reported no hosts"), false)
-  eq(offered("Limit"), { "No limit", "Group: all", "Group: web", "Host: web01", "Custom pattern…" })
+  eq(offered("Limit"), { "No limit", "Group: all", "Group: web", "Search hosts (1)…", "Custom pattern…" })
 end
 
 -- ---------------------------------------------------------------------------
@@ -758,7 +804,8 @@ T["the answers"]["a host named like a control choice is a host"] = function()
     on_done({ graph = { groups = { "all" }, hosts = { "custom" }, children = {} } })
   end
   local steps = straight_through()
-  steps[6] = { pick = "Host: custom" }
+  steps[6] = { pick = "Search hosts" }
+  table.insert(steps, 7, { pick = "custom" })
   answering(steps)
 
   ansible.plan()

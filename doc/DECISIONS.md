@@ -1412,3 +1412,29 @@ at a time — several independent inventories being resolved side by side. That 
 a different interface, not a relaxation of this one: it would need a way to say
 which run each question belongs to, which is exactly what a single owner makes
 unnecessary.
+
+### The host list is one screen further in, and entering a group is not a way to reach it
+
+The limit screen used to be built by walking the groups and then the hosts into
+one list. Design §7.5 says the planner does not render thirty thousand rows
+because an inventory has thirty thousand hosts, and that is exactly what it did.
+
+What the first screen costs is now the number of groups. The hosts sit behind
+one row, `Search hosts (N)…`, whose count says how big the inventory is without
+being that big, and choosing it opens a screen that is only hosts. That screen
+carries a `Back`, because asking to see the list is not the same as choosing
+from it and should not be the only way to end a run.
+
+**§7.5 also says hosts are reached "by entering a group or by searching", and
+entering a group is not implemented.** The graph already holds the memberships,
+so it would work; it would also be a second navigation model — a screen that is
+sometimes a list of hosts and sometimes a list of groups containing hosts, with
+its own idea of where `Back` goes. The searching half satisfies the property the
+section exists for, which is that the cost of the first screen is unrelated to
+the size of the inventory. The other half is an interface decision, deliberately
+not taken in M1.
+
+**What would change it.** Somebody working with an inventory whose groups are
+the thing they navigate by rather than a filter they apply once — where "the
+hosts in `dbservers`" is a question asked often enough that answering it with a
+custom pattern is friction. That is a report from use, not a guess made here.

@@ -901,9 +901,15 @@ the authority, and `-l all` would override it. A custom pattern reaches Ansible
 byte for byte — `webservers:&production` is Ansible's to interpret, and there
 is no shell anywhere in this module.
 
-The groups and hosts offered here are the ones `--graph` reported for the
-sources you chose. When it reports no hosts at all, the list says so and offers
-only `No limit` and `Custom pattern...`: every inventory answers `all` and
+The groups offered here are the ones `--graph` reported for the sources you
+chose. The hosts are one screen further in, behind `Search hosts (N)...`, which
+carries the count: what the first screen costs is the number of groups, never
+the number of hosts, so an inventory of thirty thousand does not become thirty
+thousand rows before you have asked to see one. That screen has a `Back`,
+because asking to look is not deciding.
+
+When `--graph` reports no hosts at all, the list says so and offers only
+`No limit` and `Custom pattern...`: every inventory answers `all` and
 `ungrouped`, including one Ansible could not read, and limiting a run to either
 of them would match nothing.
 

@@ -373,10 +373,36 @@ end
 -- ---------------------------------------------------------------------------
 -- §9 Limit
 
+--- Declared ahead of `pick_host`, which offers a way back to it.
+---@type fun(run: chroma_ansible.Run, graph: chroma_ansible.Graph|nil, settled: fun())
+local pick_limit
+
+---The hosts, on a screen of their own. Reached from `Search hosts…` and not
+---before: this is the list §7.5 says must not be built until somebody has asked
+---for it, and `Back` is here so that asking to see it is not a decision.
+---@param run chroma_ansible.Run
+---@param graph chroma_ansible.Graph
+---@param settled fun()
+local function pick_host(run, graph, settled)
+  local choices = {}
+  for _, host in ipairs(graph.hosts) do
+    table.insert(choices, { label = host, value = datum("host", host) })
+  end
+  table.insert(choices, { label = "Back", value = control("back") })
+
+  choose(run, ("Host (%d)"):format(#graph.hosts), choices, function(value)
+    if chose(value, "back") then
+      return pick_limit(run, graph, settled)
+    end
+    planner.set_limit(run, value.value)
+    settled()
+  end)
+end
+
 ---@param run chroma_ansible.Run
 ---@param graph chroma_ansible.Graph|nil what discovery found, if it ran
 ---@param settled fun()
-local function pick_limit(run, graph, settled)
+function pick_limit(run, graph, settled)
   local choices = { { label = "No limit", value = control("none") } }
   local prompt = "Limit"
 
@@ -392,20 +418,27 @@ local function pick_limit(run, graph, settled)
   end
 
   if discovered then
-    -- Groups first (§7.5): thirty thousand hosts must not become thirty
-    -- thousand rows before anybody has chosen anything.
+    -- §7.5, and the whole point of this screen: what it costs is the number of
+    -- groups, never the number of hosts. Thirty thousand hosts were thirty
+    -- thousand rows here, put there before anybody had asked to see one.
     for _, group in ipairs(discovered.groups) do
       table.insert(choices, { label = ("Group: %s"):format(group), value = datum("group", group) })
     end
-    for _, host in ipairs(discovered.hosts) do
-      table.insert(choices, { label = ("Host: %s"):format(host), value = datum("host", host) })
-    end
+    -- One row, and the count is worth having: it says how big the inventory is
+    -- without being that big.
+    table.insert(choices, {
+      label = ("Search hosts (%d)…"):format(#discovered.hosts),
+      value = control("hosts"),
+    })
   end
   -- §9.1: no multi-select of hosts. Combining two means generating a pattern,
   -- and whether that is a comma or a colon is the operator's decision.
   table.insert(choices, { label = "Custom pattern…", value = control("custom") })
 
   choose(run, prompt, choices, function(value)
+    if chose(value, "hosts") then
+      return pick_host(run, discovered, settled)
+    end
     if chose(value, "custom") then
       return ask_text(run, "Host pattern", function(entered)
         -- Byte for byte, unparsed and unexpanded (§9.3).
