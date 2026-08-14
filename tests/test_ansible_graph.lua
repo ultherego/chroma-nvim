@@ -76,6 +76,17 @@ T["real output"]["nests a group inside a group"] = function()
   eq(parsed.children.dbservers.hosts, { "db01" })
 end
 
+T["real output"]["a host does not close the branch its own group is still on"] = function()
+  -- The other side of "a child of a host": clearing the stack from a host's
+  -- depth must not stop the tree from carrying on beside it.
+  local parsed = graph.read("@all:\n  |--@parent:\n  |  |--host1\n  |--@other:\n  |  |--host2\n")
+
+  eq(parsed ~= nil, true)
+  eq(parsed.hosts, { "host1", "host2" })
+  eq(parsed.children.parent.hosts, { "host1" })
+  eq(parsed.children.other.hosts, { "host2" })
+end
+
 T["real output"]["an empty group is a group with nothing in it"] = function()
   local parsed = graph.read(fixture("nested.txt"))
 
@@ -158,6 +169,14 @@ T["refuses"]["a depth the tree has left behind"] = function()
   -- group it walked out of, which would file the host under a group it is not
   -- in. Skipping a level is the visible symptom; the stale entry is the bug.
   eq(refusal("@all:\n  |--@first:\n  |  |--@deep:\n  |--@later:\n  |  |  |--web01\n") ~= nil, true)
+end
+
+T["refuses"]["a child of a host"] = function()
+  -- `old` is at depth 2, then `host2` comes back up to depth 2 — and a host is
+  -- not a parent. The line under it has no parent unless the stack still holds
+  -- the group `host1` was in, which would record `ghost` as a member of `old`.
+  -- Refused whole, not parsed without it (§7.3).
+  eq(refusal("@all:\n  |--@parent:\n  |  |--@old:\n  |  |  |--host1\n  |  |--host2\n  |  |  |--ghost\n") ~= nil, true)
 end
 
 T["refuses"]["a tab where the rung should be"] = function()

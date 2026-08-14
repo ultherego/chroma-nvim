@@ -165,9 +165,16 @@ function M.read(output)
       end
       -- A host may appear in several groups, and every membership is real.
       table.insert(graph.children[parent].hosts, name)
-      if depth > deepest then
-        deepest = depth
+
+      -- A host is not a parent, so neither this depth nor anything under it can
+      -- name one. Without this, a group left on the stack by an earlier, deeper
+      -- subtree stayed reachable: a line indented under a *host* resolved to
+      -- that group and was recorded as a member of it, where §7.3 wants the
+      -- whole graph refused.
+      for below = depth, deepest do
+        stack[below] = nil
       end
+      deepest = depth - 1
     end
   end
 
