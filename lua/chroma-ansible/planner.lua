@@ -19,6 +19,14 @@ local M = {}
 --- never confusable in a message.
 local started = 0
 
+--- The run that owns the interaction, of which there is at most one. Generations
+--- settle which answer inside a run is current; they cannot settle anything
+--- between two runs, because starting a second one leaves the first's generation
+--- exactly where it was. A slow inventory from a run the operator has walked
+--- away from would still pass `current` and open a picker beside the run they
+--- are actually in.
+local active = nil
+
 ---@class chroma_ansible.Run
 ---@field id integer this session's nth planner run
 ---@field generation integer bumped by every decision; inspections carry it
@@ -36,14 +44,29 @@ local function copy(list)
   return vim.list_slice(list, 1, #list)
 end
 
+---Ends whatever owns the interaction now, if anything does.
+---
+---Called when the operator starts something else, which they do by pressing a
+---key — not by getting as far as a run object. A repeat that refuses because
+---the executable moved still means "not that one any more", and leaving the
+---previous run its authority would let it open a picker minutes later.
+function M.supersede()
+  if active then
+    M.cancel(active)
+  end
+end
+
 ---A run that has decided nothing. The plan starts complete and empty rather
 ---than growing fields: `argv` refuses a plan whose lists are missing, and a
 ---half-built table would make that refusal say "the tags are not a list".
 ---@return chroma_ansible.Run
 function M.start()
+  -- Before the new run exists, so there is never a moment with two of them.
+  M.supersede()
+
   started = started + 1
 
-  return {
+  local run = {
     id = started,
     generation = 0,
     directory = nil,
@@ -63,6 +86,9 @@ function M.start()
     gate = gate.new(),
     process = nil,
   }
+
+  active = run
+  return run
 end
 
 ---Ends the current generation and begins another. Unconditional: bumping once
@@ -75,13 +101,29 @@ function M.invalidate(run)
   return run.generation
 end
 
+---Whether this run still owns the interaction.
+---
+---Asked by anything holding a callback that was armed earlier — a picker that
+---is still on screen, an input waiting to be typed into. A setter bumps the
+---generation, so an answer arriving into a superseded run would otherwise make
+---it current again and walk it on towards a preview nobody is looking at.
+---@param run chroma_ansible.Run
+---@return boolean
+function M.owns(run)
+  return active == run
+end
+
 ---Whether an inspection that started under `mine` may still speak. Asked by the
----callback before it touches any state or any UI (§13.2).
+---callback after it is back on the main loop and before it touches any state or
+---any UI (§13.2).
+---
+---Two questions, because there are two ways to stop being current: the run has
+---moved on, and the operator has moved on to another run.
 ---@param run chroma_ansible.Run
 ---@param mine integer
 ---@return boolean
 function M.current(run, mine)
-  return run.generation == mine
+  return active == run and run.generation == mine
 end
 
 ---Records the program every subprocess of this run will start, resolved once by
@@ -136,7 +178,14 @@ end
 ---itself stale rather than racing the bump.
 ---@param run chroma_ansible.Run
 function M.cancel(run)
+  -- Authority goes first and unconditionally. Killing is a request to another
+  -- process: it can fail, and it can arrive after the process has already
+  -- exited. Neither may decide whether a callback still counts.
   M.invalidate(run)
+
+  if active == run then
+    active = nil
+  end
 
   local process = run.process
   run.process = nil
@@ -175,10 +224,12 @@ function M.repeatable()
   return last ~= nil
 end
 
----Forgets the last invocation.
+---Forgets the last invocation, and that anything owns the interaction. For
+---tests, which would otherwise leave one case's run superseding the next one's.
 ---@return nil
 function M.forget()
   last = nil
+  active = nil
 end
 
 ---A fresh run seeded from the last invocation, or the reason there is none. The

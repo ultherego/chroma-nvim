@@ -86,6 +86,13 @@ local function choose(run, prompt, choices, chosen)
       return choice.label
     end,
   }, function(choice)
+    -- A picker outlives the run it belongs to: it is still on screen when the
+    -- operator starts something else, and an answer to it would set a value on
+    -- a run that is over — which bumps its generation and makes it current
+    -- again. Silently, because the run they are in is the one being answered.
+    if not planner.owns(run) then
+      return
+    end
     if choice == nil then
       -- §15.4: a dismissed picker is not a pause. Ending the run invalidates
       -- the generation, so a slow inspection cannot answer into one that is gone.
@@ -104,6 +111,25 @@ end
 ---@param entered fun(path: string)
 local function ask_path(run, prompt, default, entered)
   vim.ui.input({ prompt = PROMPT:format(prompt), default = default, completion = "file" }, function(answer)
+    if not planner.owns(run) then
+      return
+    end
+    if not answer or answer == "" then
+      return planner.cancel(run)
+    end
+    entered(answer)
+  end)
+end
+
+---Asks for a value that is not a path, on the same terms.
+---@param run chroma_ansible.Run
+---@param prompt string
+---@param entered fun(value: string)
+local function ask_text(run, prompt, entered)
+  vim.ui.input({ prompt = PROMPT:format(prompt) }, function(answer)
+    if not planner.owns(run) then
+      return
+    end
     if not answer or answer == "" then
       return planner.cancel(run)
     end
@@ -301,10 +327,7 @@ local function pick_tags(run, reported, picked, settled)
       return settled()
     end
     if chose(value, "custom") then
-      return vim.ui.input({ prompt = PROMPT:format("Tag") }, function(entered)
-        if not entered or entered == "" then
-          return planner.cancel(run)
-        end
+      return ask_text(run, "Tag", function(entered)
         table.insert(picked, entered)
         pick_tags(run, reported, picked, settled)
       end)
@@ -384,10 +407,7 @@ local function pick_limit(run, graph, settled)
 
   choose(run, prompt, choices, function(value)
     if chose(value, "custom") then
-      return vim.ui.input({ prompt = PROMPT:format("Host pattern") }, function(entered)
-        if not entered or entered == "" then
-          return planner.cancel(run)
-        end
+      return ask_text(run, "Host pattern", function(entered)
         -- Byte for byte, unparsed and unexpanded (§9.3).
         planner.set_limit(run, entered)
         settled()
@@ -530,10 +550,7 @@ local function ask_remote_user(run, settled)
       run.plan.remote_user = nil
       return settled()
     end
-    vim.ui.input({ prompt = PROMPT:format("Remote user") }, function(entered)
-      if not entered or entered == "" then
-        return planner.cancel(run)
-      end
+    ask_text(run, "Remote user", function(entered)
       run.plan.remote_user = entered
       settled()
     end)
@@ -584,6 +601,10 @@ end
 ---Plans and runs one Ansible invocation — `<leader>ar`. Every step is a
 ---question, the last is `Run?`, and any of them may be answered by walking away.
 function M.plan()
+  -- First, before anything that can refuse: pressing the key is the operator
+  -- saying they are done with whatever was running (§13.2).
+  planner.supersede()
+
   local executable = inspect.tool(PLAYBOOK_TOOL)
   if not executable then
     -- §16, first row: refuse at the start, naming the tool. Nothing else runs.
@@ -622,6 +643,10 @@ end
 ---by itself, and §14.4 re-resolves the executable and re-checks the paths, so a
 ---repeat refuses rather than running something that has moved.
 function M.again()
+  -- As above, and for the same reason: a repeat that refuses because the
+  -- executable moved still means the previous run is not the one being planned.
+  planner.supersede()
+
   local run, problem = planner.recall(inspect.tool)
   if not run then
     return refuse(problem)

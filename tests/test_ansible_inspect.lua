@@ -576,6 +576,39 @@ T["generations"]["a superseded failure is not reported either"] = function()
   eq(#notified, 0)
 end
 
+T["generations"]["an inspection belonging to a superseded run answers nothing"] = function()
+  -- The operator pressed the key again. Nothing about this run changed, which
+  -- is exactly why its generation could not catch this on its own.
+  local run = prepared()
+  local seen = inspecting(run)
+
+  planner.start()
+  exits({ stdout = GRAPH })
+  settle(function()
+    return seen.calls > 0
+  end)
+
+  eq(seen.calls, 0)
+  eq(#notified, 0)
+end
+
+T["generations"]["an answer already on the queue is still discarded"] = function()
+  -- Authority cannot be checked where the subprocess exits: by then the answer
+  -- is scheduled, and the operator can start something else before it runs. It
+  -- is checked after the schedule, on the way back to the main loop.
+  local run = prepared()
+  local seen = inspecting(run)
+
+  exits({ stdout = GRAPH })
+  planner.start()
+
+  settle(function()
+    return seen.calls > 0
+  end)
+
+  eq(seen.calls, 0)
+end
+
 T["generations"]["a live inspection still answers"] = function()
   -- The counterpart, so that "answers nothing" cannot pass by answering never.
   local run = prepared()

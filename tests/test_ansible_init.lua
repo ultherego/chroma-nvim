@@ -600,6 +600,65 @@ T["the limit"]["still offers a group that has hosts under it"] = function()
   eq(offered("Limit"), { "No limit", "Group: all", "Group: web", "Host: web01", "Custom pattern…" })
 end
 
+-- ---------------------------------------------------------------------------
+-- A question that outlived the run that asked it
+--
+-- A picker and an input are on screen for as long as nobody answers them, which
+-- is longer than the run they belong to. Answering one after the operator has
+-- started something else calls a setter, and a setter bumps a generation —
+-- which used to be the whole test of whether a run was still current.
+
+T["superseded"] = new_set()
+
+---Holds the next question instead of answering it.
+---@return table held `{ items, choose }` or `{ confirm }`, filled when asked
+local function holding()
+  local held = {}
+  vim.ui.select = function(items, opts, on_choice)
+    table.insert(prompts, opts.prompt)
+    held.items, held.choose = items, on_choice
+  end
+  vim.ui.input = function(opts, on_confirm)
+    table.insert(prompts, opts.prompt)
+    held.confirm = on_confirm
+  end
+  return held
+end
+
+T["superseded"]["a picker still open when another run starts answers nothing"] = function()
+  local held = holding()
+
+  ansible.plan()
+  local first = { items = held.items, choose = held.choose }
+
+  -- The operator started another run rather than answering the first.
+  ansible.plan()
+  local drawn = #prompts
+
+  -- And then went back and answered the old one. `Choose another…` is the
+  -- answer that would have drawn the next question.
+  first.choose(first.items[#first.items])
+
+  eq(#prompts, drawn)
+  eq(#started, 0)
+end
+
+T["superseded"]["an input still open when another run starts answers nothing"] = function()
+  local held = holding()
+
+  ansible.plan()
+  held.choose(held.items[#held.items])
+  local first = { confirm = held.confirm }
+
+  ansible.plan()
+  local drawn = #prompts
+
+  first.confirm(PLAYBOOK)
+
+  eq(#prompts, drawn)
+  eq(#started, 0)
+end
+
 T["the answers"] = new_set()
 
 T["the answers"]["put the tags and the limit into the command"] = function()

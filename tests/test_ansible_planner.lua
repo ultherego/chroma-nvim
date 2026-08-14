@@ -476,4 +476,106 @@ T["cancelling"]["survives a process that has already exited"] = function()
   eq(run.process, nil)
 end
 
+-- ---------------------------------------------------------------------------
+-- Who owns the interaction
+--
+-- Generations settle which answer inside one run is current. They cannot settle
+-- anything between two: starting a second run leaves the first's generation
+-- exactly where it was, so its slow inspection still passed `current` and its
+-- picker, still on screen, still had somewhere to put an answer. One run owns
+-- the interaction, and starting anything takes that away from whoever had it.
+
+T["ownership"] = new_set()
+
+---Starts a run the way the named entry point would. `remember` has already
+---been called, so a repeat has something to recall.
+---@param kind string "run" or "repeat"
+---@return chroma_ansible.Run
+local function begin(kind)
+  if kind == "run" then
+    return ran()
+  end
+  return assert(planner.recall(resolver(ANSIBLE)))
+end
+
+T["ownership"]["starting anything takes authority from whatever had it"] = new_set({
+  -- All four, because `<leader>ar` and `<leader>aR` are two doors into the same
+  -- room and either can be on either side of the overlap.
+  parametrize = { { "run", "run" }, { "run", "repeat" }, { "repeat", "run" }, { "repeat", "repeat" } },
+})
+
+T["ownership"]["starting anything takes authority from whatever had it"][""] = function(first, second)
+  planner.remember(ran())
+
+  local a = begin(first)
+  local mine = a.generation
+  eq(planner.owns(a), true)
+  eq(planner.current(a, mine), true)
+
+  local b = begin(second)
+
+  -- Not current for the generation it started under, and not current for its
+  -- own either: a setter reached by a picker still on screen bumps that one.
+  eq(planner.owns(a), false)
+  eq(planner.current(a, mine), false)
+  eq(planner.current(a, a.generation), false)
+
+  -- And the one that took over has it.
+  eq(planner.owns(b), true)
+  eq(planner.current(b, b.generation), true)
+end
+
+T["ownership"]["a superseded run cannot make itself current again"] = function()
+  -- The picker A opened is still on screen when B starts. Answering it calls a
+  -- setter, which bumps A's generation — and generation alone would call that
+  -- run current again and walk it on towards a preview nobody asked for.
+  local a = ran()
+  planner.start()
+
+  planner.set_tags(a, { "common" })
+
+  eq(planner.current(a, a.generation), false)
+  eq(planner.owns(a), false)
+end
+
+T["ownership"]["superseding stops the inspection the old run started"] = function()
+  local a = ran()
+  local killed
+  a.process = {
+    kill = function(_, signal)
+      killed = signal
+    end,
+  }
+
+  planner.start()
+
+  eq(killed, "sigterm")
+  eq(a.process, nil)
+end
+
+T["ownership"]["takes authority before it tries to stop anything"] = function()
+  -- The same order `cancel` keeps within a run, at the boundary between two:
+  -- killing is a request to another process and may fail or arrive late, so it
+  -- cannot be what decides whether a callback still counts.
+  local a = ran()
+  local mine = a.generation
+  local seen
+  a.process = {
+    kill = function()
+      seen = { current = planner.current(a, mine), owns = planner.owns(a) }
+    end,
+  }
+
+  planner.start()
+
+  eq(seen, { current = false, owns = false })
+end
+
+T["ownership"]["superseding nothing at all is not an event"] = function()
+  planner.supersede()
+
+  local run = ran()
+  eq(planner.owns(run), true)
+end
+
 return T
