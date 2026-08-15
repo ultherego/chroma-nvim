@@ -32,6 +32,11 @@ return {
     config = function()
       require("kubectl").setup()
 
+      -- What the cluster subprocesses are allowed to see of the environment.
+      -- The plugin strips it down to four variables, and a credential helper
+      -- needs whatever its provider needs.
+      require("chroma.kubernetes").setup()
+
       -- Three of kubectl's default mappings never arrive: Zellij captures
       -- <C-p> (pane mode), <C-n> (resize mode) and <M-h> (move focus left).
       vim.api.nvim_create_autocmd("FileType", {

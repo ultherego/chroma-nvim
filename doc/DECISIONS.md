@@ -925,6 +925,39 @@ out `0644` in testing. A plan can quote sensitive variable values, and
 world-readable is the wrong default for that. It cannot be pre-created with the
 right mode because terraform replaces it.
 
+### A cluster subprocess sees the environment, and Chroma names no provider
+
+**Decision.** Every subprocess `kubectl.nvim`'s command layer builds is given
+the editor's environment as it is at that moment, with the plugin's own values
+on top. `lua/chroma/kubernetes.lua`, installed from that plugin's `config`.
+
+**Why.** `configure_command` spawns with `clear_env = true` and keeps four
+variables — `PATH`, `HOME`, `KUBECONFIG`, `KUBECACHEDIR`. Authentication needs
+whatever the cluster's credential helper needs, and that is a different
+variable for every provider: a profile, a key file, a config directory, a
+proxy, a CA bundle, a socket. `<leader>Ap` changes the profile inside the
+session — with four variables the change reaches nothing, and the helper
+answers as whoever the default is.
+
+So the environment is read at every spawn, not once at setup: a snapshot taken
+when the plugin was configured is the profile the editor started with.
+
+No allowlist and no provider names. Chroma does not know how a cluster
+authenticates and must not have an opinion — EKS, GKE, AKS, OIDC, a
+certificate, a company helper. `components/kubernetes.json` requires `kubectl`
+and nothing else for the same reason, and nothing in the AWS module knows that
+Kubernetes exists.
+
+**What it is not.** Not a fix for the plugin's main path: resource views go
+through a Rust client loaded into the editor's own process, which sees the
+environment because it *is* the process. This is the subprocess path — Helm,
+Flux, the shell fallbacks — where the environment was being thrown away.
+
+**Verified by mutation.** Taking the environment once at setup fails the two
+cases that ask for it twice, one of them across a real process boundary.
+Reversing the precedence fails the three cases where the plugin's own value
+must win.
+
 ---
 
 ## The execution layer

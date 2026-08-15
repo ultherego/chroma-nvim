@@ -78,8 +78,9 @@ that.
 
 `lua/chroma/` is the opposite category and has grown into it: not a tool, but
 this configuration talking about itself — which components exist, which are
-enabled, what the machine has, how the editor bootstraps, and how a project
-declares what to run.
+enabled, what the machine has, how the editor bootstraps, how a project
+declares what to run, and what a plugin's subprocesses are allowed to see of
+the environment.
 
 ```
 ~/.config/nvim
@@ -112,6 +113,7 @@ declares what to run.
 │       ├── bootstrap.lua         what the CLI drives headlessly
 │       ├── components.lua        reads components/, the Lua half
 │       ├── health.lua            :checkhealth chroma
+│       ├── kubernetes.lua        what a cluster subprocess sees of the environment
 │       ├── modules.lua           which of our own modules a selection enables
 │       ├── schemas.lua           logical schema name → URL and file patterns
 │       ├── state.lua             the user's component selection
