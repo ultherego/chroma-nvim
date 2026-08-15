@@ -72,8 +72,9 @@ The own-code layout diverged from the original plan on purpose: each module is
 a self-contained plugin in a directory of its own rather than a file in one
 shared namespace, so any of them can be lifted into its own repository without
 edits. They carry the project's name — `chroma-vault`, `chroma-terraform`,
-`chroma-aws` — because they are its modules, not because the name says what
-they do; `:help chroma-nvim-vault` and the module headers do that.
+`chroma-aws`, `chroma-ansible` — because they are its modules, not because the
+name says what they do; `:help chroma-nvim-vault` and the module headers do
+that.
 
 `lua/chroma/` is the opposite category and has grown into it: not a tool, but
 this configuration talking about itself — which components exist, which are
@@ -106,6 +107,7 @@ declares what to run.
 │   ├── chroma-vault              our own plugin
 │   ├── chroma-terraform          our own runner
 │   ├── chroma-aws                our own profile/region switcher
+│   ├── chroma-ansible            our own Ansible planner
 │   └── chroma
 │       ├── bootstrap.lua         what the CLI drives headlessly
 │       ├── components.lua        reads components/, the Lua half
@@ -541,9 +543,11 @@ component that defines the keys under them is enabled, so which-key describes
 the editor somebody has rather than the one they could have had.
 
 That component is not always the one the heading is named after, which is why
-the column names it. Every key under `a` belongs to `vault`, and `vault` and
-`ansible` are independent, so a heading following `ansible` was wrong in both
-directions at once — see `DECISIONS.md`, "A heading follows its keys".
+the column names it, and one heading follows two of them. `<leader>a` is
+shared: `chroma-ansible` contributes `<leader>ar` and `<leader>aR`, and
+`chroma-vault` contributes the seven Vault operations. The two components are
+independent, so the heading is registered when either is enabled — see
+`DECISIONS.md`, "A heading follows its keys".
 
 Run Task is `<leader>xr`, under Tools rather than under a domain: a task is not
 a Terraform thing or an Ansible thing, and putting it beside `<leader>tp` would

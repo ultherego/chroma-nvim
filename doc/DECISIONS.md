@@ -474,11 +474,13 @@ outline is active.
 
 **Decision.** A which-key group heading is registered when the component that
 defines the keys under it is enabled — not when the component it is named after
-is. `<leader>a` is labelled *Ansible* and follows `vault`.
+is. `<leader>a` is labelled *Ansible* and followed `vault` alone for as long as
+`vault` was the only one of them contributing a key — see "It changed" below.
 
-**Why.** All seven keys under `<leader>a` come from `chroma-vault`, and
-`ansible` contributes none. The heading followed `ansible` anyway, and since the
-two components are independent that produced two wrong editors rather than one:
+**Why.** When this was decided, all seven keys under `<leader>a` came from
+`chroma-vault` and `ansible` contributed none. The heading followed `ansible`
+anyway, and since the two components are independent that produced two wrong
+editors rather than one:
 `vault` without `ansible` had seven working keys and no heading, and `ansible`
 without `vault` had a heading over an empty list, which reads as a feature that
 is present and broken rather than one that was not selected.
@@ -494,6 +496,12 @@ component instead of saying "with the component".
 **What would change it.** A component that contributes its own keys under
 `<leader>a`. Then the heading follows either of them, and the gate becomes a
 list rather than one name.
+
+**It changed.** `chroma-ansible` contributes `<leader>ar` and `<leader>aR`, so
+the gate is now `ansible` or `vault` — a list, exactly as above. The decision
+itself is untouched: the heading still follows the components that define the
+keys under it, and it is still labelled *Ansible*. What moved is which
+components those are.
 
 ---
 
