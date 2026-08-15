@@ -816,10 +816,10 @@ An execution planner, not a playbook runner. `<leader>ar` asks what to run,
 asks Ansible what your answers mean, shows the exact command, and starts it
 only when you say so.
 
-Status: BETA. It is covered by the test suite and everything below describes
-current behaviour, but it has not been through an external audit. The full
-design, with the measurements each rule rests on, is in
-`doc/chroma-ansible-design.md`.
+Status: STABLE. It is covered by the test suite, it has been through an
+external audit with every finding answered, and everything below describes
+current behaviour, not intent. The full design, with the measurements each
+rule rests on, is in `doc/chroma-ansible-design.md`.
 
 Component `ansible`. It needs `ansible-playbook` and `ansible-inventory`, both
 of which ship in ansible-core.

@@ -388,11 +388,11 @@ we maintain — unless the gap is genuine.
 
 Scope set by the survey of 2026-08-06, not by assumption.
 
-The two modules that handle secrets or change infrastructure are **stable**.
-They are in use, covered by the test suite, and have been through eleven
-external audits, with the findings of each series dispositioned before the next
-began. `chroma-ansible` also changes infrastructure and is **beta**: it is held
-to the same bar and has not yet met it.
+The three modules that handle secrets or change infrastructure are **stable**.
+They are in use, covered by the test suite, and each has been audited from
+outside with every finding of a series dispositioned before the next began:
+eleven rounds behind vault and terraform, and the round `chroma-ansible` was
+promoted on.
 The archived rounds are in the history, under `docs(audit): archive … project
 audit`; there is no inbox file at the root any more, and a round in progress
 lives outside the repository until it is archived.
@@ -419,16 +419,18 @@ What remains is a `plan` / `apply` / `destroy` runner. Existing options were
 rejected: `mvaldes14/terraform.nvim` had no push for a year, and
 `telescope-terraform.nvim` is built on telescope, which this config does not use.
 
-### `chroma-ansible` — beta, in `lua/chroma-ansible/`
+### `chroma-ansible` — stable, in `lua/chroma-ansible/`
 An Ansible execution planner, not a playbook runner. It takes a playbook, a
 working directory and inventory sources chosen by the operator, asks Ansible
 itself what they mean — `ansible-inventory --graph`, `--list-tags`,
 `--list-hosts` — and turns the answers into an exact `argv` that is shown in
 full before anything starts.
 
-Beta rather than stable, by the same standard vault and terraform were held
-to: it is covered by the suite and by mutations, and it has not yet been
-through an external audit or a week of real use. What it guarantees is in
+Stable by the same standard vault and terraform were held to: an external
+audit closed with every finding dispositioned, the whole operator path
+exercised against a real `ansible-core` rather than a stub, and a reading of
+every module in one pass afterwards — which found one more defect, on the
+failure path, and it is fixed. What it guarantees is in
 `doc/chroma-ansible-design.md`, whose twenty sections are written to be cited
 from the source.
 
@@ -580,3 +582,4 @@ say it was.
 | 2026-08-14 | `:AnsibleCancel` — an inspection is visible while it runs and can be stopped | §13.4 always said cancelling was the operator's, and there was nothing to cancel with: between two questions the editor did nothing at all, for as long as the system being asked took. There is still no timeout, because a dynamic inventory has no schedule to hold it to |
 | 2026-08-14 | One planner run uses one frozen environment, captured when the run starts, for every inspection and for the execution | §3.5 promised an exact environment and two of the three exactnesses were kept. Chroma changes `vim.env` itself — `chroma-aws` writes the profile and the region — so switching profile mid-planning had `--list-hosts` resolve against one account and the playbook run against another, with the same argv and a host count that described neither. The preview names the few values that change what an invocation means and prints no others: an environment holds credentials |
 | 2026-08-15 | A failed inspection shows Ansible's output in a window of Neovim's own, and the menu of ways onwards is the screen after it | §16 promised the output whole and the planner passed it to `vim.ui.select` as a prompt. Measured on the pinned set: that is fzf-lua's, a prompt there is one line of an fzf command line, and the operator was shown `Inventory inspection failed` with three ways to carry on and no reason. The same measurement gave the second half — fzf-lua passes the prompt in the fzf process's argv, so output naming hosts and paths was readable from the process table, which is what §7.4 exists to prevent |
+| 2026-08-15 | `chroma-ansible` promoted from beta to stable | the external audit on `v2.7.0` closed 9/9 with every finding dispositioned; the whole operator path — `<leader>ar` through a real `ansible-core` to a real terminal, `<leader>aR`, and `:AnsibleCancel` on a live inspection — was exercised in a container rather than against stubs; and every module was then read in one pass, which found one further defect on the failure path and closed it |
