@@ -1499,3 +1499,39 @@ prefix match: `AWS_*` prints `AWS_SECRET_ACCESS_KEY`. `PATH` is not among them �
 environment as it is at execution time rather than at planning time. That is a
 task, not a planner run: `.chroma/tasks.json` declares its own environment and
 inherits the rest, deliberately.
+
+### A subprocess's output is never carried by a picker
+
+Design §16 promises that a failed inspection shows Ansible's own output, whole:
+not summarised, not rewritten, not truncated. The planner kept that promise by
+making the output the prompt of the `vim.ui.select` that offered the ways
+onwards, and the interface broke it: `vim.ui.select` here is fzf-lua's, it maps
+the prompt onto fzf's `--prompt`, and a prompt is one line. Measured on the
+pinned set — `HEADLINE\n\nERROR! …` rendered as `HEADLINE`, while Neovim's
+built-in implementation renders all of it. So an operator whose inventory would
+not parse was shown `Inventory inspection failed`, three ways to carry on, and
+no reason.
+
+The test that should have caught it asserted that the output was in a prompt,
+which it was. It was checking the planner's side of a boundary whose other side
+does the truncating.
+
+**Two screens now, and the split is the decision.** What Ansible said goes into
+a scratch buffer of Neovim's own — `<CR>` leads to the menu, `<Esc>` or `q` ends
+the run — and the menu that follows asks a short question in Chroma's own words.
+`vim.ui.select` keeps the job it is good at, which is a short question with
+short answers, and the guarantee stops depending on which picker a user has
+installed.
+
+**The second reason is why the fix is not "make the prompt taller".** Measured
+in the same run: fzf-lua passes that prompt in the **argv of the fzf process**,
+where anything on the machine can read it. Ansible's diagnostics name paths and
+hosts. §7.4 keeps that output out of notifications and files for the same
+reason, and a process table is worse than either.
+
+The view is the run's, on the terms everything else in this module uses: it is
+taken down when the run is superseded, and that closing is not an answer —
+`progress.lua`'s two doors, in a second place.
+
+**What would change it.** Nothing about a picker. A `vim.ui.select` that
+rendered every line would still be one somebody can replace.

@@ -1033,6 +1033,14 @@ fail.
 Every failure shows Ansible's own output. Chroma does not summarise, rewrite or
 truncate it.
 
+It is shown on a screen of Neovim's own, and the menu of ways onwards is the
+screen after it. **A subprocess's output never travels through `vim.ui.select`**
+— not as a prompt, not as an item. A picker is entitled to render a prompt as
+one line, and the one Chroma ships does exactly that, so the promise above was
+kept by the planner and broken by the interface; measured, that picker also
+passes its prompt in another process's argument vector, which §7.4 forbids for
+output that names hosts and paths.
+
 ---
 
 ## 17. Component contract

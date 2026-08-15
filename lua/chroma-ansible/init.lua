@@ -13,6 +13,7 @@
 
 local argv = require("chroma-ansible.argv")
 local context = require("chroma-ansible.context")
+local failure = require("chroma-ansible.failure")
 local inspect = require("chroma-ansible.inspect")
 local planner = require("chroma-ansible.planner")
 local preview = require("chroma-ansible.preview")
@@ -284,17 +285,46 @@ end
 -- ---------------------------------------------------------------------------
 -- §16 What a failed inspection offers
 
----Offers Ansible's own output and the ways onwards. Shown rather than notified,
----because a notification is a message-history entry and §7.4 keeps subprocess
----output out of anything that keeps it. Shown whole: not summarised, not
----truncated.
+---Offers Ansible's own output and the ways onwards, in that order and on two
+---screens. Shown rather than notified, because a notification is a
+---message-history entry and §7.4 keeps subprocess output out of anything that
+---keeps it. Shown whole: not summarised, not truncated.
+---
+---Two screens rather than one because the output used to be the picker's
+---prompt, and a picker is entitled to make a prompt one line — the one Chroma
+---ships does, and puts it in another process's argv besides. What Ansible said
+---stays in a buffer of Neovim's own (`failure.lua`), and the menu that follows
+---asks a short question in Chroma's own words.
 ---@param run chroma_ansible.Run
 ---@param headline string
 ---@param answer chroma_ansible.Answer
 ---@param choices chroma_ansible.Choice[]
 ---@param chosen fun(value: any)
 local function degraded(run, headline, answer, choices, chosen)
-  choose(run, ("%s\n\n%s"):format(headline, answer.problem or ""), choices, chosen)
+  local answered = false
+
+  local showing = failure.open(headline, answer.problem or "", function()
+    answered = true
+    -- The same question every held callback asks: this view can outlive the run
+    -- it belongs to, and reading it is not a reason to plan one nobody is in.
+    if not planner.owns(run) then
+      return
+    end
+    -- The view took itself down on the way here, so there is nothing left for
+    -- the run to take down.
+    run.stop = nil
+    choose(run, headline, choices, chosen)
+  end, function()
+    planner.cancel(run)
+  end)
+
+  -- The view is this run's, like the progress window before it: superseding the
+  -- run takes it off the screen without it counting as an answer. Not claimed
+  -- when it has already been answered, which is the order a caller that answers
+  -- for the operator produces — a stale handle would then outlive its window.
+  if not answered then
+    run.stop = showing.close
+  end
 end
 
 -- ---------------------------------------------------------------------------

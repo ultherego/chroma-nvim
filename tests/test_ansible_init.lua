@@ -15,6 +15,7 @@ local new_set = MiniTest.new_set
 local eq = MiniTest.expect.equality
 
 local ansible = require("chroma-ansible")
+local failure = require("chroma-ansible.failure")
 local inspect = require("chroma-ansible.inspect")
 local planner = require("chroma-ansible.planner")
 local preview = require("chroma-ansible.preview")
@@ -47,7 +48,7 @@ end
 --- Stands in for both Ansible tools, and is executable, which `run.lua` checks.
 local TOOL = vim.fn.exepath("sh")
 
-local saved, prompts, started, confirmed, script, ran_out, menus, defaults
+local saved, prompts, started, confirmed, script, ran_out, menus, defaults, views
 
 ---Installs the scripted answers.
 ---
@@ -75,7 +76,8 @@ local T = new_set({
       prompts, started, confirmed, script, ran_out = {}, {}, true, {}, false
       -- What each menu offered and what each path prompt started from, kept
       -- apart from `prompts` so the substring helper stays a list of strings.
-      menus, defaults = {}, {}
+      -- `views` is the same for the screen a failed inspection shows first.
+      menus, defaults, views = {}, {}, {}
       planner.forget()
 
       saved = {
@@ -88,7 +90,17 @@ local T = new_set({
         confirm = preview.confirm,
         start = runner.start,
         notify = vim.notify,
+        view = failure.open,
       }
+
+      -- Answered as the operator reading it and pressing Enter would. What is
+      -- checked here is the sequence; the window itself is
+      -- `test_ansible_failure.lua`'s.
+      failure.open = function(headline, detail, on_proceed, _)
+        table.insert(views, { headline = headline, detail = detail })
+        on_proceed()
+        return { close = function() end }
+      end
 
       vim.ui.select = function(items, opts, on_choice)
         table.insert(prompts, opts.prompt)
@@ -141,7 +153,7 @@ local T = new_set({
       inspect.tool, inspect.tags = saved.tool, saved.tags
       inspect.inventory, inspect.targets = saved.inventory, saved.targets
       preview.confirm, runner.start = saved.confirm, saved.start
-      vim.notify = saved.notify
+      vim.notify, failure.open = saved.notify, saved.view
       planner.forget()
     end,
   },
@@ -173,6 +185,20 @@ end
 local function asked(text)
   for _, prompt in ipairs(prompts) do
     if prompt and prompt:find(text, 1, true) then
+      return true
+    end
+  end
+  return false
+end
+
+---Whether any failure view held this text, in its headline or in what Ansible
+---said. The other half of `asked`: what belongs on one of these two screens
+---must not be on the other.
+---@param text string
+---@return boolean
+local function shown(text)
+  for _, view in ipairs(views) do
+    if view.headline:find(text, 1, true) or view.detail:find(text, 1, true) then
       return true
     end
   end
@@ -460,10 +486,34 @@ T["degrading"]["a failed tag inspection offers a way to carry on"] = function()
 
   ansible.plan()
 
-  -- §16: Ansible's own output, whole, on the screen that offers the way out.
+  -- §16: Ansible's own output, whole, on a screen of Neovim's own — and then a
+  -- menu that asks a short question. The two are checked apart, because this
+  -- used to be one screen and the output was the half that never arrived.
+  eq(shown("Tag inspection failed"), true)
+  eq(shown("couldn't resolve module/action 'bogus'"), true)
   eq(asked("Tag inspection failed"), true)
-  eq(asked("couldn't resolve module/action 'bogus'"), true)
+  eq(asked("couldn't resolve module/action 'bogus'"), false)
   eq(#started, 1)
+end
+
+T["degrading"]["never puts what Ansible said into a question"] = function()
+  -- One assertion, and it is the whole of the defect this replaced: the menu
+  -- that follows a failure is asked through `vim.ui.select`, whose prompt is a
+  -- single line in the implementation Chroma ships and reaches another
+  -- process's argument vector besides (§7.4). Whatever else changes about that
+  -- screen, no part of a subprocess's output may travel through it.
+  local said = "[ERROR]: could not resolve /srv/inventories/dev for web01"
+  inspect.tags = function(_, on_done)
+    on_done({ problem = said })
+  end
+  local steps = straight_through()
+  table.remove(steps, 5)
+  table.insert(steps, 5, { pick = "No tag filter" })
+  answering(steps)
+
+  ansible.plan()
+
+  eq(asked(said), false)
 end
 
 T["degrading"]["a failed tag inspection can be retried"] = function()
@@ -495,7 +545,12 @@ T["degrading"]["a failed inventory inspection still allows a limit"] = function(
 
   ansible.plan()
 
-  eq(asked("Inventory inspection failed"), true)
+  -- The other half of the same mechanism, and the one where it matters more:
+  -- `Continue without discovered groups and hosts` is a decision, and it used
+  -- to be offered without the reason the inventory could not be read.
+  eq(shown("Inventory inspection failed"), true)
+  eq(shown("Unable to parse inventory source"), true)
+  eq(asked("Unable to parse inventory source"), false)
   eq(#started, 1)
 end
 

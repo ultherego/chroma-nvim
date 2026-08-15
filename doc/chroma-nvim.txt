@@ -889,10 +889,11 @@ inside dynamically included files do not appear. `Custom tag...` is always
 offered, and it is how those are reached rather than a fallback.
 
 Failure here does not stop the run. Each failed inspection shows Ansible's own
-output and offers a way to carry on describing the run by hand — retry, no
-filter, a value typed in, or cancel. Only three things end the planner: no
-`ansible-playbook`, a playbook that cannot be read, and a working directory
-that is not one.
+output, whole, in a window of its own. <CR> there offers the ways to carry on
+describing the run by hand — retry, no filter, a value typed in, or cancel —
+and <Esc> or `q` ends the run. Only three things end the planner by
+themselves: no `ansible-playbook`, a playbook that cannot be read, and a
+working directory that is not one.
 
 Limits and overrides                                *chroma-nvim-ansible-limit*
 
