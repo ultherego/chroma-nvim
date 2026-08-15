@@ -1203,6 +1203,35 @@ language server's job, and lua_ls already does it in the editor. selene is here
 for undefined variables, shadowing and unreachable code, which this is enough
 for.
 
+### A lazy plugin's config is proved where it is forced to run
+
+**Decision.** The `kubernetes` profile in the cold-start loop loads
+`kubectl.nvim` on purpose and then asks what a cluster subprocess would be
+given. A hard check: no fallback, and nothing that reads as success when the
+answer is missing.
+
+**Why.** A cold start installs plugins and starts an editor; it never runs the
+`config` of a plugin that loads on a key or a command. So the policy in
+`lua/chroma/kubernetes.lua` had a whole class of regression with nothing
+watching it: the module intact and its unit tests green, while
+`lua/plugins/devops.lua` has stopped calling it, or the plugin has moved the
+command layer the policy attaches to. Both of those ship silently and are only
+noticed by an operator whose credentials stopped reaching a cluster.
+
+The assertion is what the subprocess would receive, not the identity of a
+function. A variable that is in the environment and is not one of the four
+`kubectl.nvim` keeps can only have arrived through Chroma, so the check reads
+the same way the operator's problem does.
+
+**Verified in a container, on a real installation of that profile.** As
+shipped it passes; with the call removed from `devops.lua` it fails; with
+`configure_command` renamed under it, it fails.
+
+The whole check runs inside one `pcall`, and that is not decoration: measured,
+a Lua error raised by `-c` does not end a headless Neovim — it is printed, the
+next `-c` runs, and `qa!` exits 0. The first version of this gate was written
+without it and reported the renamed command layer as success.
+
 ---
 
 ## Deliberate omissions

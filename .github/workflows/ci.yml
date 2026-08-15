@@ -517,6 +517,45 @@ jobs:
               end
             " -c 'qa!'
 
+            # The one thing a cold start cannot see on its own.
+            #
+            # kubectl.nvim is lazy, so nothing above ever runs its `config` —
+            # and that config is where Chroma installs the environment policy
+            # for cluster subprocesses. Every unit test of that policy passes
+            # against a stand-in, so the class of regression left uncovered is
+            # exactly this one: the module is fine, its tests are green, and
+            # `lua/plugins/devops.lua` has quietly stopped calling it, or the
+            # plugin has moved the command layer the policy attaches to.
+            #
+            # Loading it here is the only place the whole chain is real. The
+            # assertion is what a subprocess would be given, not the identity
+            # of a function: a variable that is in the environment and is not
+            # one of the four kubectl.nvim keeps can only have arrived through
+            # Chroma. Hard, deliberately — no fallback and no `|| true`.
+            if [ "$profile" = kubernetes ]; then
+              CHROMA_CI_CLUSTER_SENTINEL=reached nvim --headless -c 'lua
+                -- Everything inside one pcall, because a Lua error raised by
+                -- -c does not end a headless Neovim: it is printed, the next
+                -- -c runs, and qa! exits 0. Measured. A gate that reads a
+                -- moved command layer as success is not a gate, so the failure
+                -- has to be caught here and turned into an exit code.
+                local ok, err = pcall(function()
+                  vim.cmd("Lazy! load kubectl.nvim")
+
+                  local commands = require("kubectl.actions.commands")
+                  local env = commands.configure_command("kubectl", nil, {}).env
+
+                  assert(env.CHROMA_CI_CLUSTER_SENTINEL == "reached", "the environment stops at kubectl.nvim")
+                end)
+
+                if not ok then
+                  io.write("a cluster subprocess would not see the environment: " .. tostring(err) .. "\n")
+                  vim.cmd("cquit 1")
+                end
+                io.write("Cluster subprocesses see the environment.\n")
+              ' -c 'qa!'
+            fi
+
             echo "::endgroup::"
           done
 
