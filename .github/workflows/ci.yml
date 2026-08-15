@@ -75,7 +75,20 @@ env:
   # The version this configuration targets. `stable` is deliberately not used:
   # this config requires the 0.12 LSP API and the rewritten nvim-treesitter, so
   # a silent major bump should fail here rather than on somebody's machine.
+  #
+  # Installed by downloading the release asset rather than through an action.
+  # The one used before — rhysd/action-setup-vim — fetches this same tarball
+  # with no retry, and a bad minute on GitHub's CDN answered `socket hang up`
+  # and failed jobs no commit caused. A download this job owns can be told to
+  # retry; an action's cannot.
+  #
+  # SHA-256 of nvim-linux-x86_64.tar.gz, on the same terms as selene and
+  # actionlint above: the pin says which release was asked for, the sum says
+  # which bytes, and retrying is only safe because the second attempt has to
+  # produce the same ones. `docker/Dockerfile` pins the identical pair, and
+  # both change together from a download made on purpose.
   NEOVIM_VERSION: v0.12.4
+  NEOVIM_SHA256: 012bf3fcac5ade43914df3f174668bf64d05e049a4f032a388c027b1ebd78628
 
 jobs:
   lua:
@@ -143,10 +156,35 @@ jobs:
           ref: ${{ inputs.ref }}
 
       - name: Install Neovim
-        uses: rhysd/action-setup-vim@febef33995d6649302e9d88dda81e071b68f16a7 # v1.6.1
-        with:
-          neovim: true
-          version: ${{ env.NEOVIM_VERSION }}
+        # Both jobs that need an editor install it exactly this way. Why it is
+        # a download rather than an action, and why the sum is a constant, is
+        # beside NEOVIM_VERSION at the top of this file.
+        #
+        # Into RUNNER_TEMP and not the workspace: the checkout is what the
+        # tests read, and an editor unpacked into it is a directory they would
+        # have to know to ignore.
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP"
+
+          curl --fail --location --silent --show-error \
+            --retry 5 --retry-all-errors --retry-delay 2 \
+            --connect-timeout 15 --max-time 300 \
+            -o nvim.tar.gz \
+            "https://github.com/neovim/neovim/releases/download/${NEOVIM_VERSION}/nvim-linux-x86_64.tar.gz"
+
+          echo "${NEOVIM_SHA256}  nvim.tar.gz" | sha256sum -c -
+          tar -xzf nvim.tar.gz
+          echo "$RUNNER_TEMP/nvim-linux-x86_64/bin" >> "$GITHUB_PATH"
+
+          # A pin nothing checks is a wish. An asset replaced upstream, or a
+          # redirect that landed somewhere else, would otherwise be found out
+          # by a test failing for a reason that reads like a code defect.
+          got=$(./nvim-linux-x86_64/bin/nvim --version | sed -n '1s/^NVIM //p')
+          if [ "$got" != "$NEOVIM_VERSION" ]; then
+            echo "::error::asked for Neovim $NEOVIM_VERSION and got $got"
+            exit 1
+          fi
 
       - name: Install ansible-core
         # The integration tests drive the real ansible-vault CLI. Without it
@@ -245,10 +283,35 @@ jobs:
           ref: ${{ inputs.ref }}
 
       - name: Install Neovim
-        uses: rhysd/action-setup-vim@febef33995d6649302e9d88dda81e071b68f16a7 # v1.6.1
-        with:
-          neovim: true
-          version: ${{ env.NEOVIM_VERSION }}
+        # Both jobs that need an editor install it exactly this way. Why it is
+        # a download rather than an action, and why the sum is a constant, is
+        # beside NEOVIM_VERSION at the top of this file.
+        #
+        # Into RUNNER_TEMP and not the workspace: the checkout is what the
+        # tests read, and an editor unpacked into it is a directory they would
+        # have to know to ignore.
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP"
+
+          curl --fail --location --silent --show-error \
+            --retry 5 --retry-all-errors --retry-delay 2 \
+            --connect-timeout 15 --max-time 300 \
+            -o nvim.tar.gz \
+            "https://github.com/neovim/neovim/releases/download/${NEOVIM_VERSION}/nvim-linux-x86_64.tar.gz"
+
+          echo "${NEOVIM_SHA256}  nvim.tar.gz" | sha256sum -c -
+          tar -xzf nvim.tar.gz
+          echo "$RUNNER_TEMP/nvim-linux-x86_64/bin" >> "$GITHUB_PATH"
+
+          # A pin nothing checks is a wish. An asset replaced upstream, or a
+          # redirect that landed somewhere else, would otherwise be found out
+          # by a test failing for a reason that reads like a code defect.
+          got=$(./nvim-linux-x86_64/bin/nvim --version | sed -n '1s/^NVIM //p')
+          if [ "$got" != "$NEOVIM_VERSION" ]; then
+            echo "::error::asked for Neovim $NEOVIM_VERSION and got $got"
+            exit 1
+          fi
 
       - name: Install build prerequisites
         run: |
