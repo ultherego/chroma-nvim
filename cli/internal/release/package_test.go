@@ -31,11 +31,15 @@ func tree(t *testing.T) string {
 		{"components/core.json", `{"contract": 5, "id": "core"}` + "\n"},
 		{"after/lsp/yamlls.lua", "return {}\n"},
 		{"doc/chroma-nvim.txt", "help\n"},
+		{"doc/tags", "chroma-nvim\tchroma-nvim.txt\t/*chroma-nvim*\n"},
+
+		// Everything a release is not. doc/ holds both kinds: the help Neovim
+		// reads, and the documents the project is written under — which are
+		// read in the repository and are nobody's business once installed.
 		{"doc/CONTRACT.md", "rules\n"},
 		{"doc/DECISIONS.md", "reasons\n"},
+		{"doc/KEYMAPS.md", "mappings\n"},
 		{"assets/logo.png", "not really a png\n"},
-
-		// Everything a release is not.
 		{"cli/cmd/chroma/main.go", "package main\n"},
 		{"tests/test_state.lua", "return {}\n"},
 		{".github/workflows/ci.yml", "name: CI\n"},
@@ -102,25 +106,45 @@ func TestAnArchiveHoldsTheRuntimeAndNothingElse(t *testing.T) {
 		"chroma-nvim-v1.0.0/lua/chroma/bootstrap.lua",
 		"chroma-nvim-v1.0.0/components/core.json",
 		"chroma-nvim-v1.0.0/after/lsp/yamlls.lua",
-		"chroma-nvim-v1.0.0/doc/chroma-nvim.txt",
 		"chroma-nvim-v1.0.0/lazy-lock.json",
 
-		// The governing documents live under doc/ and therefore ship. That is
-		// a decision, not a side effect of the path: somebody reading an
-		// installed Chroma can find out what it promises and why, without a
-		// clone. Asserted here so that moving them back out is a failing test
-		// rather than a quiet change to what a release contains.
-		"chroma-nvim-v1.0.0/doc/CONTRACT.md",
-		"chroma-nvim-v1.0.0/doc/DECISIONS.md",
+		// `:help chroma-nvim` is a feature, so the help file and the tags that
+		// make it reachable ship. Both, because a help file with no tags is a
+		// file nobody can open by name.
+		"chroma-nvim-v1.0.0/doc/chroma-nvim.txt",
+		"chroma-nvim-v1.0.0/doc/tags",
 	} {
 		if !strings.Contains(joined, wanted) {
 			t.Errorf("the archive has no %s", wanted)
 		}
 	}
 
+	// And a header for the directory that holds them, written even though doc/
+	// is not itself an entry, so an extractor is not asked to invent it. Matched
+	// exactly: every name under doc/ has this as a prefix, so a substring test
+	// here would pass on an archive that has no directory entry at all.
+	named := false
+	for _, name := range names {
+		if name == "chroma-nvim-v1.0.0/doc/" {
+			named = true
+		}
+	}
+	if !named {
+		t.Errorf("the archive names files under doc/ but never doc/ itself: %v", names)
+	}
+
 	// What a release is not. `.git` in particular: an installed configuration
 	// that is a checkout invites `git pull` over a managed installation.
-	for _, unwanted := range []string{"/cli/", "/tests/", "/.github/", "/.git/", "selene.toml", "stylua.toml"} {
+	//
+	// The governing documents are here too, and they are the reason doc/ is
+	// listed file by file: what somebody installs is the program, and a
+	// document about how the program is developed is not part of it. Asserted
+	// so that putting them back is a failing test rather than a quiet change to
+	// what a release contains.
+	for _, unwanted := range []string{
+		"/cli/", "/tests/", "/.github/", "/.git/", "selene.toml", "stylua.toml",
+		"CONTRACT.md", "DECISIONS.md", "KEYMAPS.md", "/assets/",
+	} {
 		if strings.Contains(joined, unwanted) {
 			t.Errorf("the archive carries %s", unwanted)
 		}
@@ -313,11 +337,6 @@ func TestThePackagerAndTheInstallerAgreeOnWhatARuntimeIs(t *testing.T) {
 
 	joined := strings.Join(entries(t, result.Archive), "\n")
 	for _, entry := range install.RuntimeEntries {
-		// The fixture does not carry every optional entry; the ones it has must
-		// all be in the archive.
-		if entry == "assets" {
-			continue
-		}
 		if !strings.Contains(joined, "chroma-nvim-v1.0.0/"+entry) {
 			t.Errorf("the archive is missing runtime entry %q", entry)
 		}

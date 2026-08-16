@@ -10,26 +10,35 @@ import (
 	"time"
 )
 
-// RuntimeEntries is the configuration, and nothing else. One definition, because
+// RuntimeEntries is the program, and nothing else. One definition, because
 // staging a checkout and building the release archive need the same answer.
 //
-// In, because Neovim reads them: init.lua, lua/, after/, components/ — read at
-// runtime — doc/ for `:help` and for the governing documents, lazy-lock.json,
-// and README, LICENSE and its asset so somebody can tell what the directory is.
+// In, because running Chroma needs them: init.lua, lua/, after/, components/
+// and lazy-lock.json are read at runtime; doc/chroma-nvim.txt and doc/tags are
+// `:help chroma-nvim`, which is a feature and not a document about the project.
+// README.md so the installed directory says what it is, and LICENSE because the
+// licence requires its notice in every copy.
 //
-// Out: cli/ is the installer, tests/ and .github/ are how it is developed, and
+// Out: everything else, including what is written about the project rather than
+// run by it. cli/ is the installer, tests/ and .github/ are how it is developed,
 // .git because an installed configuration that is a checkout invites `git pull`
-// on top of a managed installation.
+// on top of a managed installation, and the governing documents — CONTRACT.md,
+// DECISIONS.md, KEYMAPS.md, chroma-ansible-design.md — which are how the project
+// is developed and are read in the repository. README.md links to them there.
+//
+// doc/ is therefore listed file by file rather than as a directory: it is
+// Neovim's help directory and the project's documentation directory at once,
+// and only the first of those belongs to somebody who installed this.
 var RuntimeEntries = []string{
 	"init.lua",
 	"lua",
 	"after",
 	"components",
-	"doc",
+	"doc/chroma-nvim.txt",
+	"doc/tags",
 	"lazy-lock.json",
 	"README.md",
 	"LICENSE",
-	"assets",
 }
 
 // now is the clock, replaced in tests so a backup name is predictable.
@@ -97,7 +106,14 @@ func (tx *Transaction) StageSource(prepared PreparedSource, paths Paths) error {
 			return fmt.Errorf("looking at %s: %w", from, err)
 		}
 
-		if err := copyTree(from, filepath.Join(stage, entry)); err != nil {
+		// An entry may name a file inside a directory — doc/ ships two of its
+		// files and none of the rest — and copying a file creates no parents.
+		to := filepath.Join(stage, entry)
+		if err := os.MkdirAll(filepath.Dir(to), 0o755); err != nil {
+			return fmt.Errorf("creating %s: %w", filepath.Dir(to), err)
+		}
+
+		if err := copyTree(from, to); err != nil {
 			return err
 		}
 	}

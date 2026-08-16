@@ -40,6 +40,21 @@ func prepared(t *testing.T) PreparedSource {
 	}
 	write(t, filepath.Join(root, "lua", "chroma", "state.lua"), "return {}\n")
 
+	// doc/ holds both kinds at once: the help Neovim reads, and the documents
+	// the project is written under. A fixture with only the first could not tell
+	// them apart.
+	if err := os.MkdirAll(filepath.Join(root, "doc"), 0o755); err != nil {
+		t.Fatalf("creating doc: %v", err)
+	}
+	write(t, filepath.Join(root, "doc", "chroma-nvim.txt"), "help\n")
+	write(t, filepath.Join(root, "doc", "tags"), "chroma-nvim\tchroma-nvim.txt\t/*chroma-nvim*\n")
+	write(t, filepath.Join(root, "doc", "CONTRACT.md"), "rules\n")
+	write(t, filepath.Join(root, "doc", "DECISIONS.md"), "reasons\n")
+	if err := os.MkdirAll(filepath.Join(root, "assets"), 0o755); err != nil {
+		t.Fatalf("creating assets: %v", err)
+	}
+	write(t, filepath.Join(root, "assets", "logo.png"), "not really a png\n")
+
 	source := LocalSource{Root: root}
 	got, err := source.Prepare(context.Background())
 	if err != nil {
@@ -99,6 +114,35 @@ func TestStagingLeavesDevelopmentOutOfTheTree(t *testing.T) {
 		if exists(filepath.Join(tx.StageDir, entry)) {
 			t.Errorf("%s was copied into the installation", entry)
 		}
+	}
+}
+
+// doc/ is Neovim's help directory and the project's documentation directory at
+// the same time, and only the first of those belongs to somebody who installed
+// this: `:help chroma-nvim` is a feature, while a document about how the project
+// is developed is something to read in the repository. That is why doc/ is
+// listed file by file instead of as a directory.
+func TestStagingTakesTheHelpAndNotTheDocumentsBesideIt(t *testing.T) {
+	tx, paths := target(t)
+
+	if err := tx.StageSource(prepared(t), paths); err != nil {
+		t.Fatalf("StageSource: %v", err)
+	}
+
+	for _, wanted := range []string{"chroma-nvim.txt", "tags"} {
+		if !exists(filepath.Join(tx.StageDir, "doc", wanted)) {
+			t.Errorf("the staged tree has no doc/%s, so `:help chroma-nvim` would not work", wanted)
+		}
+	}
+
+	for _, unwanted := range []string{"CONTRACT.md", "DECISIONS.md"} {
+		if exists(filepath.Join(tx.StageDir, "doc", unwanted)) {
+			t.Errorf("doc/%s was copied into the installation", unwanted)
+		}
+	}
+
+	if exists(filepath.Join(tx.StageDir, "assets")) {
+		t.Error("assets/ was copied into the installation; the only thing that reads it is the README on GitHub")
 	}
 }
 

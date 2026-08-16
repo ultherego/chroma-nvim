@@ -151,6 +151,7 @@ func sha256Of(path string) (string, error) {
 // writeTree adds the runtime entries, in a fixed order.
 func writeTree(archive *tar.Writer, tree, version string) error {
 	prefix := Prefix(version)
+	written := map[string]bool{}
 
 	for _, entry := range install.RuntimeEntries {
 		source := filepath.Join(tree, entry)
@@ -162,11 +163,55 @@ func writeTree(archive *tar.Writer, tree, version string) error {
 			return fmt.Errorf("looking at %s: %w", source, err)
 		}
 
+		// An entry may name a file inside a directory that is not itself an
+		// entry — doc/ ships two of its files and none of the rest. Extractors
+		// mostly invent the missing parent; an archive that says what it holds
+		// does not ask them to.
+		if err := addParents(archive, entry, prefix, written); err != nil {
+			return err
+		}
+
 		if err := add(archive, tree, entry, prefix); err != nil {
 			return err
 		}
 	}
 
+	return nil
+}
+
+// addParents writes a header for every directory above an entry that has not
+// been written yet, outermost first, so the archive is ordered the way it is
+// laid out.
+func addParents(archive *tar.Writer, entry, prefix string, written map[string]bool) error {
+	parent := filepath.Dir(entry)
+	if parent == "." || parent == string(filepath.Separator) || written[parent] {
+		return nil
+	}
+
+	if err := addParents(archive, parent, prefix, written); err != nil {
+		return err
+	}
+	if err := addDir(archive, path.Join(prefix, filepath.ToSlash(parent))); err != nil {
+		return err
+	}
+
+	written[parent] = true
+	return nil
+}
+
+// addDir writes one directory header. Directories carry no bytes, so this is
+// the whole of what a directory is in an archive.
+func addDir(archive *tar.Writer, name string) error {
+	header := &tar.Header{
+		Typeflag: tar.TypeDir,
+		Name:     name + "/",
+		Mode:     0o755,
+		ModTime:  stamp,
+		Format:   tar.FormatPAX,
+	}
+	if err := archive.WriteHeader(header); err != nil {
+		return fmt.Errorf("writing %s: %w", name, err)
+	}
 	return nil
 }
 
@@ -192,15 +237,8 @@ func add(archive *tar.Writer, tree, relative, prefix string) error {
 
 	switch {
 	case info.IsDir():
-		header := &tar.Header{
-			Typeflag: tar.TypeDir,
-			Name:     name + "/",
-			Mode:     0o755,
-			ModTime:  stamp,
-			Format:   tar.FormatPAX,
-		}
-		if err := archive.WriteHeader(header); err != nil {
-			return fmt.Errorf("writing %s: %w", name, err)
+		if err := addDir(archive, name); err != nil {
+			return err
 		}
 
 		entries, err := os.ReadDir(source)

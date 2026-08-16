@@ -65,7 +65,9 @@ saying it may.
 
 ## Structure
 
-The tree below is what exists. `config/autocmds.lua` is still absent because
+The tree below is what exists. It is the repository, which is not the same as
+an installation — the entries marked *repository only* are how this is built
+and proved, and never leave it. `config/autocmds.lua` is still absent because
 nothing has needed it.
 
 The own-code layout diverged from the original plan on purpose: each module is
@@ -83,7 +85,7 @@ declares what to run, and what a plugin's subprocesses are allowed to see of
 the environment.
 
 ```
-~/.config/nvim
+chroma-nvim
 ├── init.lua
 ├── lua
 │   ├── config
@@ -122,25 +124,35 @@ the environment.
 ├── after
 ├── components                  component contract, read by Lua and by the CLI
 ├── cli                         Go module: the installer and CLI (cli/DESIGN.md)
+│                               repository only
 ├── doc
 │   ├── chroma-nvim.txt         `:help chroma-nvim`
 │   ├── tags                    generated, and CI fails if it is stale
-│   ├── KEYMAPS.md              every mapping, on one page
-│   ├── CONTRACT.md             this file
-│   ├── DECISIONS.md            why each of it is the way it is
+│   ├── KEYMAPS.md              every mapping, on one page — repository only
+│   ├── CONTRACT.md             this file — repository only
+│   ├── DECISIONS.md            why each of it is the way it is — repository only
 │   └── chroma-ansible-design.md  what `chroma-ansible` guarantees
+│                               repository only
 ├── tests                       mini.test suites and their fixtures
+│                               repository only
 ├── docker                      a machine to test installations onto
-├── assets
+│                               repository only
+├── assets                      the image README.md shows — repository only
 ├── README.md
 └── LICENSE
 ```
 
-`doc/` is the only documentation directory, and everything in it is installed
-along with the configuration. The two governing documents are there rather than
-at the root on purpose: what this thing promises, and why, is worth having
-beside an installation and not only in a clone. `:helptags` reads `*.txt` and
-ignores them.
+`doc/` is the only documentation directory, and it holds two kinds of file.
+`chroma-nvim.txt` and `tags` are `:help chroma-nvim`, which is a feature of the
+program and is installed with it. `KEYMAPS.md`, `CONTRACT.md`, `DECISIONS.md`
+and `chroma-ansible-design.md` are how the project is developed; they are read
+in the repository and are **not** installed. `:helptags` reads `*.txt` and
+ignores them either way.
+
+**What an installation holds is the program, plus `README.md` and `LICENSE`.**
+The list is `install.RuntimeEntries`, it exists once, and the packager and the
+installer both read it — so `doc/` appears in it file by file rather than as a
+directory. A new `doc/*.txt` therefore ships only once it is named there.
 
 One `plugins/*.lua` file = one domain. No junk-drawer files.
 
@@ -586,3 +598,4 @@ say it was.
 | 2026-08-15 | A failed inspection shows Ansible's output in a window of Neovim's own, and the menu of ways onwards is the screen after it | §16 promised the output whole and the planner passed it to `vim.ui.select` as a prompt. Measured on the pinned set: that is fzf-lua's, a prompt there is one line of an fzf command line, and the operator was shown `Inventory inspection failed` with three ways to carry on and no reason. The same measurement gave the second half — fzf-lua passes the prompt in the fzf process's argv, so output naming hosts and paths was readable from the process table, which is what §7.4 exists to prevent |
 | 2026-08-15 | `chroma-ansible` promoted from beta to stable | the external audit on `v2.7.0` closed 9/9 with every finding dispositioned; the whole operator path — `<leader>ar` through a real `ansible-core` to a real terminal, `<leader>aR`, and `:AnsibleCancel` on a live inspection — was exercised in a container rather than against stubs; and every module was then read in one pass, which found one further defect on the failure path and closed it |
 | 2026-08-15 | Every subprocess `kubectl.nvim` builds is given the editor's environment as it is at that moment, with the plugin's own values on top — `lua/chroma/kubernetes.lua`, installed from that plugin's `config` | the plugin spawns with `clear_env = true` and keeps four variables, so a credential helper never saw the profile `<leader>Ap` had just changed. No allowlist and no provider names: Chroma has no opinion on how a cluster authenticates, and `components/kubernetes.json` still requires `kubectl` alone. Measured on the pinned set: `vim.system` reads a string-keyed environment table and ignores the array part, so the plugin's own `kubectl_cmd.env` was reaching no child at all — the normalisation that makes "the plugin's values win" true is also what makes them arrive |
+| 2026-08-16 | An installation holds the program, plus `README.md` and `LICENSE`. `doc/` is named file by file in `install.RuntimeEntries` — `chroma-nvim.txt` and `tags` in, `CONTRACT.md`, `DECISIONS.md`, `KEYMAPS.md` and `chroma-ansible-design.md` out — and `assets/` is out | owner decision, reversing the 2026-08-12 half of "one documentation directory, and it ships". `:help chroma-nvim` is a feature; a document about how the project is developed is not, and neither is the image `README.md` shows on GitHub. It was 570 KB of an installed 1.2 MB that nothing in the editor reads. `README.md` stays and links to the documents in the repository, so nothing became unreachable |

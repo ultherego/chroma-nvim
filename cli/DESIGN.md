@@ -672,13 +672,23 @@ reason of its own: an installed configuration that is a checkout invites `git
 pull` on top of a managed installation, which arrives at a version no install
 state describes.
 
-**The governing documents are in**, because they live in `doc/` and `doc/` is
-the help directory. `CONTRACT.md`, `DECISIONS.md` and `KEYMAPS.md` ship beside
-`chroma-nvim.txt`, so an installed Chroma can say what it promises, why, and
-which key does what, without a clone. Two tests hold the line in both directions: one asserts those
-two entries are in the archive, so moving them back to the root is a failing
-test rather than a quiet change to what a release contains, and one asserts the
-linter configuration is not.
+**The governing documents are out.** `CONTRACT.md`, `DECISIONS.md`,
+`KEYMAPS.md` and `chroma-ansible-design.md` are how this project is developed,
+and somebody who installed Chroma installed a program, not a repository. They
+are read where they are maintained, and `README.md` — which does ship — links
+to them there.
+
+That is why `doc/` is listed **file by file** rather than as a directory:
+`doc/chroma-nvim.txt` and `doc/tags` are `:help chroma-nvim`, which is a
+feature, and the rest of the directory is not. One consequence worth knowing
+before adding a second help file: a new `doc/*.txt` ships only once it is in
+`RuntimeEntries`.
+
+Tests hold the line in both directions and at both layers. The packager's
+asserts the help file, its tags and a `doc/` directory header are in the
+archive and that the governing documents, the linter configuration and `assets/`
+are not; the installer's asserts the same thing about a staged tree, because
+staging and packaging are the two places the list is read.
 
 **The archive is reproducible.** Entries are sorted, ownership is nobody, and
 modification times are fixed, so packaging one tree twice produces one checksum.

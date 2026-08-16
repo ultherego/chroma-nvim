@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="assets/chroma-neovim.png" alt="Chroma Neovim" width="420">
+<img src="https://raw.githubusercontent.com/ultherego/chroma-nvim/main/assets/chroma-neovim.png" alt="Chroma Neovim" width="420">
 
 **A Neovim environment for infrastructure work.**
 
@@ -154,9 +154,10 @@ git clone https://github.com/ultherego/chroma-nvim.git ~/.config/chroma-nvim
 NVIM_APPNAME=chroma-nvim nvim
 ```
 
-`doc/CONTRACT.md` covers the test suite, the linters and how installations are
-tested in a container. `chroma install --source-tree .` installs a checkout
-through the real installer, which is how the two are kept honest.
+[`doc/CONTRACT.md`](https://github.com/ultherego/chroma-nvim/blob/main/doc/CONTRACT.md)
+covers the test suite, the linters and how installations are tested in a
+container. `chroma install --source-tree .` installs a checkout through the real
+installer, which is how the two are kept honest.
 
 ## Troubleshooting
 
@@ -172,19 +173,24 @@ each one turned out to be.
 
 ## Documentation
 
-**The keymaps:** [`doc/KEYMAPS.md`](./doc/KEYMAPS.md) — every mapping this
-configuration defines, on one page, with the ones it deliberately leaves to
-Neovim. A test fails if it and the editor stop agreeing.
-
-**In the editor:** `:help chroma-nvim` — the same keymaps with the reasoning
+**In the editor:** `:help chroma-nvim` — every keymap with the reasoning
 attached, every component, the safety model of the modules that handle secrets
-and run infrastructure commands, and what they do and do not guarantee.
+and run infrastructure commands, and what they do and do not guarantee. This is
+the documentation an installation carries; everything below is in the
+repository, because it is written about the project rather than run by it.
 
-**Why it is like this:** [`doc/DECISIONS.md`](./doc/DECISIONS.md) — the
-reasoning behind every choice, and what is deliberately absent.
-[`doc/CONTRACT.md`](./doc/CONTRACT.md) — the rules this project is built under.
-[`cli/DESIGN.md`](./cli/DESIGN.md) — the installer. All of these are installed
-with the configuration, so they are beside `:help chroma-nvim` too.
+**The keymaps on one page:**
+[`doc/KEYMAPS.md`](https://github.com/ultherego/chroma-nvim/blob/main/doc/KEYMAPS.md)
+— every mapping this configuration defines, with the ones it deliberately leaves
+to Neovim. A test fails if it and the editor stop agreeing.
+
+**Why it is like this:**
+[`doc/DECISIONS.md`](https://github.com/ultherego/chroma-nvim/blob/main/doc/DECISIONS.md)
+— the reasoning behind every choice, and what is deliberately absent.
+[`doc/CONTRACT.md`](https://github.com/ultherego/chroma-nvim/blob/main/doc/CONTRACT.md)
+— the rules this project is built under.
+[`cli/DESIGN.md`](https://github.com/ultherego/chroma-nvim/blob/main/cli/DESIGN.md)
+— the installer.
 
 ## License
 

@@ -155,6 +155,43 @@ dependency:
 single-person project with under ten stars, the most visible abandoned since
 2023.
 
+### An installation is the program; the documents about it stay in the repository
+
+**Decision.** What `chroma install` puts on a machine is the program, plus
+`README.md` and `LICENSE`. `:help chroma-nvim` is part of the program and ships
+— the help file and the tags that make it reachable. `CONTRACT.md`,
+`DECISIONS.md`, `KEYMAPS.md`, `chroma-ansible-design.md` and `assets/` do not.
+
+This reverses half of an earlier decision. From 2026-08-12 the governing
+documents shipped, on the reasoning that an installed Chroma should be able to
+say what it promises and why without a clone. `doc/` was one directory and one
+entry in `install.RuntimeEntries`, so shipping them cost nothing to arrange.
+
+**Why.** The cost was not in arranging it, and the reasoning was answering a
+maintainer's question with a user's disk. Of roughly 1.2 MB an installation
+carried, about 570 KB was a 380 KB logo that only `README.md` on GitHub renders
+and 190 KB of markdown that Neovim does not read: `:helptags` takes `*.txt` and
+ignores the rest, so none of it was reachable from `:help`, from
+`:checkhealth`, or from anything else in the editor. It was a copy of the
+project's development history sitting in somebody's configuration directory,
+going stale against the repository the moment either moved.
+
+Whoever wants those documents wants the current ones, and `README.md` — which
+does ship — links to them where they are maintained.
+
+So `doc/` is named in `RuntimeEntries` **file by file** rather than as a
+directory. It is Neovim's help directory and this project's documentation
+directory at the same time, and only the first of those belongs to somebody who
+installed a program. The list is read twice, by the packager and by the
+installer, and both layers are tested in both directions — the help and its
+tags are asserted in, the governing documents and `assets/` asserted out.
+
+**What would change it.** A document a user needs *in the editor*, which is a
+document that should be a `*.txt` in `doc/` with tags, reachable by `:help`.
+That is the test: not "is this worth reading" but "is this part of what the
+editor does". Note the one sharp edge — a new `doc/*.txt` ships only once it is
+added to `RuntimeEntries`.
+
 ---
 
 ## Baseline
@@ -1033,9 +1070,9 @@ layer stays domain-blind in both directions: a task declaring
 `argv: ["ansible-playbook", …]` remains an ordinary task, and the module will
 not read `.chroma/tasks.json`.
 
-The design is frozen in `chroma-ansible-design.md`, which ships beside this
-file. No code exists yet, so `<leader>ar` is unmapped today and the contract
-records its removal, not its return.
+The design is frozen in `chroma-ansible-design.md`, beside this file in the
+repository. No code exists yet, so `<leader>ar` is unmapped today and the
+contract records its removal, not its return.
 
 ### Project tasks have their own version floor, and below it they fail closed
 

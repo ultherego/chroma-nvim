@@ -182,11 +182,10 @@ Removing those, and restoring any backup you moved aside, leaves no trace.
       <server>.lua              per-server LSP overrides
     components/                 the component contract, read here and by
                                 the CLI that installed this
-    doc/                        this file, and the documents beside it
+    doc/                        this file and its tags, and nothing else
     lazy-lock.json              the plugin versions this release was tested
                                 against
     README.md, LICENSE          so the installed directory says what it is
-      assets/                   and the image the README shows
 <
 That is an installation, which is deliberately not a checkout: the installer,
 the test suite and the lint configuration are not copied in, and neither is
@@ -194,10 +193,13 @@ the test suite and the lint configuration are not copied in, and neither is
 `git pull` on top of a managed installation, and that arrives at a version no
 install state describes.
 
-Two of the documents in `doc/` govern the rest. `CONTRACT.md` is what this
-configuration promises, including the whole repository tree; `DECISIONS.md` is
-why each part of it is the way it is, and what is deliberately absent.
-`KEYMAPS.md` is every mapping on one page, for reading outside the editor.
+What is installed is the program, and this help is part of it. The documents
+the project is written under are not: `CONTRACT.md` is what this configuration
+promises, including the whole repository tree; `DECISIONS.md` is why each part
+of it is the way it is, and what is deliberately absent; `KEYMAPS.md` is every
+mapping on one page, for reading outside the editor. All three live in the
+repository, which README.md links to. They answer a maintainer's questions,
+and an installation is not where a maintainer reads them.
 
 The split is deliberate. Anything that belongs to a plugin — its keymaps, its
 options — is defined in that plugin's spec, not in a central keymap file. If
@@ -819,7 +821,7 @@ only when you say so.
 Status: STABLE. It is covered by the test suite, it has been through an
 external audit with every finding answered, and everything below describes
 current behaviour, not intent. The full design, with the measurements each
-rule rests on, is in `doc/chroma-ansible-design.md`.
+rule rests on, is `doc/chroma-ansible-design.md` in the repository.
 
 Component `ansible`. It needs `ansible-playbook` and `ansible-inventory`, both
 of which ship in ansible-core.
@@ -1995,7 +1997,7 @@ does not notice that a word in it is `terraform`. |chroma-nvim-terraform| and
 |chroma-nvim-vault| are separate features with safety models of their own, and
 a task naming the same binary gets none of them.
 
-`CONTRACT.md` beside this file states the invariants, under "The execution
+`CONTRACT.md` in the repository states the invariants, under "The execution
 layer"; `DECISIONS.md` says why each is what it is.
 
 ==============================================================================
@@ -2191,8 +2193,8 @@ than asked".
 ==============================================================================
 22. RULES                                                   *chroma-nvim-rules*
 
-Two rules govern this repository. `CONTRACT.md`, in this directory and so in
-this installation, is the full version.
+Two rules govern this repository. `CONTRACT.md`, in the repository README.md
+links to, is the full version.
 
 Rule #1 — zero code from memory ~
 
@@ -2205,7 +2207,7 @@ lspconfig pattern, the treesitter branch split, mason-lspconfig dropping
 been written wrong from memory.
 
 Both rules, and the reasoning behind every other choice in this configuration,
-are written up in `DECISIONS.md`, beside this file — including what is
+are written up in `DECISIONS.md` in the repository — including what is
 deliberately absent and why. Read that before changing something that looks
 odd; most odd-looking things here are load-bearing.
 
