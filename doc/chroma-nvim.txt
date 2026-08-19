@@ -155,6 +155,7 @@ Going back ~
 Nothing is installed outside these directories: >
 
     ~/.config/nvim          or ~/.config/<appname>
+    ~/.config/chroma        what you chose: components and colourscheme
     ~/.local/share/nvim     plugins, Mason packages, treesitter parsers
     ~/.local/state/nvim     undo history, sessions, logs
 <
@@ -182,6 +183,8 @@ Removing those, and restoring any backup you moved aside, leaves no trace.
       <server>.lua              per-server LSP overrides
     components/                 the component contract, read here and by
                                 the CLI that installed this
+    themes.json                 the colourschemes this release can draw
+                                :help chroma-nvim-ui-theme
     doc/                        this file and its tags, and nothing else
     lazy-lock.json              the plugin versions this release was tested
                                 against
@@ -776,6 +779,43 @@ The contract originally named `alpha` for this. snacks was already a
 dependency for lazygit and ships a dashboard that finds fzf-lua by itself, so
 this removes a plugin rather than adding one. alpha is still maintained — this
 is deduplication, not rejection.
+
+The colourscheme                                         *chroma-nvim-ui-theme*
+
+Chroma ships two, and one of them is drawn:
+
+  catppuccin          Catppuccin Mocha. The default.
+  everforest          Everforest, dark, medium contrast.
+
+Which one is a choice made when Chroma is installed. `chroma install` asks,
+`chroma install --theme everforest` answers without being asked, and an install
+that says nothing takes the release's default. What a release can draw is
+`themes.json` in the configuration tree; what you picked is your own file:
+>
+    $XDG_CONFIG_HOME/chroma/theme.json
+<
+It sits beside |chroma-nvim-components-file| and for the same reason: an update
+replaces the configuration tree wholesale, so a choice kept inside it would not
+survive one. Both plugin specs ship, and exactly one is enabled — the other is
+never installed.
+>
+    {
+      "schema": 1,
+      "theme": "everforest"
+    }
+<
+Changing it afterwards                            *chroma-nvim-ui-theme-change*
+
+Edit that file and restart, or reinstall with `--theme`. The one you switched
+to is not on disk yet; lazy.nvim installs it on that first start, the same way
+it installs anything else that is missing. The one you switched away from stays
+until `:Lazy clean`, which is worth running and is not urgent — a plugin that
+is not enabled is not loaded.
+
+A name no release offers is refused rather than guessed at, and a file that
+cannot be read is reported by `:checkhealth chroma` and answered with the
+release's default. Unlike a selection, an unreadable theme does not drop Chroma
+into safe mode — an editor with no colours is not a safer editor.
 
 Outline versus problem lists                             *chroma-nvim-ui-split*
 

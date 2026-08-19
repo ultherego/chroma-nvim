@@ -1358,6 +1358,61 @@ than being handed a boolean that cannot express it.
 With one, safe mode could be "what you had yesterday" instead of "the minimum",
 which is better than both. Nothing writes one yet.
 
+### The colourscheme is a choice
+
+**Decision.** The release ships `themes.json`, a catalogue of what it can draw.
+The person installing picks one out of it, and the answer is written to
+`$XDG_CONFIG_HOME/chroma/theme.json`, beside the component selection and in the
+same shape. `chroma install --theme <id>` answers the question without being
+asked it; saying nothing takes the catalogue's default. The editor reads both
+documents and gates the colourscheme specs on the result, so exactly one of them
+is enabled.
+
+**Why.** The look used to be one name written into four files, and changing it
+meant editing a plugin spec, the `colorscheme` lazy.nvim starts with, the
+contract and the README, in agreement, by hand. That is a choice with no place
+to be made, so it was not one.
+
+Two documents rather than one, for the reason the selection has two: an update
+replaces the configuration directory wholesale (`paths.go`), so anything the
+person owns has to live somewhere the installer does not overwrite, and anything
+the release owns has to come from the release. That split is what makes the
+other rules fall out.
+
+The release is asked first. A newer CLI must not offer a colourscheme an older
+release cannot draw, because `:colorscheme catppuccin` on a tree without the
+plugin does not fail — it loads Neovim 0.12's own built-in of that name, which
+is the silent failure at the top of this document. So `--theme` and the question
+are both checked against the catalogue that shipped with the tree being
+installed, and a tree with no catalogue at all is a release from before any of
+this, which asks nothing and writes nothing.
+
+Not a field in `components.json`. Rollback restores an older release and keeps
+the selection document; an older fail-closed reader meeting an unknown `theme`
+field refuses the whole file, and the refusal it makes is safe mode — core
+alone. A colourscheme would have switched Terraform off.
+
+Not safe mode here, though. An unreadable theme document is reported and then
+answered with the next thing down the list: the choice, the catalogue's default,
+`theme.FALLBACK`. An editor with no colourscheme is not a safer editor, it is
+just an unreadable one, and the failure this guards against is cosmetic in a way
+a missing language server is not. `theme.FALLBACK` is the one place the editor
+names a colourscheme of its own, and a test holds the release to it: the shipped
+catalogue must offer it.
+
+`install.json` does not record where the theme went. Every other path in that
+record can differ between two installations or belong to somebody else, so which
+one an uninstall means has to have been written down. This one cannot differ —
+`theme.Path()` gives one answer per user, and the CLI removing it resolves it
+exactly as the CLI that wrote it did. Recording it would mean a schema bump, and
+a schema bump makes every installation made before it unmanageable, to carry a
+path both sides already agree on.
+
+**What would change it.** A colourscheme that needs more than a name — a light
+and dark pair, or per-theme options somebody is expected to edit. The choice
+document holds an id today because an id is all it takes; the day it holds
+settings, it is a different kind of file and this reasoning is worth redoing.
+
 ### A partial contract is not a contract
 
 `components.load()` reports every file it could not read and returns the rest.

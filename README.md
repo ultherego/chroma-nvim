@@ -4,7 +4,7 @@
 
 **A Neovim environment for infrastructure work.**
 
-🚀 fast · 🧩 modular · 🔧 easy to extend · 📦 maintained plugins only · 📝 documented · 🎨 Catppuccin Mocha
+🚀 fast · 🧩 modular · 🔧 easy to extend · 📦 maintained plugins only · 📝 documented · 🎨 Catppuccin or Everforest
 
 </div>
 
@@ -72,11 +72,12 @@ chmod +x chroma-linux-amd64 && sudo mv chroma-linux-amd64 /usr/local/bin/chroma
 chroma install
 ```
 
-It asks where to put the configuration and which components you want, shows the
-whole plan, and writes nothing until you agree. In a terminal the questions are
-selectors you move through; over a pipe or into a file they are printed and
-typed, and `--plain` (or `CHROMA_PLAIN=1`) takes the printed ones in a terminal
-too. Nothing else changes with it — the plan you agree to is the same either way.
+It asks where to put the configuration, which components you want and which
+colourscheme to draw, shows the whole plan, and writes nothing until you agree.
+In a terminal the questions are selectors you move through; over a pipe or into
+a file they are printed and typed, and `--plain` (or `CHROMA_PLAIN=1`) takes the
+printed ones in a terminal too. Nothing else changes with it — the plan you
+agree to is the same either way.
 
 By default it installs beside whatever Neovim configuration you already have:
 
@@ -114,6 +115,21 @@ chroma components --set terraform,helm     # or say it outright
 Changing components does not change which release you are on, and changing
 release does not change your components.
 
+## Colourscheme
+
+Two ship, and one is drawn: **Catppuccin Mocha** (the default) or
+**Everforest**. Pick one when you install, or answer the question in advance:
+
+```sh
+chroma install --theme everforest
+```
+
+The release says what it can draw, in `themes.json`; what you picked is your
+own, in `$XDG_CONFIG_HOME/chroma/theme.json`, beside your components — so an
+update replaces the configuration without replacing your choice. To change it
+later, edit that file and restart, or install again with `--theme`. The plugin
+you switched away from is never loaded again and `:Lazy clean` removes it.
+
 ## Managing an installation
 
 ```sh
@@ -133,10 +149,11 @@ chroma uninstall
 
 It prints the exact list of paths before it removes anything. What Chroma made
 — the configuration, the kept generations, the plugins, the Mason packages, the
-parsers, the cache, the state and your component selection — is removed. Anything
-that was in Neovim's own directories before Chroma took them over is **given
-back**, not deleted, and Chroma refuses to move a directory it cannot show is the
-one it was left. External tools and Neovim itself are never touched.
+parsers, the cache, the state, your component selection and your colourscheme —
+is removed. Anything that was in Neovim's own directories before Chroma took
+them over is **given back**, not deleted, and Chroma refuses to move a directory
+it cannot show is the one it was left. External tools and Neovim itself are
+never touched.
 
 If part of the removal fails, the record stays where it is and says what is left
 to finish, so running it again completes the rest rather than starting from a

@@ -53,6 +53,7 @@ cli/
     install/             stage, place, back up, bootstrap, borrow, give back
     installstate/        install.json: generations, borrowing, handover
     state/               the user's component selection
+    theme/               themes.json and the user's colourscheme
     lock/                one mutating operation at a time, through flock
     atomicfile/          write, fsync, rename, fsync the directory
     release/             fetch, verify and unpack one; build one with `package`
@@ -553,12 +554,83 @@ up wrong.
 
 ---
 
+## The colourscheme
+
+Two documents, because there are two owners. The release ships `themes.json` at
+the root of the tree — what it can draw — and the person installing owns
+`$XDG_CONFIG_HOME/chroma/theme.json`, beside the selection and for the same
+reason.
+
+```json
+{
+  "schema": 1,
+  "default": "catppuccin",
+  "themes": [
+    { "id": "catppuccin", "name": "Catppuccin Mocha", "colorscheme": "catppuccin-mocha" },
+    { "id": "everforest", "name": "Everforest", "colorscheme": "everforest" }
+  ]
+}
+```
+
+```json
+{
+  "schema": 1,
+  "theme": "everforest"
+}
+```
+
+**The release is asked first.** `--theme` and the question are both resolved
+against the catalogue that shipped with the tree being installed, so a newer CLI
+cannot record a colourscheme an older release has no plugin for. That failure
+does not announce itself: `:colorscheme catppuccin` with no catppuccin installed
+loads Neovim's own built-in of that name, and the colours are almost right.
+
+**An id, not a colourscheme name.** `id` is what the choice document and the
+plugin specs agree on; `colorscheme` is what the editor hands to `:colorscheme`.
+Catppuccin's plugin is one plugin drawing several, so the two are not the same
+string, and pinning the choice to the one that varies would make a flavour
+change look like a different theme.
+
+**A tree with no catalogue asks nothing and writes nothing.** That is a release
+from before the choice existed, and inventing an answer for it would be the
+installer recording a preference nobody stated. `--theme` against such a tree is
+misuse and is refused before a plan is drawn.
+
+**One theme is not a question either.** The interactive layers ask only when the
+catalogue offers more than one, so a release that ships a single colourscheme
+does not put a one-item selector in front of anybody.
+
+**It is not in `components.json`.** Rollback restores an older release and keeps
+the selection, and an older reader meeting an unknown `theme` field refuses the
+whole file — which for the selection means safe mode. A colourscheme would have
+switched Terraform off.
+
+**It is not in `install.json` either.** Every other path in the record can
+differ between installations; this one cannot, since `theme.Path()` gives one
+answer per user and the CLI removing it resolves it exactly as the CLI that
+wrote it did. Recording it would cost a schema bump, which makes every
+installation made before it unmanageable, to carry a path both sides agree on.
+`PlanUninstall` therefore lists it from the paths, and only when it is there.
+
+Both languages read both documents, from one corpus under
+`tests/fixtures/theme-choice`, on the same terms as the selection. The write
+path is the same atomic replace, and the transaction keeps the previous bytes so
+a failed install puts back the theme that was there — or removes the one that
+was not.
+
+Where the two differ is what a refusal means. An unreadable selection is safe
+mode; an unreadable theme is reported and then answered with the next thing
+down: the choice, the catalogue's default, `theme.FALLBACK` in the editor. An
+editor with no colourscheme is not a safer editor.
+
+---
+
 ## Commands
 
 ```
 chroma install     fetch a release and place it          --version --components
                                                          --profile --default
-                                                         --source-tree
+                                                         --theme --source-tree
 chroma update      to the next release, same components  --version
 chroma components  edit the enabled set                  --set --tree
 chroma doctor      is the installation on this machine healthy   --tree

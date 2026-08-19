@@ -22,7 +22,7 @@ Not "a pretty config". **The best Neovim environment for DevOps.**
 | 🔧 | easy to extend |
 | 📦 | actively maintained plugins only |
 | 📝 | properly documented |
-| 🎨 | Catppuccin Mocha |
+| 🎨 | Catppuccin Mocha or Everforest, chosen when it is installed |
 
 ## Workflow
 
@@ -119,10 +119,12 @@ chroma-nvim
 │       ├── modules.lua           which of our own modules a selection enables
 │       ├── schemas.lua           logical schema name → URL and file patterns
 │       ├── state.lua             the user's component selection
+│       ├── theme.lua             the catalogue, and the colourscheme chosen
 │       ├── tools.lua             what a component needs from the machine
 │       └── tasks                 the execution layer, see below
 ├── after
 ├── components                  component contract, read by Lua and by the CLI
+├── themes.json                 the colourschemes this release can draw
 ├── cli                         Go module: the installer and CLI (cli/DESIGN.md)
 │                               repository only
 ├── doc
@@ -169,7 +171,9 @@ One `plugins/*.lua` file = one domain. No junk-drawer files.
 - `mini.icons` — the single icon provider for the whole config
 
 ### UI
-- `catppuccin`
+- `catppuccin` and `neanias/everforest-nvim` — one colourscheme, chosen at
+  install time out of what `themes.json` offers. Both specs ship and exactly
+  one is enabled; see "The colourscheme is a choice" in `DECISIONS.md`.
 - `which-key`
 - `aerial` — code outline: what is in this file and where
 - `trouble` — diagnostic, quickfix and LSP lists: what is wrong and where.
@@ -599,3 +603,4 @@ say it was.
 | 2026-08-15 | `chroma-ansible` promoted from beta to stable | the external audit on `v2.7.0` closed 9/9 with every finding dispositioned; the whole operator path — `<leader>ar` through a real `ansible-core` to a real terminal, `<leader>aR`, and `:AnsibleCancel` on a live inspection — was exercised in a container rather than against stubs; and every module was then read in one pass, which found one further defect on the failure path and closed it |
 | 2026-08-15 | Every subprocess `kubectl.nvim` builds is given the editor's environment as it is at that moment, with the plugin's own values on top — `lua/chroma/kubernetes.lua`, installed from that plugin's `config` | the plugin spawns with `clear_env = true` and keeps four variables, so a credential helper never saw the profile `<leader>Ap` had just changed. No allowlist and no provider names: Chroma has no opinion on how a cluster authenticates, and `components/kubernetes.json` still requires `kubectl` alone. Measured on the pinned set: `vim.system` reads a string-keyed environment table and ignores the array part, so the plugin's own `kubectl_cmd.env` was reaching no child at all — the normalisation that makes "the plugin's values win" true is also what makes them arrive |
 | 2026-08-16 | An installation holds the program, plus `README.md` and `LICENSE`. `doc/` is named file by file in `install.RuntimeEntries` — `chroma-nvim.txt` and `tags` in, `CONTRACT.md`, `DECISIONS.md`, `KEYMAPS.md` and `chroma-ansible-design.md` out — and `assets/` is out | owner decision, reversing the 2026-08-12 half of "one documentation directory, and it ships". `:help chroma-nvim` is a feature; a document about how the project is developed is not, and neither is the image `README.md` shows on GitHub. It was 570 KB of an installed 1.2 MB that nothing in the editor reads. `README.md` stays and links to the documents in the repository, so nothing became unreachable |
+| 2026-08-19 | The colourscheme is chosen when Chroma is installed, out of what the release offers: `themes.json` at the root of the tree says what can be drawn, `$XDG_CONFIG_HOME/chroma/theme.json` says which one was picked, and `chroma install --theme` names it without being asked. Catppuccin Mocha stays the default; Everforest is the second | the look was one name written into four files, so changing it meant editing a configuration an update replaces wholesale. The two documents are the component selection's shape and exist for its reasons: the choice belongs to the person and outlives releases installed over it, and a CLI newer than the release it is installing must not offer a colourscheme that release cannot draw — `:colorscheme catppuccin` on a tree without the plugin loads Neovim 0.12's own built-in and fails silently, which is the failure `DECISIONS.md` line 51 already records. Not a field in `components.json`: rollback keeps the selection document while restoring an older reader, and an unknown field there means safe mode — core alone — over a colourscheme |

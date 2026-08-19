@@ -57,6 +57,8 @@ chroma-nvim-treesitter	chroma-nvim.txt	/*chroma-nvim-treesitter*
 chroma-nvim-troubleshooting	chroma-nvim.txt	/*chroma-nvim-troubleshooting*
 chroma-nvim-ui	chroma-nvim.txt	/*chroma-nvim-ui*
 chroma-nvim-ui-split	chroma-nvim.txt	/*chroma-nvim-ui-split*
+chroma-nvim-ui-theme	chroma-nvim.txt	/*chroma-nvim-ui-theme*
+chroma-nvim-ui-theme-change	chroma-nvim.txt	/*chroma-nvim-ui-theme-change*
 chroma-nvim-ui-v3	chroma-nvim.txt	/*chroma-nvim-ui-v3*
 chroma-nvim-vault	chroma-nvim.txt	/*chroma-nvim-vault*
 chroma-nvim-vault-conversion	chroma-nvim.txt	/*chroma-nvim-vault-conversion*
