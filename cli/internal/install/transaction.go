@@ -8,6 +8,7 @@ import (
 	"github.com/ultherego/chroma-nvim/cli/internal/component"
 	"github.com/ultherego/chroma-nvim/cli/internal/installstate"
 	"github.com/ultherego/chroma-nvim/cli/internal/state"
+	"github.com/ultherego/chroma-nvim/cli/internal/theme"
 )
 
 // Transaction remembers what an installation has actually done, so it can be
@@ -24,6 +25,16 @@ type Transaction struct {
 	// different, and putting back the wrong one changes what the editor runs.
 	PreviousSelection []byte
 	HadSelection      bool
+
+	// ThemePath is the other document this transaction may replace, and the
+	// three fields below are the selection's three, for the same reasons. Kept
+	// apart rather than folded together: they are written at different moments
+	// by different callers — an update never touches the theme — and a rollback
+	// that put back a document this run never wrote would undo somebody else's
+	// change.
+	ThemePath     string
+	PreviousTheme []byte
+	HadTheme      bool
 
 	// StageDir is the tree being assembled beside the target, and is emptied
 	// when it becomes the target.
@@ -62,6 +73,7 @@ type Transaction struct {
 	Restored     bool
 
 	selectionWritten bool
+	themeWritten     bool
 	committed        bool
 }
 
@@ -123,7 +135,7 @@ func (tx *Transaction) giveBackHeld() error {
 
 // NewTransaction starts a transaction against one installation's paths.
 func NewTransaction(paths Paths) *Transaction {
-	return &Transaction{SelectionPath: paths.SelectionFile}
+	return &Transaction{SelectionPath: paths.SelectionFile, ThemePath: paths.ThemeFile}
 }
 
 // WriteSelection records what was there and then writes what was chosen, in that
@@ -147,6 +159,41 @@ func (tx *Transaction) WriteSelection(selected []string, set component.Set) erro
 	// back without putting the old selection back would leave the change in force.
 	result, err := writeSelection(tx.SelectionPath, state.State{Selected: selected}, set)
 	tx.selectionWritten = result.Replaced
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// WriteTheme records what was there and then writes what was chosen, in that
+// order and for the reason WriteSelection does it that way: a write that
+// succeeded with nothing captured is a document that cannot be put back.
+//
+// An empty id writes nothing at all and is not a failure. That is what
+// installing a release from before the colourscheme was a choice comes to, and
+// what an update does every time — neither has an answer to record, and writing
+// a default over somebody's own choice would be inventing one.
+func (tx *Transaction) WriteTheme(id string, catalogue theme.Catalogue) error {
+	if id == "" {
+		return nil
+	}
+
+	previous, err := os.ReadFile(tx.ThemePath)
+	switch {
+	case err == nil:
+		tx.PreviousTheme = previous
+		tx.HadTheme = true
+	case errors.Is(err, os.ErrNotExist):
+		tx.HadTheme = false
+	default:
+		return fmt.Errorf("reading the theme at %s before replacing it: %w", tx.ThemePath, err)
+	}
+
+	// Marked from what actually happened rather than from whether the call
+	// succeeded, for the reason given above WriteSelection's own write.
+	result, err := theme.Write(tx.ThemePath, id, catalogue)
+	tx.themeWritten = result.Replaced
 	if err != nil {
 		return err
 	}
@@ -241,6 +288,24 @@ func (tx *Transaction) Rollback() error {
 			problems = append(problems, fmt.Errorf("restoring the selection at %s: %w", tx.SelectionPath, err))
 		} else {
 			tx.selectionWritten = false
+		}
+	}
+
+	if tx.themeWritten {
+		var err error
+		if tx.HadTheme {
+			_, err = theme.Restore(tx.ThemePath, tx.PreviousTheme)
+		} else {
+			// There was no file, so leaving one behind would be this installer
+			// recording a choice nobody got as far as making.
+			if removeErr := os.Remove(tx.ThemePath); removeErr != nil && !errors.Is(removeErr, os.ErrNotExist) {
+				err = removeErr
+			}
+		}
+		if err != nil {
+			problems = append(problems, fmt.Errorf("restoring the theme at %s: %w", tx.ThemePath, err))
+		} else {
+			tx.themeWritten = false
 		}
 	}
 

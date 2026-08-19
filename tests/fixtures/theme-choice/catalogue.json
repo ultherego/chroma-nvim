@@ -1,0 +1,8 @@
+{
+  "schema": 1,
+  "default": "catppuccin",
+  "themes": [
+    { "id": "catppuccin", "name": "Catppuccin Mocha", "description": "dark and warm", "colorscheme": "catppuccin-mocha" },
+    { "id": "everforest", "name": "Everforest", "description": "dark and green", "colorscheme": "everforest" }
+  ]
+}

@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 
 	"github.com/ultherego/chroma-nvim/cli/internal/state"
+	"github.com/ultherego/chroma-nvim/cli/internal/theme"
 )
 
 // AppName is the default NVIM_APPNAME: an installation of its own, beside
@@ -42,6 +43,13 @@ type Paths struct {
 	// with different appnames share this file. See "Open decisions" in
 	// cli/DESIGN.md.
 	SelectionFile string
+
+	// ThemeFile is the colourscheme the user picked, and is not under AppName
+	// for the same reason SelectionFile is not: an update replaces ConfigDir
+	// wholesale, and a preference that does not survive that is a preference
+	// somebody has to state again every release. It comes from internal/theme
+	// so the CLI and the editor cannot disagree about where it is.
+	ThemeFile string
 
 	// InstallState describes the deployment that was actually carried out, and
 	// is written only after it has been verified.
@@ -97,12 +105,18 @@ func ResolvePaths(useDefault bool) (Paths, error) {
 		return Paths{}, fmt.Errorf("locating the component selection: %w", err)
 	}
 
+	chosenTheme, err := theme.Path()
+	if err != nil {
+		return Paths{}, fmt.Errorf("locating the theme: %w", err)
+	}
+
 	paths := Paths{
 		ConfigDir:     filepath.Join(config, appName),
 		DataDir:       filepath.Join(data, appName),
 		StateDir:      filepath.Join(stateBase, appName),
 		CacheDir:      filepath.Join(cache, appName),
 		SelectionFile: selection,
+		ThemeFile:     chosenTheme,
 	}
 	paths.InstallState = filepath.Join(paths.StateDir, "install.json")
 	paths.BackupDir = filepath.Dir(paths.ConfigDir)

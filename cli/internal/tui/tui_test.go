@@ -8,6 +8,7 @@ import (
 
 	"github.com/ultherego/chroma-nvim/cli/internal/component"
 	"github.com/ultherego/chroma-nvim/cli/internal/install"
+	"github.com/ultherego/chroma-nvim/cli/internal/theme"
 )
 
 // A contract built for the occasion, so these cases do not change meaning when
@@ -21,16 +22,38 @@ func fixture() component.Set {
 	}
 }
 
+// catalogue is a release that offers a choice, built here for the same reason
+// the contract above is: so these cases do not change meaning when the shipped
+// themes.json does.
+func catalogue() theme.Catalogue {
+	return theme.Catalogue{
+		Schema:  theme.Schema,
+		Default: "catppuccin",
+		Themes: []theme.Theme{
+			{ID: "catppuccin", Name: "Catppuccin Mocha", Description: "dark and warm", Colorscheme: "catppuccin-mocha"},
+			{ID: "everforest", Name: "Everforest", Description: "dark and green", Colorscheme: "everforest"},
+		},
+	}
+}
+
 // answers drives one run: every line the reader would type, in order.
 func answers(lines ...string) *strings.Reader {
 	return strings.NewReader(strings.Join(lines, "\n") + "\n")
 }
 
+// run asks against a release with no colourscheme to choose, which is what
+// every case below the theme ones is about — the question is not put, so their
+// answers stay the answers to the questions they name.
 func run(t *testing.T, opts install.Options, lines ...string) (install.Options, string, error) {
+	t.Helper()
+	return runOffering(t, theme.Catalogue{}, opts, lines...)
+}
+
+func runOffering(t *testing.T, offered theme.Catalogue, opts install.Options, lines ...string) (install.Options, string, error) {
 	t.Helper()
 
 	var out bytes.Buffer
-	got, err := Ask(opts, fixture(), answers(lines...), &out)
+	got, err := Ask(opts, fixture(), offered, answers(lines...), &out)
 	return got, out.String(), err
 }
 
@@ -124,7 +147,7 @@ func TestNonInteractiveAsksNothing(t *testing.T) {
 	var out bytes.Buffer
 	opts := install.Options{NonInteractive: true, Selected: []string{"terraform"}}
 
-	got, err := Ask(opts, fixture(), strings.NewReader(""), &out)
+	got, err := Ask(opts, fixture(), catalogue(), strings.NewReader(""), &out)
 	if err != nil {
 		t.Fatalf("Ask: %v", err)
 	}
@@ -141,7 +164,7 @@ func TestNonInteractiveAsksNothing(t *testing.T) {
 func TestExhaustedInputIsRefusedRatherThanDefaulted(t *testing.T) {
 	var out bytes.Buffer
 
-	_, err := Ask(install.Options{}, fixture(), strings.NewReader(""), &out)
+	_, err := Ask(install.Options{}, fixture(), catalogue(), strings.NewReader(""), &out)
 	if !errors.Is(err, ErrNoInput) {
 		t.Errorf("err = %v, want ErrNoInput: an empty pipe agreed to nothing", err)
 	}
@@ -153,7 +176,7 @@ func TestExhaustedInputPartWayThroughIsAlsoRefused(t *testing.T) {
 	var out bytes.Buffer
 
 	// Answers the location, then the pipe ends.
-	_, err := Ask(install.Options{}, fixture(), strings.NewReader("1\n"), &out)
+	_, err := Ask(install.Options{}, fixture(), catalogue(), strings.NewReader("1\n"), &out)
 	if !errors.Is(err, ErrNoInput) {
 		t.Errorf("err = %v, want ErrNoInput", err)
 	}
@@ -265,6 +288,117 @@ func TestWhatItProducesValidates(t *testing.T) {
 	}
 	if _, err := got.Selection(fixture()); err != nil {
 		t.Errorf("its selection does not resolve against the contract it was built from: %v", err)
+	}
+}
+
+// The colourscheme is a choice, and the answer reaches the options the same way
+// every other answer does.
+func TestTheColourschemeIsChosen(t *testing.T) {
+	got, text, err := runOffering(t, catalogue(), install.Options{}, "1", "", "2")
+	if err != nil {
+		t.Fatalf("Ask: %v", err)
+	}
+	if got.Theme != "everforest" {
+		t.Errorf("theme = %q, want everforest", got.Theme)
+	}
+
+	// From the release, not from a list in here that would drift away from it.
+	for _, want := range []string{"Catppuccin Mocha", "dark and warm", "Everforest", "dark and green"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("the release's %q is not shown:\n%s", want, text)
+		}
+	}
+}
+
+// Saying nothing is the release's own default, which is the one question in the
+// flow where doing nothing has a right answer.
+func TestSayingNothingTakesTheReleaseDefault(t *testing.T) {
+	got, _, err := runOffering(t, catalogue(), install.Options{}, "1", "", "")
+	if err != nil {
+		t.Fatalf("Ask: %v", err)
+	}
+	if got.Theme != "catppuccin" {
+		t.Errorf("theme = %q, want the release's default catppuccin", got.Theme)
+	}
+}
+
+func TestABadThemeNumberIsAskedAgain(t *testing.T) {
+	got, text, err := runOffering(t, catalogue(), install.Options{}, "1", "", "9", "2")
+	if err != nil {
+		t.Fatalf("Ask: %v", err)
+	}
+	if !strings.Contains(text, `"9" is not one of the numbers`) {
+		t.Errorf("a bad answer was not reported:\n%s", text)
+	}
+	if got.Theme != "everforest" {
+		t.Errorf("theme = %q; the second answer was not taken", got.Theme)
+	}
+}
+
+// A release with nothing to choose between is not a question. Both cases: one
+// from before any of this existed, and one that ships a single colourscheme.
+func TestNoColourschemeQuestionWhenThereIsNothingToChoose(t *testing.T) {
+	single := theme.Catalogue{
+		Schema:  theme.Schema,
+		Default: "catppuccin",
+		Themes:  []theme.Theme{{ID: "catppuccin", Name: "Catppuccin Mocha", Colorscheme: "catppuccin-mocha"}},
+	}
+
+	for _, tc := range []struct {
+		name    string
+		offered theme.Catalogue
+	}{
+		{"a release from before the colourscheme was a choice", theme.Catalogue{}},
+		{"a release that ships one", single},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, text, err := runOffering(t, tc.offered, install.Options{}, "1", "")
+			if err != nil {
+				t.Fatalf("Ask: %v", err)
+			}
+			if strings.Contains(text, "colourscheme") {
+				t.Errorf("asked about a colourscheme with nothing to choose between:\n%s", text)
+			}
+			if got.Theme != "" {
+				t.Errorf("theme = %q, want nothing: the question was never put", got.Theme)
+			}
+		})
+	}
+}
+
+// And --theme is an answer already given, so it is not asked again — the rule
+// that keeps the two flows from becoming two implementations.
+func TestAThemeGivenByFlagIsNotAsked(t *testing.T) {
+	got, text, err := runOffering(t, catalogue(), install.Options{Theme: "everforest"}, "1", "")
+	if err != nil {
+		t.Fatalf("Ask: %v", err)
+	}
+	if strings.Contains(text, "colourscheme") {
+		t.Errorf("asked although --theme answered it:\n%s", text)
+	}
+	if got.Theme != "everforest" {
+		t.Errorf("theme = %q, want it untouched", got.Theme)
+	}
+}
+
+// Both adapters offer the release's own list, in the release's own order.
+func TestBothAdaptersOfferTheSameThemes(t *testing.T) {
+	offered := catalogue()
+
+	var ids []string
+	for _, one := range themeOptions(offered.Themes) {
+		ids = append(ids, one.Value)
+	}
+	if strings.Join(ids, ",") != "catppuccin,everforest" {
+		t.Errorf("the selector offers %v, want the catalogue's own order", ids)
+	}
+
+	_, text, err := runOffering(t, offered, install.Options{}, "1", "", "")
+	if err != nil {
+		t.Fatalf("Ask: %v", err)
+	}
+	if at, then := strings.Index(text, "Catppuccin Mocha"), strings.Index(text, "Everforest"); at < 0 || then < at {
+		t.Errorf("the printed list is not in the catalogue's order:\n%s", text)
 	}
 }
 

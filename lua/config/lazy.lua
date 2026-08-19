@@ -59,9 +59,11 @@ require("lazy").setup({
 
   install = {
     missing = true,
-    -- habamax is the built-in fallback for the first start, before catppuccin
-    -- is on disk.
-    colorscheme = { "catppuccin-mocha", "habamax" },
+    -- The chosen one, asked of the two documents rather than named here: this
+    -- file used to say `catppuccin-mocha`, and a name written twice is a name
+    -- that eventually says two things. habamax is the built-in fallback for the
+    -- first start, before anything at all is on disk.
+    colorscheme = { require("chroma.theme").colorscheme(), "habamax" },
   },
 
   -- No plugin here ships a rockspec, so luarocks would be an unused dependency

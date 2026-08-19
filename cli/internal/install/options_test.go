@@ -3,6 +3,8 @@ package install
 import (
 	"strings"
 	"testing"
+
+	"github.com/ultherego/chroma-nvim/cli/internal/theme"
 )
 
 func TestOptionsRefuseContradictoryRequests(t *testing.T) {
@@ -145,5 +147,89 @@ func TestAProfileNamingAMissingComponentIsRefused(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "vault") {
 		t.Errorf("err = %v, want it to name the missing component", err)
+	}
+}
+
+// The theme rule is deliberately not the components rule, and this is the
+// difference: `--non-interactive` without `--components` is misuse because
+// there is nothing to fall back on, and here there is — the release names its
+// own default. Requiring a flag would break every existing scripted install to
+// no purpose.
+func TestNonInteractiveNeedsNoTheme(t *testing.T) {
+	opts := Options{NonInteractive: true, Selected: []string{}}
+
+	if err := opts.Validate(); err != nil {
+		t.Fatalf("a scripted install that says nothing about the colourscheme was refused: %v", err)
+	}
+
+	catalogue := offered(t, prepared(t).Root)
+	got, err := opts.ThemeChoice(catalogue)
+	if err != nil {
+		t.Fatalf("ThemeChoice: %v", err)
+	}
+	if got != catalogue.Default {
+		t.Errorf("theme = %q, want the release's default %q", got, catalogue.Default)
+	}
+}
+
+// Whitespace and nothing else is misuse: somebody meant to name a theme.
+func TestAThemeOfNothingButSpacesIsMisuse(t *testing.T) {
+	if err := (Options{Theme: "   "}).Validate(); err == nil {
+		t.Error("accepted --theme with nothing in it")
+	}
+	if err := (Options{Theme: " first "}).Validate(); err != nil {
+		t.Errorf("refused a theme with a space around it: %v", err)
+	}
+}
+
+func TestThemeChoiceIsCheckedAgainstTheRelease(t *testing.T) {
+	catalogue := offered(t, prepared(t).Root)
+
+	for _, tc := range []struct {
+		name  string
+		theme string
+		want  string
+		fails bool
+	}{
+		{name: "nothing said is the release's default", want: catalogue.Default},
+		{name: "one it offers", theme: "second", want: "second"},
+		{name: "a space around it is still that one", theme: " second ", want: "second"},
+		{name: "one it does not", theme: "gruvbox", fails: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := (Options{Theme: tc.theme}).ThemeChoice(catalogue)
+			if tc.fails {
+				if err == nil {
+					t.Fatalf("accepted %q, and the release offers %v", tc.theme, catalogue.IDs())
+				}
+				// The refusal has to say what is on offer, or somebody is left
+				// guessing at a list they cannot see.
+				for _, id := range catalogue.IDs() {
+					if !strings.Contains(err.Error(), id) {
+						t.Errorf("the refusal does not mention %q: %v", id, err)
+					}
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("ThemeChoice: %v", err)
+			}
+			if got != tc.want {
+				t.Errorf("theme = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+// A release that offers nothing has no answer to give, and asking for one is
+// misuse rather than something to quietly ignore.
+func TestAThemeAskedOfAReleaseThatOffersNoneIsRefused(t *testing.T) {
+	got, err := (Options{}).ThemeChoice(theme.Catalogue{})
+	if err != nil || got != "" {
+		t.Errorf("ThemeChoice = %q, %v; want nothing to record and no error", got, err)
+	}
+
+	if _, err := (Options{Theme: "first"}).ThemeChoice(theme.Catalogue{}); err == nil {
+		t.Error("accepted --theme against a release that offers no choice of theme")
 	}
 }

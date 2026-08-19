@@ -29,6 +29,7 @@ func tree(t *testing.T) string {
 		{"lua/chroma/state.lua", "return {}\n"},
 		{"lua/chroma/bootstrap.lua", "return {}\n"},
 		{"components/core.json", `{"contract": 5, "id": "core"}` + "\n"},
+		{"themes.json", `{"schema": 1, "default": "one", "themes": [{"id": "one", "colorscheme": "one"}]}` + "\n"},
 		{"after/lsp/yamlls.lua", "return {}\n"},
 		{"doc/chroma-nvim.txt", "help\n"},
 		{"doc/tags", "chroma-nvim\tchroma-nvim.txt\t/*chroma-nvim*\n"},

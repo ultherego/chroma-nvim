@@ -10,6 +10,7 @@ import (
 
 	"github.com/ultherego/chroma-nvim/cli/internal/component"
 	"github.com/ultherego/chroma-nvim/cli/internal/install"
+	"github.com/ultherego/chroma-nvim/cli/internal/theme"
 )
 
 // contract is the one this repository ships, which is what both adapters show.
@@ -184,7 +185,7 @@ func TestTheScreenUINeedsATerminalAtBothEnds(t *testing.T) {
 
 	// And what that decides: a closed pipe is a refusal, which is the property
 	// the terminal library was measured not to have.
-	if _, err := Ask(install.Options{}, contract(t), strings.NewReader(""), file); !errors.Is(err, ErrNoInput) {
+	if _, err := Ask(install.Options{}, contract(t), theme.Catalogue{}, strings.NewReader(""), file); !errors.Is(err, ErrNoInput) {
 		t.Errorf("a closed pipe gave %v, want ErrNoInput", err)
 	}
 }

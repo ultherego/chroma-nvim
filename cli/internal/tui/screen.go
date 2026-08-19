@@ -17,6 +17,7 @@ import (
 	"charm.land/huh/v2"
 
 	"github.com/ultherego/chroma-nvim/cli/internal/component"
+	"github.com/ultherego/chroma-nvim/cli/internal/theme"
 )
 
 // onScreen is the adapter that asks with selectors somebody moves through.
@@ -27,6 +28,7 @@ func onScreen(what questions, set component.Set, in io.Reader, out io.Writer) (C
 	// form that is cancelled must not leave a half-answer behind.
 	takeover := what.takenOver
 	selected := append([]string{}, what.current...)
+	picked := what.themeCurrent
 
 	var fields []huh.Field
 	if what.location {
@@ -39,6 +41,9 @@ func onScreen(what questions, set component.Set, in io.Reader, out io.Writer) (C
 		} else {
 			fields = append(fields, componentsField(set, optional, &selected))
 		}
+	}
+	if len(what.themes) > 0 {
+		fields = append(fields, themeField(what.themes, &picked))
 	}
 
 	if len(fields) == 0 {
@@ -67,6 +72,9 @@ func onScreen(what questions, set component.Set, in io.Reader, out io.Writer) (C
 			selected = []string{}
 		}
 		chosen.Components = selected
+	}
+	if len(what.themes) > 0 {
+		chosen.Theme = picked
 	}
 	return chosen, nil
 }
@@ -111,6 +119,36 @@ func componentsField(set component.Set, optional []string, selected *[]string) h
 		Description("Core is always installed and is not listed.").
 		Options(componentOptions(set, optional, seeded(*selected))...).
 		Value(selected)
+}
+
+// themeField offers the colourschemes this release can actually draw.
+//
+// A single choice rather than a toggle list: an editor loads one colourscheme,
+// and the selector starts on the release's own default, so pressing enter is
+// the same answer as saying nothing over a pipe.
+func themeField(themes []theme.Theme, picked *string) huh.Field {
+	// Options before Value, and the order is load-bearing: the library seeds the
+	// highlighted entry by scanning the options it already has for the one whose
+	// value matches, and with none yet there is nothing to match against.
+	return huh.NewSelect[string]().
+		Title("Which colourscheme?").
+		Options(themeOptions(themes)...).
+		Value(picked)
+}
+
+// themeOptions is what that selector puts in front of somebody. Split out for
+// the reason componentOptions is: so a test can read the list without reaching
+// into the library's unexported fields.
+func themeOptions(themes []theme.Theme) []huh.Option[string] {
+	options := make([]huh.Option[string], 0, len(themes))
+	for _, one := range themes {
+		label := themeLabel(one)
+		if one.Description != "" {
+			label += " — " + one.Description
+		}
+		options = append(options, huh.NewOption(label, one.ID))
+	}
+	return options
 }
 
 // componentOptions is what the selector puts in front of somebody.

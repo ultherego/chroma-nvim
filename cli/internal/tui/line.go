@@ -24,6 +24,7 @@ import (
 	"strings"
 
 	"github.com/ultherego/chroma-nvim/cli/internal/component"
+	"github.com/ultherego/chroma-nvim/cli/internal/theme"
 )
 
 // overLines is the adapter that asks by printing and reading lines.
@@ -46,6 +47,14 @@ func overLines(what questions, set component.Set, in io.Reader, out io.Writer) (
 			return Choices{}, err
 		}
 		chosen.Components = selected
+	}
+
+	if len(what.themes) > 0 {
+		picked, err := askTheme(reader, out, what.themes, what.themeCurrent)
+		if err != nil {
+			return Choices{}, err
+		}
+		chosen.Theme = picked
 	}
 
 	return chosen, nil
@@ -147,6 +156,61 @@ func askComponents(reader *bufio.Reader, out io.Writer, set component.Set, curre
 			chosen[id] = !chosen[id]
 		}
 	}
+}
+
+// askTheme picks one colourscheme out of what the release offers.
+//
+// One answer rather than a toggle list, and an empty line takes the release's
+// own default: this is the one question in the flow where doing nothing has a
+// right answer, because the release named it.
+func askTheme(reader *bufio.Reader, out io.Writer, themes []theme.Theme, current string) (string, error) {
+	fallback := 0
+	for i, one := range themes {
+		if one.ID == current {
+			fallback = i
+		}
+	}
+
+	fmt.Fprint(out, "\nWhich colourscheme?\n\n")
+	for i, one := range themes {
+		suffix := ""
+		if i == fallback {
+			suffix = "  (default)"
+		}
+		fmt.Fprintf(out, "  %2d  %s%s\n", i+1, themeLabel(one), suffix)
+		if one.Description != "" {
+			fmt.Fprintf(out, "          %s\n", one.Description)
+		}
+	}
+
+	prompt := fmt.Sprintf("\nChoose 1-%d [%d]: ", len(themes), fallback+1)
+	for {
+		answer, err := ask(reader, out, prompt)
+		if err != nil {
+			return "", err
+		}
+		if answer == "" {
+			return themes[fallback].ID, nil
+		}
+
+		number, convErr := strconv.Atoi(answer)
+		if convErr != nil || number < 1 || number > len(themes) {
+			fmt.Fprintf(out, "  %q is not one of the numbers above.\n", answer)
+			continue
+		}
+		return themes[number-1].ID, nil
+	}
+}
+
+// themeLabel is what a person is shown, from the release rather than from here.
+//
+// Shared by both adapters, so a colourscheme cannot be called one thing on a
+// terminal and another over a pipe.
+func themeLabel(one theme.Theme) string {
+	if one.Name != "" {
+		return one.Name
+	}
+	return one.ID
 }
 
 // parseNumbers reads a line of positions, and reports the first that is not one.

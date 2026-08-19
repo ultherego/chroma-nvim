@@ -30,9 +30,19 @@ local WORDMARK = {
 }
 
 return {
+  -- The colourscheme is one choice out of what themes.json offers, made at
+  -- install time and kept in the user's own configuration. Both specs are here
+  -- and exactly one of them is enabled: a colourscheme is not something to load
+  -- two of and hope the priorities settle it.
+  --
+  -- The ids are the catalogue's, and a test holds them to it — a spec gated on
+  -- a name no release offers is a spec that never loads, silently.
   {
     "catppuccin/nvim",
     name = "catppuccin",
+    enabled = function()
+      return require("chroma.theme").is("catppuccin")
+    end,
     -- Loaded eagerly and first, so no other plugin renders against the
     -- default colorscheme before this one applies.
     lazy = false,
@@ -48,6 +58,34 @@ return {
     config = function(_, opts)
       require("catppuccin").setup(opts)
       vim.cmd.colorscheme("catppuccin-mocha")
+    end,
+  },
+
+  -- everforest, verified against https://github.com/neanias/everforest-nvim
+  {
+    "neanias/everforest-nvim",
+    name = "everforest",
+    enabled = function()
+      return require("chroma.theme").is("everforest")
+    end,
+    -- No tag is published, so lazy.nvim would otherwise look for one and stop.
+    version = false,
+    lazy = false,
+    priority = 1000,
+    opts = {
+      -- Contrast of the background, not its lightness: soft, medium or hard.
+      background = "medium",
+      -- 0 opaque, 1 the floats, 2 most of the UI.
+      transparent_background_level = 0,
+      italics = false,
+      ui_contrast = "low",
+    },
+    config = function(_, opts)
+      require("everforest").setup(opts)
+      -- One colorscheme for both lightnesses, unlike catppuccin's two names:
+      -- everforest reads 'background', so it is set before the scheme loads.
+      vim.o.background = "dark"
+      vim.cmd.colorscheme("everforest")
     end,
   },
 

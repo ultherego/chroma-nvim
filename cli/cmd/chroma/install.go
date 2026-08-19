@@ -17,6 +17,7 @@ import (
 	"github.com/ultherego/chroma-nvim/cli/internal/plan"
 	"github.com/ultherego/chroma-nvim/cli/internal/release"
 	"github.com/ultherego/chroma-nvim/cli/internal/report"
+	"github.com/ultherego/chroma-nvim/cli/internal/theme"
 )
 
 // cmdInstall places a Chroma Neovim on this machine, in the shape cli/DESIGN.md
@@ -31,6 +32,7 @@ func cmdInstall(args []string, out, errOut *os.File) int {
 	dryRun := set.Bool("dry-run", false, "build the plan, print it, and write nothing")
 	components := set.String("components", "", "comma-separated optional components; core is always installed")
 	profile := set.String("profile", "", "a named set of components: "+strings.Join(install.ProfileNames(), ", "))
+	chosenTheme := set.String("theme", "", "the colourscheme, out of what the release offers; unset takes the release's default")
 	sourceTree := set.String("source-tree", "", "install from a checkout instead of a release (developer-only)")
 	version := set.String("version", "", "the release to install")
 	useDefault := set.Bool("default", false, "take over ~/.config/nvim, backing up what is there")
@@ -47,6 +49,7 @@ func cmdInstall(args []string, out, errOut *os.File) int {
 		SourceTree:     *sourceTree,
 		UseDefault:     *useDefault,
 		Profile:        *profile,
+		Theme:          *chosenTheme,
 		NonInteractive: *nonInteractive,
 		Plain:          *plain,
 		DryRun:         *dryRun,
@@ -129,12 +132,23 @@ func cmdInstall(args []string, out, errOut *os.File) int {
 		return code
 	}
 
+	// What this release can draw, asked of the release rather than assumed. A
+	// tree without the file is a release from before the colourscheme was a
+	// choice, which is an empty catalogue and no question — and not an error.
+	catalogue, _, err := theme.LoadCatalogue(prepared.Root)
+	if err != nil {
+		fmt.Fprintln(errOut, err)
+		return exitFailed
+	}
+
 	// The interactive flow, and only when there is something it has to ask.
 	// A run that names its components is being driven by flags, and asking it
 	// where to go would break every scripted install that answers the final
-	// question with --yes and nothing else.
+	// question with --yes and nothing else. The colourscheme is inside that gate
+	// rather than beside it, for the same reason: such a run gets the release's
+	// own default, which is an answer, and `--theme` is how it says otherwise.
 	if opts.Selected == nil && opts.Profile == "" && !opts.NonInteractive {
-		opts, err = askInteractively(opts, loaded, os.Stdin, out)
+		opts, err = askInteractively(opts, loaded, catalogue, os.Stdin, out)
 		if err != nil {
 			return refused(err, out, errOut)
 		}
@@ -164,8 +178,18 @@ func cmdInstall(args []string, out, errOut *os.File) int {
 		return exitMisuse
 	}
 
+	// Resolved here as well as inside the installer, and deliberately: a
+	// `--theme` naming something this release does not have is misuse, and
+	// misuse is reported before a plan is drawn rather than after somebody has
+	// agreed to one.
+	pickedTheme, err := opts.ThemeChoice(catalogue)
+	if err != nil {
+		fmt.Fprintln(errOut, err)
+		return exitMisuse
+	}
+
 	built := plan.Build(loaded, append([]string{"core"}, selected...), describeTools)
-	renderPlan(out, opts, paths, prepared, built)
+	renderPlan(out, opts, paths, prepared, built, catalogue, pickedTheme)
 
 	if len(built.Unknown) > 0 {
 		return exitMisuse
@@ -297,7 +321,7 @@ type preparer interface {
 }
 
 // renderPlan prints what would happen, before anything does.
-func renderPlan(out *os.File, opts install.Options, paths install.Paths, prepared install.PreparedSource, built plan.Plan) {
+func renderPlan(out *os.File, opts install.Options, paths install.Paths, prepared install.PreparedSource, built plan.Plan, catalogue theme.Catalogue, picked string) {
 	fmt.Fprintf(out, "Nothing has been written yet. This is what installing would do.\n\n")
 
 	switch {
@@ -317,6 +341,17 @@ func renderPlan(out *os.File, opts install.Options, paths install.Paths, prepare
 		fmt.Fprintf(out, "  Run with      NVIM_APPNAME=%s nvim\n", paths.AppName)
 	}
 	fmt.Fprintf(out, "  Selection     %s\n", paths.SelectionFile)
+
+	// Only when there is one. A release from before the colourscheme was a
+	// choice has nothing to say here, and a line reading "Colourscheme" with
+	// nothing after it is worse than no line.
+	if picked != "" {
+		shown := picked
+		if one, found := catalogue.Get(picked); found && one.Name != "" {
+			shown = one.Name
+		}
+		fmt.Fprintf(out, "  Colourscheme  %s\n", shown)
+	}
 	fmt.Fprintln(out)
 	report.Plan(out, built)
 }

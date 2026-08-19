@@ -1,0 +1,1 @@
+{ "schema": 1, "default": "two", "themes": [ { "id": "one", "colorscheme": "one" } ] }

@@ -9,6 +9,7 @@ import (
 	"github.com/ultherego/chroma-nvim/cli/internal/component"
 	"github.com/ultherego/chroma-nvim/cli/internal/installstate"
 	"github.com/ultherego/chroma-nvim/cli/internal/state"
+	"github.com/ultherego/chroma-nvim/cli/internal/theme"
 )
 
 // Installer carries out an installation. The interactive flow, the flag flow and
@@ -68,7 +69,20 @@ func (i *Installer) Apply(
 		return Result{Paths: paths}, err
 	}
 
-	return i.carryOut(ctx, paths, prepared, set, selected, needsBackup, nil, nil)
+	// Read from the tree that is about to be placed, not taken from the caller.
+	// What a release can draw is the release's own fact, and an installer that
+	// took somebody's word for it could write a choice the editor will not
+	// honour — which is the one failure this document exists to prevent.
+	catalogue, _, err := theme.LoadCatalogue(prepared.Root)
+	if err != nil {
+		return Result{Paths: paths}, err
+	}
+	chosen, err := opts.ThemeChoice(catalogue)
+	if err != nil {
+		return Result{Paths: paths}, err
+	}
+
+	return i.carryOut(ctx, paths, prepared, set, selected, chosen, catalogue, needsBackup, nil, nil)
 }
 
 // Update replaces a managed installation with another release, keeping the
@@ -96,7 +110,12 @@ func (i *Installer) Update(
 	// `previous` says, while borrowing is what a takeover does to directories
 	// that were never Chroma's. One boolean used to mean both, and that is how
 	// an update came to look like a first takeover to everything downstream.
-	return i.carryOut(ctx, paths, prepared, set, selected, false, previous, current.Borrowed)
+	//
+	// The empty theme is the fourth thing that differs and is the same idea as
+	// the third: an update carries a decision forward rather than making it
+	// again. A release that dropped the colourscheme somebody picked leaves the
+	// document naming it alone, and the editor says so at startup.
+	return i.carryOut(ctx, paths, prepared, set, selected, "", theme.Catalogue{}, false, previous, current.Borrowed)
 }
 
 // Reconfigure changes which components are enabled, and nothing else.
@@ -284,6 +303,8 @@ func (i *Installer) carryOut(
 	prepared PreparedSource,
 	set component.Set,
 	selected []string,
+	chosenTheme string,
+	catalogue theme.Catalogue,
 	borrow bool,
 	previous *installstate.Generation,
 	carriedBorrowed []installstate.Borrowed,
@@ -314,6 +335,13 @@ func (i *Installer) carryOut(
 	sink.Emit(Event{Step: "selection", Status: StatusStart})
 	if err := tx.WriteSelection(selected, set); err != nil {
 		return fail("selection", err)
+	}
+
+	// Beside the selection and for the same reason it is first: what the editor
+	// will come up as is decided before anything is placed, so a failure later
+	// is rolled back by one mechanism rather than two.
+	if err := tx.WriteTheme(chosenTheme, catalogue); err != nil {
+		return fail("theme", err)
 	}
 
 	sink.Emit(Event{Step: "stage", Status: StatusStart})

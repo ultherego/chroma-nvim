@@ -1,0 +1,8 @@
+{
+  "schema": 1,
+  "default": "everforest",
+  "themes": [
+    { "id": "everforest", "colorscheme": "everforest" },
+    { "id": "catppuccin", "colorscheme": "catppuccin-mocha" }
+  ]
+}

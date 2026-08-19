@@ -245,8 +245,56 @@ local function check_terminal()
     health.info("Not running inside Zellij — the remaps described in :help chroma-nvim-zellij are harmless here")
   end
 
+  -- Not a claim about the colourscheme any more. It used to say that catppuccin
+  -- offsets its blue channel here, which stopped being true of every
+  -- installation the moment the colourscheme became a choice.
   if vim.env.KITTY_WINDOW_ID then
-    health.ok("Running inside Kitty — catppuccin offsets its blue channel to avoid Kitty's transparency quirk")
+    health.ok("Running inside Kitty")
+  end
+end
+
+--- Which colourscheme is drawing, and whether the two documents that decide it
+--- agree. Its own section for the reason safe mode has one: a theme.json that
+--- cannot be read is reported once at startup, which is exactly when nobody is
+--- reading messages.
+local function check_theme()
+  health.start("Colourscheme")
+
+  local theme = require("chroma.theme")
+  -- From the files, not the session's copy: this repository is also somebody's
+  -- configuration directory.
+  theme.forget()
+
+  local catalogue, offered, err = theme.load_catalogue()
+  if err then
+    health.error(err, "reinstall, or restore the file from the release")
+  elseif not offered then
+    health.info(("No %s — a release from before the colourscheme was a choice"):format(theme.catalogue_path()))
+  end
+
+  local _, chose, choice_err = theme.load(nil, catalogue)
+  if choice_err then
+    health.error(choice_err, ("delete %s to go back to what the release offers by default"):format(theme.path()))
+  elseif not chose then
+    health.ok(("No choice at %s — the release's own default is drawing"):format(theme.path()))
+  else
+    health.ok(("Choice at %s"):format(theme.path()))
+  end
+
+  local drawing = theme.colorscheme()
+  if vim.g.colors_name == drawing then
+    health.ok(("Drawing %s (%s)"):format(theme.chosen(), drawing))
+  else
+    -- The one failure the documents cannot show: everything above agrees, and
+    -- the plugin that draws it never loaded.
+    health.warn(
+      ("%s should be drawing %s, and the colorscheme is %s"):format(
+        theme.chosen(),
+        drawing,
+        vim.g.colors_name or "not set"
+      ),
+      "check `:Lazy` for the colourscheme plugin, and :messages for what it said"
+    )
   end
 end
 
@@ -340,6 +388,7 @@ function M.check()
   check_pickers()
   check_devops()
   check_components()
+  check_theme()
   check_terminal()
 end
 

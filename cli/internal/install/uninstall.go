@@ -197,6 +197,24 @@ func PlanUninstall(paths Paths, current installstate.State) RemovalPlan {
 		plan.Remove = append(plan.Remove, current.SelectionFile)
 	}
 
+	// The colourscheme, from the paths rather than from the record, and it is
+	// the one thing here that is. Every path above can differ between two
+	// installations or be somebody else's, so which one this uninstall means has
+	// to have been written down; this one cannot — `theme.Path()` gives one
+	// answer per user, and the CLI removing it resolves it exactly as the CLI
+	// that wrote it did. Recording it would mean an install.json schema bump,
+	// which would make every installation made before this unmanageable, to
+	// carry a path both sides already agree on.
+	//
+	// Listed only when it is there. A release from before the colourscheme was
+	// a choice wrote none, and a plan that offers to remove a file that does not
+	// exist is a plan that overstates what an uninstall is about to do.
+	if paths.ThemeFile != "" {
+		if _, err := os.Lstat(paths.ThemeFile); err == nil {
+			plan.Remove = append(plan.Remove, paths.ThemeFile)
+		}
+	}
+
 	// The state directory holds install.json and goes last, so that until the
 	// final step Chroma still has the map of what it was managing.
 	if ours(current.StateDir) {

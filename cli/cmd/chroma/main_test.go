@@ -10,6 +10,7 @@ import (
 
 	"github.com/ultherego/chroma-nvim/cli/internal/component"
 	"github.com/ultherego/chroma-nvim/cli/internal/install"
+	"github.com/ultherego/chroma-nvim/cli/internal/theme"
 	"github.com/ultherego/chroma-nvim/cli/internal/tui"
 )
 
@@ -122,7 +123,7 @@ func TestPlainReachesTheLayerThatAsks(t *testing.T) {
 			// about the flag arriving, and installing anything to find that out
 			// would be a different test on a real machine.
 			real := askInteractively
-			askInteractively = func(opts install.Options, _ component.Set, _ io.Reader, _ io.Writer) (install.Options, error) {
+			askInteractively = func(opts install.Options, _ component.Set, _ theme.Catalogue, _ io.Reader, _ io.Writer) (install.Options, error) {
 				asked = &opts
 				return opts, tui.ErrAborted
 			}
@@ -209,7 +210,7 @@ func TestEscapeIsADecisionAndAClosedPipeIsAMistake(t *testing.T) {
 			empty(t)
 
 			real := askInteractively
-			askInteractively = func(opts install.Options, _ component.Set, _ io.Reader, _ io.Writer) (install.Options, error) {
+			askInteractively = func(opts install.Options, _ component.Set, _ theme.Catalogue, _ io.Reader, _ io.Writer) (install.Options, error) {
 				return opts, tc.err
 			}
 			t.Cleanup(func() { askInteractively = real })
@@ -263,5 +264,103 @@ func TestAnUnfinishedCommandSaysSo(t *testing.T) {
 		if commands[name] != nil {
 			t.Errorf("%q is listed as unfinished and also dispatches", name)
 		}
+	}
+}
+
+// And the same for --theme, which has one more thing to prove than --plain
+// does: the catalogue that reaches the question is the one the release being
+// installed actually ships, rather than a list this CLI carries. A newer CLI
+// offering a colourscheme an older release cannot draw is the failure this
+// stops.
+func TestTheThemeAndTheReleasesCatalogueBothReachTheLayerThatAsks(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		args []string
+		want string
+	}{
+		{name: "nothing said", args: []string{"install"}},
+		{name: "--theme", args: []string{"install", "--theme", "everforest"}, want: "everforest"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			empty(t)
+
+			var asked *install.Options
+			var shown theme.Catalogue
+
+			real := askInteractively
+			askInteractively = func(opts install.Options, _ component.Set, catalogue theme.Catalogue, _ io.Reader, _ io.Writer) (install.Options, error) {
+				asked = &opts
+				shown = catalogue
+				return opts, tui.ErrAborted
+			}
+			t.Cleanup(func() { askInteractively = real })
+
+			args := append(append([]string{}, tc.args...), "--source-tree", filepath.Join("..", "..", ".."))
+			say(t, func(out, errOut *os.File) int { return run(args, out, errOut) })
+
+			if asked == nil {
+				t.Fatal("the command never reached the layer that asks")
+			}
+			if asked.Theme != tc.want {
+				t.Errorf("Theme = %q, want %q", asked.Theme, tc.want)
+			}
+
+			// From the tree being installed, which here is this repository.
+			fromTheTree, found, err := theme.LoadCatalogue(filepath.Join("..", "..", ".."))
+			if err != nil || !found {
+				t.Fatalf("this repository ships no catalogue: %v (found %v)", err, found)
+			}
+			if strings.Join(shown.IDs(), ",") != strings.Join(fromTheTree.IDs(), ",") {
+				t.Errorf("the question was offered %v, and the release offers %v", shown.IDs(), fromTheTree.IDs())
+			}
+		})
+	}
+}
+
+// A theme the release does not have is misuse, and it is reported before a plan
+// is drawn — after it, somebody has already read a plan that could not happen.
+func TestAThemeTheReleaseDoesNotOfferIsRefusedAsMisuse(t *testing.T) {
+	empty(t)
+
+	args := []string{"install", "--non-interactive", "--components", "", "--theme", "solarized",
+		"--source-tree", filepath.Join("..", "..", "..")}
+
+	printed, code := say(t, func(out, errOut *os.File) int { return run(args, out, errOut) })
+	if code != exitMisuse {
+		t.Errorf("exit = %d, want %d", code, exitMisuse)
+	}
+	if !strings.Contains(printed, "solarized") {
+		t.Errorf("the refusal does not name what was asked for:\n%s", printed)
+	}
+	if strings.Contains(printed, "Nothing has been written yet") {
+		t.Errorf("a plan was drawn for an installation that cannot happen:\n%s", printed)
+	}
+}
+
+// The plan says which colourscheme is about to be installed, by the name the
+// release gives it. A plan that leaves it out is a plan somebody agrees to
+// without having been told what their editor will look like.
+func TestThePlanNamesTheColourscheme(t *testing.T) {
+	empty(t)
+
+	catalogue, found, err := theme.LoadCatalogue(filepath.Join("..", "..", ".."))
+	if err != nil || !found {
+		t.Fatalf("this repository ships no catalogue: %v (found %v)", err, found)
+	}
+	chosen, exists := catalogue.Get("everforest")
+	if !exists {
+		t.Skipf("this release no longer offers everforest; it offers %v", catalogue.IDs())
+	}
+
+	printed, code := say(t, func(out, errOut *os.File) int {
+		return run([]string{"install", "--non-interactive", "--components", "", "--dry-run",
+			"--theme", chosen.ID, "--source-tree", filepath.Join("..", "..", "..")}, out, errOut)
+	})
+	if code != exitOK && code != exitPreflight {
+		t.Fatalf("exit = %d:\n%s", code, printed)
+	}
+
+	if !strings.Contains(printed, chosen.Name) {
+		t.Errorf("the plan does not name the colourscheme %q:\n%s", chosen.Name, printed)
 	}
 }

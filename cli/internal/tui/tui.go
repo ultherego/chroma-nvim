@@ -20,6 +20,7 @@ import (
 
 	"github.com/ultherego/chroma-nvim/cli/internal/component"
 	"github.com/ultherego/chroma-nvim/cli/internal/install"
+	"github.com/ultherego/chroma-nvim/cli/internal/theme"
 )
 
 // ErrNoInput is returned when there is nobody to ask. Its own error because a
@@ -47,6 +48,11 @@ type Choices struct {
 	// question was not put; empty means it was, and the answer was none of
 	// them. The difference decides whether a later step asks again.
 	Components []string
+
+	// Theme is the colourscheme chosen, by id. Empty means the question was not
+	// put — there is no "no colourscheme" answer to confuse it with, because a
+	// release that offers any always names a default.
+	Theme string
 }
 
 // questions is what still needs asking after the flags have been read.
@@ -63,6 +69,20 @@ type questions struct {
 	// changing one thing means moving one checkbox rather than restating a
 	// selection somebody made a year ago.
 	current []string
+
+	// themes is what the release being installed can actually draw, in its own
+	// order. Carried as the catalogue's entries rather than as ids, so both
+	// adapters show the release's names and descriptions instead of a second
+	// set of them written here — and so a CLI newer than the release cannot
+	// offer a colourscheme that release has never heard of.
+	//
+	// Non-empty is the question: it is filled in only when there is more than
+	// one to choose between.
+	themes []theme.Theme
+
+	// themeCurrent is the entry a selector starts on, which is the release's own
+	// default. Empty when no theme question is being asked.
+	themeCurrent string
 }
 
 // adapter is one way of putting questions to a person.
@@ -74,7 +94,7 @@ type adapter func(what questions, set component.Set, in io.Reader, out io.Writer
 // the rule that keeps this honest: `--components terraform` and answering
 // "terraform" here have to reach the same Options, or the two flows have begun
 // to differ.
-func Ask(opts install.Options, set component.Set, in io.Reader, out io.Writer) (install.Options, error) {
+func Ask(opts install.Options, set component.Set, catalogue theme.Catalogue, in io.Reader, out io.Writer) (install.Options, error) {
 	if opts.NonInteractive {
 		return opts, nil
 	}
@@ -88,7 +108,16 @@ func Ask(opts install.Options, set component.Set, in io.Reader, out io.Writer) (
 		// asked again. Profile is an answer too.
 		components: opts.Selected == nil && opts.Profile == "",
 	}
-	if !what.location && !what.components {
+
+	// Choosable rather than "has any": a release with one colourscheme is not a
+	// question, and a release with none predates the whole idea. Neither is a
+	// screen worth putting in front of somebody.
+	if opts.Theme == "" && catalogue.Choosable() {
+		what.themes = catalogue.Themes
+		what.themeCurrent = catalogue.Default
+	}
+
+	if !what.location && !what.components && len(what.themes) == 0 {
 		return opts, nil
 	}
 
@@ -119,6 +148,9 @@ func apply(opts install.Options, chosen Choices) install.Options {
 		selected := append([]string{}, chosen.Components...)
 		sort.Strings(selected)
 		opts.Selected = selected
+	}
+	if chosen.Theme != "" {
+		opts.Theme = chosen.Theme
 	}
 	return opts
 }

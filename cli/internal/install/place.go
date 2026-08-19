@@ -13,8 +13,8 @@ import (
 // RuntimeEntries is the program, and nothing else. One definition, because
 // staging a checkout and building the release archive need the same answer.
 //
-// In, because running Chroma needs them: init.lua, lua/, after/, components/
-// and lazy-lock.json are read at runtime; doc/chroma-nvim.txt and doc/tags are
+// In, because running Chroma needs them: init.lua, lua/, after/, components/,
+// themes.json and lazy-lock.json are read at runtime; doc/chroma-nvim.txt and doc/tags are
 // `:help chroma-nvim`, which is a feature and not a document about the project.
 // README.md so the installed directory says what it is, and LICENSE because the
 // licence requires its notice in every copy.
@@ -34,6 +34,7 @@ var RuntimeEntries = []string{
 	"lua",
 	"after",
 	"components",
+	"themes.json",
 	"doc/chroma-nvim.txt",
 	"doc/tags",
 	"lazy-lock.json",

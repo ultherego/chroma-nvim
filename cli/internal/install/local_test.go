@@ -33,6 +33,19 @@ func tree(t *testing.T) string {
 	write(t, filepath.Join(root, "components", "terraform.json"),
 		`{"contract": 5, "id": "terraform", "name": "Terraform", "requires": ["core"]}`+"\n")
 
+	// Two, so a tree installed by these tests is one that asks a question. A
+	// single theme would never exercise the choice, and none would never
+	// exercise the document.
+	write(t, filepath.Join(root, "themes.json"), `{
+  "schema": 1,
+  "default": "first",
+  "themes": [
+    { "id": "first", "name": "The first one", "colorscheme": "first-dark" },
+    { "id": "second", "name": "The second one", "colorscheme": "second" }
+  ]
+}
+`)
+
 	return root
 }
 

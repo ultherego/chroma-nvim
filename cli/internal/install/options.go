@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/ultherego/chroma-nvim/cli/internal/component"
+	"github.com/ultherego/chroma-nvim/cli/internal/theme"
 )
 
 // Options is one installation as the user asked for it: which release, where it
@@ -35,6 +36,12 @@ type Options struct {
 	// Profile is a named set of components, resolved by the CLI. Mutually
 	// exclusive with Selected.
 	Profile string
+
+	// Theme is the colourscheme id, checked against what the release being
+	// installed offers rather than against a list this CLI carries. Empty means
+	// nobody has said, and is not the same as naming the default: the first is
+	// still a question to ask, the second is an answer already given.
+	Theme string
 
 	// NonInteractive means no questions: anything not answered by flags is
 	// misuse rather than something to assume.
@@ -93,7 +100,47 @@ func (o Options) Validate() error {
 		seen[id] = true
 	}
 
+	// Deliberately not the components rule. `--non-interactive` without
+	// `--components` is misuse because there is nothing to fall back on, and
+	// here there is: the release names its own default, so a scripted install
+	// that says nothing about the colourscheme gets the one the release would
+	// have shown first. Requiring a flag would break every existing script to
+	// no purpose.
+	if o.Theme != "" && strings.TrimSpace(o.Theme) == "" {
+		return fmt.Errorf("--theme names no theme")
+	}
+
 	return nil
+}
+
+// ThemeChoice is the colourscheme this request comes to, checked against the
+// release that is about to be installed.
+//
+// An empty answer is the release's default rather than an error, and a release
+// that offers nothing at all comes back empty: there is then no document to
+// write, which is what installing a release from before this existed means.
+func (o Options) ThemeChoice(catalogue theme.Catalogue) (string, error) {
+	// Trimmed in the one place that decides what the flag means, rather than at
+	// the flag: `--theme ' catppuccin '` is somebody naming a theme this release
+	// has, and refusing it over a space would be this CLI being precise about
+	// the wrong thing. Whitespace and nothing else is caught by Validate, where
+	// it is misuse rather than a theme nobody has heard of.
+	id := strings.TrimSpace(o.Theme)
+
+	if len(catalogue.Themes) == 0 {
+		if id != "" {
+			return "", fmt.Errorf("--theme %s: this release offers no choice of theme", id)
+		}
+		return "", nil
+	}
+
+	if id == "" {
+		return catalogue.Default, nil
+	}
+	if !catalogue.Offered(id) {
+		return "", fmt.Errorf("this release has no theme %s; it offers %s", id, strings.Join(catalogue.IDs(), ", "))
+	}
+	return id, nil
 }
 
 // Selection is the optional components this request comes to, checked against
