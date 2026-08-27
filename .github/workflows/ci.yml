@@ -322,9 +322,20 @@ jobs:
           # requirements and in `:checkhealth chroma`; installing them here
           # keeps the three saying the same thing.
           sudo apt-get install -y --no-install-recommends \
-            build-essential curl tar unzip gzip ripgrep fd-find
+            build-essential curl tar unzip gzip ripgrep fd-find python3-venv
           # Upstream is explicit that the npm build is not supported.
           cargo install tree-sitter-cli --locked --version "${TREE_SITTER_VERSION}"
+
+          # node, npm and python3 come with the runner image rather than from
+          # apt, which is why they were never named here — and why this job kept
+          # provisioning npm-backed language servers on a machine no document
+          # said needed npm. They are required by `core` now, so the job says so
+          # out loud: a runner image that dropped one would otherwise surface as
+          # a Mason failure halfway through a cold start.
+          for tool in node npm python3; do
+            command -v "$tool" >/dev/null || { echo "::error::$tool is missing"; exit 1; }
+          done
+          python3 -m venv --help >/dev/null
 
       - name: Cold start, once per profile
         # Five real installations, not five unit tests.

@@ -61,9 +61,16 @@ Hard requirements ~
                       nvim-treesitter, neither of which exists earlier.
   git >= 2.19         Partial clones, required by lazy.nvim.
   curl, tar           Parser and binary downloads.
+  unzip, gzip         Mason unpacks its packages with them.
   A C compiler        Treesitter parser compilation.
   tree-sitter-cli     >= 0.26.1, installed from your system package manager.
                       The npm build is explicitly not supported upstream.
+  npm and node        The YAML, JSON and Bash language servers are npm
+                      packages. npm installs them, node runs them. This is
+                      `core`, not an extra belonging to one component.
+  python3             Mason builds a virtualenv for its PyPI packages,
+                      `yamllint` among them. On Debian and Ubuntu that
+                      support is a separate package, python3-venv.
 
 Strongly recommended ~
 

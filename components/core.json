@@ -43,6 +43,18 @@
         "version": {
           "min": "0.26.1"
         }
+      },
+      {
+        "id": "npm",
+        "reason": "Mason installs the YAML, JSON and Bash language servers with it"
+      },
+      {
+        "id": "node",
+        "reason": "those three servers are Node programs, and this is what runs them"
+      },
+      {
+        "id": "python3",
+        "reason": "Mason builds a virtualenv for its PyPI packages, yamllint among them"
       }
     ],
     "recommended": [

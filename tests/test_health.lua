@@ -18,10 +18,15 @@ T["core tooling"] = new_set()
 
 -- Regression: Mason unpacks with unzip and gzip, and the core tooling list asked
 -- about neither, so a missing one surfaced as an archive error.
+--
+-- npm, node and python3 are here for the same reason and are not extras for one
+-- component: `core` alone provisions three npm-backed language servers and one
+-- PyPI-backed linter, so without them the bootstrap fails after preflight has
+-- called the machine ready.
 T["core tooling"]["asks about every tool Mason needs"] = function()
   local text = report()
 
-  for _, cmd in ipairs({ "git", "curl", "tar", "unzip", "gzip" }) do
+  for _, cmd in ipairs({ "git", "curl", "tar", "unzip", "gzip", "npm", "node", "python3" }) do
     eq({ cmd, text:find("`" .. cmd .. "`", 1, true) ~= nil }, { cmd, true })
   end
 end

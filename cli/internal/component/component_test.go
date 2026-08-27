@@ -118,6 +118,31 @@ func TestShippedToolsAreLookupable(t *testing.T) {
 	}
 }
 
+// Regression: the contract named what unpacks a Mason package and not what
+// installs one. `core` alone provisions three npm-backed language servers —
+// yaml, json and bash — and one PyPI-backed linter, so a machine without npm,
+// node or python3 passed preflight and then failed in the bootstrap, which
+// reads like a defect in Chroma and is a missing runtime. The container the
+// installer is tested in has had them since it was written; only the contract,
+// the health check and the README did not.
+func TestCoreRequiresWhatMasonProvisionsThrough(t *testing.T) {
+	core := shipped(t)["core"]
+
+	for _, want := range []string{"npm", "node", "python3"} {
+		found := false
+		for _, tool := range core.Tools.Required {
+			for _, name := range tool.Names() {
+				if name == want {
+					found = true
+				}
+			}
+		}
+		if !found {
+			t.Errorf("core does not require %q — an installation without it provisions nothing", want)
+		}
+	}
+}
+
 // The Lua side rejects the same things. Where these two disagree, one accepts a
 // contract the other refuses, and the disagreement shows up during an install.
 func TestLoadReportsBadFiles(t *testing.T) {

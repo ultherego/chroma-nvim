@@ -108,6 +108,19 @@ local function check_core()
       what = "compiling treesitter parsers",
       advice = "install tree-sitter-cli >= 0.26.1 from your package manager, not from npm",
     },
+    {
+      cmd = "npm",
+      what = "installing the YAML, JSON and Bash language servers, which are npm packages",
+    },
+    {
+      cmd = "node",
+      what = "running those three servers once they are installed",
+    },
+    {
+      cmd = "python3",
+      what = "the virtualenv Mason builds for its PyPI packages, yamllint among them",
+      advice = "on Debian and Ubuntu the virtualenv support is a separate package, python3-venv",
+    },
   }, health.error)
 
   local compiler = tools.first({ "cc", "gcc", "clang" })
