@@ -67,10 +67,13 @@ Hard requirements ~
                       The npm build is explicitly not supported upstream.
   npm and node        The YAML, JSON and Bash language servers are npm
                       packages. npm installs them, node runs them. This is
-                      `core`, not an extra belonging to one component.
+                      `core`, not an extra belonging to one component. On
+                      Debian, Ubuntu and Arch npm is packaged apart from
+                      nodejs; on Fedora it arrives with it.
   python3             Mason builds a virtualenv for its PyPI packages,
-                      `yamllint` among them. On Debian and Ubuntu that
-                      support is a separate package, python3-venv.
+                      `yamllint` among them. Debian and Ubuntu keep that
+                      support in a separate python3-venv; on Arch and Fedora
+                      the python package carries it.
 
 Strongly recommended ~
 

@@ -86,9 +86,20 @@ what it does and does not guarantee, in `:help chroma-nvim`.
 | Python 3 with `venv` | any supported release | Mason builds a virtualenv for PyPI packages, `yamllint` among them |
 | curl, tar, unzip, gzip | any | downloads, and unpacking parsers and Mason packages |
 
-Node and Python are not optional extras for one component: the core editor
-alone installs three npm-backed language servers and one PyPI-backed linter. On
-Debian and Ubuntu the virtualenv support is a separate package, `python3-venv`.
+Node and Python are not optional extras for one component: the core editor alone
+installs three npm-backed language servers and one PyPI-backed linter. What is
+worth knowing is that installing the obvious package does not always bring all
+three, and the splits differ:
+
+| | `node` | `npm` | `python3 -m venv` |
+|---|---|---|---|
+| Debian, Ubuntu | `nodejs` | separate `npm` | separate `python3-venv` |
+| Arch | `nodejs` | separate `npm` | in `python` |
+| Fedora | `nodejs` | in `nodejs` | in `python3` |
+
+`chroma doctor` and `:checkhealth chroma` look for the three commands rather
+than for packages, so whatever your distribution calls them, they answer the
+question directly.
 
 The versions are floors rather than pins — each is a requirement stated by
 something Chroma depends on. Anything newer works.

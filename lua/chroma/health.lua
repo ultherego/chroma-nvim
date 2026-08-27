@@ -111,6 +111,7 @@ local function check_core()
     {
       cmd = "npm",
       what = "installing the YAML, JSON and Bash language servers, which are npm packages",
+      advice = "Debian, Ubuntu and Arch package npm apart from nodejs, so installing nodejs alone leaves it missing",
     },
     {
       cmd = "node",
@@ -119,7 +120,7 @@ local function check_core()
     {
       cmd = "python3",
       what = "the virtualenv Mason builds for its PyPI packages, yamllint among them",
-      advice = "on Debian and Ubuntu the virtualenv support is a separate package, python3-venv",
+      advice = "Debian and Ubuntu keep the virtualenv support in a separate package, python3-venv",
     },
   }, health.error)
 
