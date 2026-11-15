@@ -7,6 +7,14 @@ local lockfile = vim.fn.stdpath("config") .. "/lazy-lock.json"
 ---@param message string
 ---@param detail string
 local function give_up(message, detail)
+  -- Nobody to press a key without a UI. The installer runs this headless with
+  -- no stdin, and `getchar()` there waits for ever: a clone that failed in a
+  -- second was reported half an hour later, as a timeout.
+  if #vim.api.nvim_list_uis() == 0 then
+    io.stderr:write(message .. "\n" .. detail .. "\n")
+    os.exit(1)
+  end
+
   vim.api.nvim_echo({
     { message .. "\n", "ErrorMsg" },
     { detail, "WarningMsg" },

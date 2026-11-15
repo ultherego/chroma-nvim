@@ -1,9 +1,11 @@
 -- The headless entrypoint the installer drives.
 --
--- `install()` is not here: it drives lazy.nvim, Mason and nvim-treesitter, and
--- a test that stubbed all three would prove that the stubs agree with each
--- other. It is covered where it means something — a real installation on a
--- clean XDG, which is the installer's own end-to-end smoke test.
+-- `install()` is mostly not here: it drives lazy.nvim, Mason and
+-- nvim-treesitter, and a test that stubbed all three would prove that the stubs
+-- agree with each other. It is covered where it means something — a real
+-- installation on a clean XDG, which is the installer's own end-to-end smoke
+-- test. The one case below is about how long this file's own waiting takes,
+-- which no real installation can be made to show.
 --
 -- `verify()` is the half that decides whether an installation is recorded or
 -- rolled back, and it is pure enough to check here: it reads the state the
@@ -178,6 +180,105 @@ T["run"]["refuses a step it does not know"] = function()
 
   eq(result.code ~= 0, true)
   eq((result.stdout .. result.stderr):find("unknown step", 1, true) ~= nil, true)
+end
+
+T["install"] = new_set()
+
+-- Regression: a Mason package that failed is neither installed nor installing,
+-- and the wait after `check_install` was for every package to be present — so
+-- one quick failure held the installer for the full timeout before it was named.
+T["install"]["a package that failed is named at once, not after the timeout"] = function()
+  local stubbed = {
+    lazy = { install = function() end, restore = function() end, load = function() end },
+    ["mason-registry"] = {
+      is_installed = function()
+        return false
+      end,
+      get_package = function()
+        return {
+          is_installing = function()
+            return false
+          end,
+        }
+      end,
+    },
+    ["mason-lspconfig"] = {
+      get_mappings = function()
+        return { lspconfig_to_package = {} }
+      end,
+    },
+    ["mason-tool-installer"] = {
+      check_install = function()
+        vim.schedule(function()
+          vim.api.nvim_exec_autocmds("User", { pattern = "MasonToolsUpdateCompleted" })
+        end)
+      end,
+    },
+  }
+
+  local saved = {}
+  for name, stub in pairs(stubbed) do
+    saved[name] = package.loaded[name]
+    package.loaded[name] = stub
+  end
+
+  local ok, problem, took
+  -- Core alone: it contributes servers, and that is all this needs.
+  with_selection('{ "schema": 1, "selected": [] }', function()
+    local started = vim.uv.hrtime()
+    ok, problem = bootstrap.install({ timeout = 8000 })
+    took = (vim.uv.hrtime() - started) / 1e6
+  end)
+
+  for name in pairs(stubbed) do
+    package.loaded[name] = saved[name]
+  end
+
+  eq(ok, false)
+  eq(problem:find("these Mason packages did not install", 1, true) ~= nil, true)
+  eq({ "under three seconds", took < 3000 }, { "under three seconds", true })
+end
+
+-- Regression: lazy.nvim could not be cloned, the message said "press any key",
+-- and under the installer there is no key — headless, no stdin. The process sat
+-- until the installer's own half-hour bound and was reported as a timeout.
+T["a first start that cannot clone lazy.nvim exits, headless"] = function()
+  local root = vim.fn.fnamemodify(debug.getinfo(1, "S").source:sub(2), ":p:h:h")
+  local sandbox = vim.fn.tempname()
+  vim.fn.mkdir(sandbox .. "/bin", "p")
+
+  -- A git that fails the way one with no network does.
+  vim.fn.writefile({ "#!/bin/sh", "echo 'could not resolve host' >&2", "exit 128" }, sandbox .. "/bin/git")
+  vim.uv.fs_chmod(sandbox .. "/bin/git", tonumber("755", 8))
+
+  local result = vim
+    .system({
+      vim.v.progpath,
+      "--headless",
+      "-u",
+      "NONE",
+      "--cmd",
+      "set runtimepath^=" .. root,
+      "-c",
+      "lua require('config.lazy')",
+      "-c",
+      "qa!",
+    }, {
+      text = true,
+      env = {
+        PATH = sandbox .. "/bin:" .. vim.env.PATH,
+        XDG_DATA_HOME = sandbox .. "/data",
+        XDG_CONFIG_HOME = sandbox .. "/config",
+        XDG_STATE_HOME = sandbox .. "/state",
+        XDG_CACHE_HOME = sandbox .. "/cache",
+      },
+    })
+    :wait(10000)
+  vim.fn.delete(sandbox, "rf")
+
+  -- 124 or a signal would be the wait giving up on it.
+  eq({ result.code, result.signal }, { 1, 0 })
+  eq(result.stderr:find("Failed to clone lazy.nvim", 1, true) ~= nil, true)
 end
 
 return T

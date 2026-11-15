@@ -180,9 +180,12 @@ function M.install(opts)
     -- missing after everything had installed correctly.
     local packages = mason_packages(servers, tools)
 
-    -- A short second wait for anything still writing itself out.
+    -- For anything still writing itself out, and no longer than that. This
+    -- used to wait for every package to be present as well, which a package
+    -- that failed never is: with npm missing, yamlls failed in seconds and the
+    -- installer then sat for the whole timeout before naming it.
     vim.wait(timeout, function()
-      return #absent(packages, installed) == 0 and settled(packages)
+      return settled(packages)
     end, INTERVAL)
 
     local missing = absent(packages, installed)
