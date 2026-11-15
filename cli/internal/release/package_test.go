@@ -446,6 +446,29 @@ func TestAttributeReportsTheCommitAndWhatDiffersFromIt(t *testing.T) {
 	if len(stillOne.Dirty) != 1 {
 		t.Errorf("dirty = %v; a file outside the archive is not the archive's problem", stillOne.Dirty)
 	}
+
+	// Regression: the archive walks the directory, so a file git ignores is in
+	// it all the same — and a status that leaves ignored files out called a
+	// tree carrying an editor's swap file clean.
+	if err := os.WriteFile(filepath.Join(root, ".gitignore"), []byte("*.swp\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "lua", ".init.lua.swp"), []byte("swap"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	withIgnored, err := Attribute(root)
+	if err != nil {
+		t.Fatalf("Attribute: %v", err)
+	}
+	found := false
+	for _, entry := range withIgnored.Dirty {
+		if strings.Contains(entry, ".init.lua.swp") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("dirty = %v, want the ignored file the archive would carry", withIgnored.Dirty)
+	}
 }
 
 // A tree that cannot say where it came from is not something to build a release

@@ -365,7 +365,11 @@ func Attribute(tree string) (Attribution, error) {
 
 	// Only the entries that end up in the archive, and `--` so a path that
 	// happens to look like a revision is still read as a path.
-	args := append([]string{"status", "--porcelain", "--"}, install.RuntimeEntries...)
+	//
+	// `--ignored`, because the archive is built by walking the directory and
+	// git's idea of clean leaves ignored files out: a swap file or a log under
+	// `lua/` went into a release that this had just called clean.
+	args := append([]string{"status", "--porcelain", "--ignored", "--"}, install.RuntimeEntries...)
 	status, err := git(tree, args...)
 	if err != nil {
 		return Attribution{}, fmt.Errorf("asking git what has changed in %s: %w", tree, err)

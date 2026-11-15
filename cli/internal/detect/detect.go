@@ -160,10 +160,13 @@ func Tools(set component.Set, enabled []string, lookup Lookup, version Version) 
 					// first, or git would become external — and stop blocking —
 					// the moment some component sorted ahead of core and also
 					// wanted it.
+					//
+					// Described again from core's own declaration rather than
+					// patched: three fields used to be copied over, and the
+					// version core requires was not one of them — so a git too
+					// old for core read as present, and did not block.
 					if id == "core" {
-						tools[at].Component = "core"
-						tools[at].External = false
-						tools[at].Level = level.name
+						tools[at] = describe(wanted, level.name, id, lookup, version)
 					}
 					continue
 				}

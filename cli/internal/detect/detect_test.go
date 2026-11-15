@@ -226,6 +226,32 @@ func TestCoreWinsWhicheverComponentIsSeenFirst(t *testing.T) {
 	}
 }
 
+// Regression: core won the tool but not its floor. With a component sorted
+// ahead of core naming the same tool, a version too old for core was reported
+// as present and did not block the installation.
+func TestCoreWinsWithTheVersionItRequires(t *testing.T) {
+	set := component.Set{
+		"ansible": {ID: "ansible", Tools: component.Tools{
+			Recommended: []component.Tool{{ID: "git", Reason: "cloning roles"}},
+		}},
+		"core": {ID: "core", Tools: component.Tools{
+			Required: []component.Tool{{ID: "git", Reason: "lazy.nvim clones plugins", Version: &component.Version{Min: "2.19"}}},
+		}},
+	}
+
+	for _, order := range [][]string{{"ansible", "core"}, {"core", "ansible"}} {
+		tools := Tools(set, order, present("git"), says(map[string]string{"git": "2.18.0"}))
+
+		git, found := find(tools, "git")
+		if !found {
+			t.Fatalf("%v: git was not reported", order)
+		}
+		if !git.Blocking() {
+			t.Errorf("%v: a git older than core requires does not block (%+v)", order, git)
+		}
+	}
+}
+
 func TestSplitPutsEachToolOnOneSide(t *testing.T) {
 	set := shipped(t)
 
