@@ -65,6 +65,10 @@ type Transaction struct {
 	// removed, and these are somebody else's work and may only be given back.
 	Borrowed []installstate.Borrowed
 
+	// LeftBehind is where a rollback moved what the failed installation had
+	// made at a borrowed path, so the borrowed directory could go back there.
+	LeftBehind []string
+
 	// RestoredFrom is where a generation was moved *from* when it was put back,
 	// and Restored says it happened. Kept apart from Placed because the
 	// difference is destructive: undoing a placed tree means deleting it, and
@@ -108,7 +112,8 @@ func (tx *Transaction) HoldAside(original string) (string, error) {
 // giveBackHeld puts Chroma's own directories back where they were, in reverse.
 func (tx *Transaction) giveBackHeld() error {
 	var problems []error
-	kept := tx.Held[:0]
+	// Its own array, for the reason giveBackBorrowed gives.
+	kept := make([]heldAside, 0, len(tx.Held))
 
 	for index := len(tx.Held) - 1; index >= 0; index-- {
 		one := tx.Held[index]

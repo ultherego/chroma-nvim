@@ -319,3 +319,136 @@ func TestAnUninstallRefusesASubstitutedDataDirectory(t *testing.T) {
 		t.Fatal("the fixture had no data to lose")
 	}
 }
+
+// bootstrapping is a runner that does what a real bootstrap does to a machine:
+// it fills Neovim's other three directories, and the CLI's own log appears in
+// the state one. Then it fails at the step named, or not at all.
+//
+// The runner the rest of this package uses creates nothing, which is how a
+// takeover that could not be undone passed every test here.
+type bootstrapping struct {
+	paths Paths
+	fail  string
+}
+
+func (b *bootstrapping) Run(_ context.Context, cmd Command, _ ProgressSink) error {
+	for _, dir := range []string{b.paths.DataDir, b.paths.StateDir, b.paths.CacheDir} {
+		if err := os.MkdirAll(filepath.Join(dir, "lazy"), 0o755); err != nil {
+			return err
+		}
+		if err := os.WriteFile(filepath.Join(dir, "lazy", "fetched"), []byte("chroma"), 0o644); err != nil {
+			return err
+		}
+	}
+	if err := os.MkdirAll(b.paths.LogDir, 0o755); err != nil {
+		return err
+	}
+	if err := os.WriteFile(filepath.Join(b.paths.LogDir, "install-20260809T134200Z.log"), []byte("why it failed\n"), 0o644); err != nil {
+		return err
+	}
+
+	if b.fail != "" && strings.Contains(strings.Join(cmd.Args, " "), `run("`+b.fail+`"`) {
+		return fmt.Errorf("the editor said no")
+	}
+	return nil
+}
+
+// Regression, measured on this code before the fix: the bootstrap had made new
+// directories where the borrowed ones belonged, every rename back failed with
+// "file exists", and `~/.config/nvim` was simply absent afterwards.
+func TestAFailedTakeoverGivesBackAllFourAfterARealBootstrap(t *testing.T) {
+	for _, step := range []string{"install", "verify"} {
+		t.Run(step, func(t *testing.T) {
+			fixed(t)
+			paths := neovims(t, t.TempDir())
+			homes := theirs(t, paths)
+
+			before := map[string]map[string]string{}
+			for _, home := range homes {
+				before[home] = manifest(t, home)
+			}
+
+			installer := &Installer{Runner: &bootstrapping{paths: paths, fail: step}}
+			result, err := installer.Apply(context.Background(), Options{UseDefault: true}, paths, prepared(t), shipped(t))
+			if err == nil {
+				t.Fatal("the installation succeeded, and it was meant to fail")
+			}
+			if result.RollbackProblem != nil {
+				t.Fatalf("putting things back did not entirely work: %v", result.RollbackProblem)
+			}
+
+			for _, home := range homes {
+				compare(t, home, before[home], manifest(t, home))
+			}
+
+			// The log of the failure is the one thing somebody needs next, so
+			// what was moved out of the way is named and the log is in it.
+			if len(result.LeftBehind) != 3 {
+				t.Fatalf("left behind %v, want the data, state and cache the bootstrap made", result.LeftBehind)
+			}
+			logs := 0
+			for _, left := range result.LeftBehind {
+				if !strings.Contains(filepath.Base(left), failedMark) {
+					t.Errorf("%s is not named as a failed installation's", left)
+				}
+				if exists(filepath.Join(left, "logs", "install-20260809T134200Z.log")) {
+					logs++
+				}
+				if !strings.Contains(result.Describe(), left) {
+					t.Errorf("the report does not say where %s went:\n%s", left, result.Describe())
+				}
+			}
+			if logs != 1 {
+				t.Errorf("the failure's log is in %d of the directories left behind, want 1", logs)
+			}
+
+			// And nothing is left that recovery would read as a generation.
+			for _, home := range homes {
+				matches, _ := filepath.Glob(home + backupMark + "*")
+				if len(matches) != 0 {
+					t.Errorf("%v still beside %s", matches, home)
+				}
+			}
+		})
+	}
+}
+
+// One directory that cannot go back must not cost the others theirs. The slice
+// of what is still owed used to share its array with the one being walked, so a
+// failure at the last entry overwrote the first before the loop got to it.
+func TestOneDirectoryThatCannotGoBackDoesNotStopTheOthers(t *testing.T) {
+	fixed(t)
+	paths := neovims(t, t.TempDir())
+	homes := theirs(t, paths)
+
+	before := map[string]map[string]string{}
+	for _, home := range homes {
+		before[home] = manifest(t, home)
+	}
+
+	tx := &Transaction{}
+	if err := tx.Borrow(paths); err != nil {
+		t.Fatal(err)
+	}
+	if len(tx.Borrowed) != 4 {
+		t.Fatalf("borrowed %d directories, want 4", len(tx.Borrowed))
+	}
+
+	// The last one taken is no longer what was recorded, so it is refused.
+	last := tx.Borrowed[len(tx.Borrowed)-1]
+	tx.Borrowed[len(tx.Borrowed)-1].Inode = last.Inode + 1
+
+	if err := tx.giveBackBorrowed(); err == nil {
+		t.Fatal("a substituted directory was given back without a word")
+	}
+
+	if len(tx.Borrowed) != 1 || tx.Borrowed[0].Original != last.Original {
+		t.Fatalf("still owed %+v, want only %s", tx.Borrowed, last.Original)
+	}
+	for _, home := range homes {
+		if home == last.Original {
+			continue
+		}
+		compare(t, home, before[home], manifest(t, home))
+	}
+}

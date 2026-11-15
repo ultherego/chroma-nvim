@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/ultherego/chroma-nvim/cli/internal/component"
@@ -38,6 +39,11 @@ type Result struct {
 	// print loudly.
 	RolledBack      bool
 	RollbackProblem error
+
+	// LeftBehind is what a failed takeover had made where the user's
+	// directories belong, moved aside so those could be put back. The log of
+	// the failure is in one of them.
+	LeftBehind []string
 }
 
 // Apply runs the installation, and undoes it if any step fails.
@@ -152,6 +158,7 @@ func (i *Installer) Reconfigure(
 		if problem := tx.Rollback(); problem != nil {
 			result.RollbackProblem = problem
 		}
+		result.LeftBehind = tx.LeftBehind
 		return result, cause
 	}
 
@@ -217,6 +224,7 @@ func (i *Installer) Rollback(
 		if problem := tx.Rollback(); problem != nil {
 			result.RollbackProblem = problem
 		}
+		result.LeftBehind = tx.LeftBehind
 		return result, cause
 	}
 
@@ -329,6 +337,7 @@ func (i *Installer) carryOut(
 		if problem := tx.Rollback(); problem != nil {
 			result.RollbackProblem = problem
 		}
+		result.LeftBehind = tx.LeftBehind
 		return result, cause
 	}
 
@@ -486,7 +495,12 @@ func (r Result) Describe() string {
 	case r.RollbackProblem != nil:
 		return fmt.Sprintf("The installation failed and putting things back did not entirely work: %v", r.RollbackProblem)
 	case r.RolledBack:
-		return "The installation failed. The previous configuration and selection were put back, and nothing was recorded."
+		said := "The installation failed. The previous configuration and selection were put back, and nothing was recorded."
+		if len(r.LeftBehind) > 0 {
+			said += "\nWhat the failed installation had made was moved out of the way and can be deleted once you have read its log:\n  " +
+				strings.Join(r.LeftBehind, "\n  ")
+		}
+		return said
 	default:
 		return "The installation did not start, and nothing was changed."
 	}

@@ -229,10 +229,20 @@ func chromaLeftIt(dir string) string {
 	return ""
 }
 
+// failedMark names what a failed installation left where a borrowed directory
+// belongs. Not backupMark, deliberately: recovery reads a `.chroma-backup-` as
+// something to put back, and this is nobody's to put back anywhere.
+const failedMark = ".chroma-failed-"
+
 // asideFrom picks an unused sibling path to move a directory to.
 func asideFrom(original string) (string, error) {
+	return siblingOf(original, backupMark)
+}
+
+// siblingOf picks an unused sibling path carrying a mark and the time.
+func siblingOf(original, mark string) (string, error) {
 	stamp := now().Format("20060102T150405Z")
-	base := filepath.Join(filepath.Dir(original), filepath.Base(original)+".chroma-backup-"+stamp)
+	base := filepath.Join(filepath.Dir(original), filepath.Base(original)+mark+stamp)
 
 	// A second install in the same second would otherwise rename over the first
 	// one's backup, which is the one directory that must not be lost.
@@ -253,12 +263,21 @@ func asideFrom(original string) (string, error) {
 // it is moved: the record says where, not what.
 func (tx *Transaction) giveBackBorrowed() error {
 	var problems []error
-	kept := tx.Borrowed[:0]
+
+	// Its own array. Sharing the one being read meant a failure at a late index
+	// overwrote an early entry before the loop, running backwards, reached it —
+	// and the configuration, which is first, was never attempted.
+	kept := make([]installstate.Borrowed, 0, len(tx.Borrowed))
 
 	for index := len(tx.Borrowed) - 1; index >= 0; index-- {
 		borrowed := tx.Borrowed[index]
 
 		if err := ProveIdentity(borrowed.Backup, identityOfRecord(borrowed), borrowed.Kind+" Chroma moved aside"); err != nil {
+			problems = append(problems, err)
+			kept = append(kept, borrowed)
+			continue
+		}
+		if err := tx.clearTheWayFor(borrowed.Original); err != nil {
 			problems = append(problems, err)
 			kept = append(kept, borrowed)
 			continue
@@ -277,6 +296,32 @@ func (tx *Transaction) giveBackBorrowed() error {
 	tx.Borrowed = kept
 
 	return errors.Join(problems...)
+}
+
+// clearTheWayFor moves whatever now sits where a borrowed directory belongs.
+//
+// This transaction emptied that path, so anything there was made afterwards by
+// the installation that is being undone: plugins the bootstrap fetched, and in
+// the state directory the very log that says why it failed. Moved rather than
+// removed, for that log and because a rename cannot be wrong about whose files
+// these are; where it went is kept so it can be said.
+func (tx *Transaction) clearTheWayFor(original string) error {
+	if _, err := os.Lstat(original); errors.Is(err, os.ErrNotExist) {
+		return nil
+	} else if err != nil {
+		return fmt.Errorf("looking at %s: %w", original, err)
+	}
+
+	aside, err := siblingOf(original, failedMark)
+	if err != nil {
+		return err
+	}
+	if err := os.Rename(original, aside); err != nil {
+		return fmt.Errorf("moving what the failed installation left at %s aside to %s: %w", original, aside, err)
+	}
+
+	tx.LeftBehind = append(tx.LeftBehind, aside)
+	return nil
 }
 
 // identityOfRecord is what a borrowed directory was, as the record holds it.
