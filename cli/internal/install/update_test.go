@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/ultherego/chroma-nvim/cli/internal/installstate"
 )
@@ -193,4 +194,127 @@ func TestAnUpdateKeepsTheSelectionItWasGiven(t *testing.T) {
 	if !strings.Contains(string(contents), "terraform") {
 		t.Errorf("the selection document lost the component: %s", contents)
 	}
+}
+
+// again gives the installation a release version, the way installed() does, so
+// that what follows is one more release-to-release update.
+func again(t *testing.T, paths Paths, record installstate.State, version string) installstate.State {
+	t.Helper()
+
+	record.Version = version
+	record.Source = installstate.Source{Type: installstate.FromRelease, Ref: version, SHA256: version}
+	if _, err := installstate.Write(paths.InstallState, record); err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+	return record
+}
+
+// Regression: one generation is kept, and nothing removed the one before it.
+// After a second update it was a backup the record did not name, which is what
+// an interrupted update looks like — so update, rollback, uninstall and
+// components all refused until it was deleted by hand. No test updated twice.
+func TestASecondUpdateLeavesNothingTheNextCommandRefuses(t *testing.T) {
+	stepping(t)
+
+	paths, first := installed(t, nil)
+
+	once, err := updated(t, &failAt{}, paths, first, nil)
+	if err != nil {
+		t.Fatalf("the first update: %v", err)
+	}
+	second := again(t, paths, once.State, "v2.0.0")
+	oldest := second.Previous.Path
+
+	twice, err := updated(t, &failAt{}, paths, second, nil)
+	if err != nil {
+		t.Fatalf("the second update: %v", err)
+	}
+	third := again(t, paths, twice.State, "v3.0.0")
+
+	if exists(oldest) {
+		t.Errorf("%s is still there, and nothing names it", oldest)
+	}
+	if third.Previous == nil || !exists(third.Previous.Path) {
+		t.Fatalf("the generation to come back to is gone: %+v", third.Previous)
+	}
+	if twice.Leftover != "" {
+		t.Errorf("reported %s as left over", twice.Leftover)
+	}
+
+	if found, err := DetectInterruption(paths, third); err != nil || found != nil {
+		t.Errorf("the next command would refuse: found=%v err=%v", found, err)
+	}
+}
+
+// Removed only when it is the directory that was recorded. Anything else at
+// that path is left alone and said, because this is the one deletion an update
+// makes.
+func TestAnUpdateDoesNotRemoveAGenerationItCannotProve(t *testing.T) {
+	stepping(t)
+
+	paths, first := installed(t, nil)
+	once, err := updated(t, &failAt{}, paths, first, nil)
+	if err != nil {
+		t.Fatalf("the first update: %v", err)
+	}
+	second := again(t, paths, once.State, "v2.0.0")
+	oldest := second.Previous.Path
+
+	// Somebody replaced it: same path, not the same directory.
+	if err := os.RemoveAll(oldest); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(oldest, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(oldest, "mine"), []byte("not Chroma's"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	twice, err := updated(t, &failAt{}, paths, second, nil)
+	if err != nil {
+		t.Fatalf("the second update: %v", err)
+	}
+
+	if !exists(filepath.Join(oldest, "mine")) {
+		t.Error("a directory that was not the recorded generation was removed")
+	}
+	if twice.Leftover != oldest {
+		t.Errorf("Leftover = %q, want %s", twice.Leftover, oldest)
+	}
+}
+
+// A failed update must keep both: the generation it was replacing goes back,
+// and the one before it is still the way back from there.
+func TestAFailedUpdateKeepsTheGenerationBeforeLast(t *testing.T) {
+	stepping(t)
+
+	paths, first := installed(t, nil)
+	once, err := updated(t, &failAt{}, paths, first, nil)
+	if err != nil {
+		t.Fatalf("the first update: %v", err)
+	}
+	second := again(t, paths, once.State, "v2.0.0")
+
+	if _, err := updated(t, &failAt{step: "verify"}, paths, second, nil); err == nil {
+		t.Fatal("the update succeeded, and it was meant to fail")
+	}
+	if !exists(second.Previous.Path) {
+		t.Errorf("%s was removed by an update that did not happen", second.Previous.Path)
+	}
+}
+
+// stepping is a clock that moves a second each time it is read, so that every
+// directory moved aside in one test gets a name of its own.
+func stepping(t *testing.T) {
+	t.Helper()
+
+	saved := now
+	start := time.Date(2026, 8, 9, 13, 42, 0, 0, time.UTC)
+	ticks := 0
+	now = func() time.Time {
+		ticks++
+		return start.Add(time.Duration(ticks) * time.Second)
+	}
+	t.Cleanup(func() { now = saved })
 }

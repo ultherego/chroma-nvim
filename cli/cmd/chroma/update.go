@@ -156,6 +156,12 @@ func cmdUpdate(args []string, out, errOut *os.File) int {
 		fmt.Fprintf(out, "  previous  %s, kept at %s\n", describeGeneration(*result.State.Previous), result.State.Previous.Path)
 	}
 
+	if result.Leftover != "" {
+		// Said plainly, because the next command will refuse until it is gone
+		// and what it says then does not explain how it came to be there.
+		fmt.Fprintf(out, "\nThe generation before that could not be removed and is still at %s.\nDelete it before the next update, rollback or uninstall.\n", result.Leftover)
+	}
+
 	_, external := detect.Split(detect.Tools(loaded, built.Components, nil, nil))
 	report.External(out, external)
 

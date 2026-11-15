@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -39,6 +40,10 @@ type Result struct {
 	// print loudly.
 	RolledBack      bool
 	RollbackProblem error
+
+	// Leftover is the generation before last, when an update could not remove
+	// it. It has to go before the next command will run.
+	Leftover string
 
 	// LeftBehind is what a failed takeover had made where the user's
 	// directories belong, moved aside so those could be put back. The log of
@@ -121,7 +126,46 @@ func (i *Installer) Update(
 	// the third: an update carries a decision forward rather than making it
 	// again. A release that dropped the colourscheme somebody picked leaves the
 	// document naming it alone, and the editor says so at startup.
-	return i.carryOut(ctx, paths, prepared, set, selected, "", theme.Catalogue{}, false, previous, current.Borrowed)
+	result, err := i.carryOut(ctx, paths, prepared, set, selected, "", theme.Catalogue{}, false, previous, current.Borrowed)
+	if err != nil || !result.Recorded {
+		return result, err
+	}
+
+	// One generation is kept, and the record has just stopped naming the one
+	// before it. Left where it was, it is a backup nothing refers to — which is
+	// exactly what an interrupted update looks like, so every later command
+	// refused until somebody deleted it by hand. After the commit and never
+	// before: until the record moved on, that directory was the way back.
+	if current.Previous != nil && current.Previous.Path != "" {
+		if problem := discardGeneration(*current.Previous); problem != nil {
+			sink := i.Sink
+			if sink == nil {
+				sink = Discard{}
+			}
+			sink.Emit(Event{Step: "cleanup", Status: StatusWarning, Message: problem.Error()})
+			result.Leftover = current.Previous.Path
+		}
+	}
+
+	return result, nil
+}
+
+// discardGeneration removes a kept generation the record no longer names. Only
+// the directory Chroma recorded: a path alone says where, not what, and this is
+// the one place an update deletes anything.
+func discardGeneration(generation installstate.Generation) error {
+	if _, err := os.Lstat(generation.Path); errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+
+	want := Identity{Device: generation.Device, Inode: generation.Inode, Mtime: generation.Mtime}
+	if err := ProveIdentity(generation.Path, want, "generation"); err != nil {
+		return fmt.Errorf("the generation before last was not removed: %w", err)
+	}
+	if err := os.RemoveAll(generation.Path); err != nil {
+		return fmt.Errorf("removing the generation before last at %s: %w", generation.Path, err)
+	}
+	return nil
 }
 
 // Reconfigure changes which components are enabled, and nothing else.
