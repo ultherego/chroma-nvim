@@ -969,6 +969,101 @@ T["a language server is never told what a decrypted vault says"] = function()
   end
 end
 
+---A language server living in this process, recording every document it is sent.
+---@param seen string[]
+---@param delay integer  milliseconds before `initialize` is answered; 0 answers at once
+---@return fun(dispatchers: table): table
+local function recording_server(seen, delay)
+  return function(dispatchers)
+    local closing = false
+    return {
+      request = function(method, _, callback)
+        if method == "initialize" then
+          local function answer()
+            callback(nil, { capabilities = { textDocumentSync = 1 } })
+          end
+          if delay > 0 then
+            vim.defer_fn(answer, delay)
+          else
+            answer()
+          end
+        elseif method == "shutdown" then
+          callback(nil, nil)
+        end
+        return true, 1
+      end,
+      notify = function(method, params)
+        if method == "textDocument/didOpen" then
+          table.insert(seen, params.textDocument.text)
+        elseif method == "textDocument/didChange" then
+          table.insert(seen, (params.contentChanges[1] or {}).text or "")
+        end
+        return true
+      end,
+      is_closing = function()
+        return closing
+      end,
+      terminate = function()
+        closing = true
+        dispatchers.on_exit(0, 0)
+      end,
+    }
+  end
+end
+
+-- Regression: a server still initialising is not in `get_clients({ bufnr })`, so
+-- it was not detached — and on initialising it opened the buffer with what the
+-- buffer held by then. Measured with a 200 ms `initialize`: the whole plaintext.
+T["a language server still starting is never told either"] = function()
+  local dir, vault = project("---\npassword: LSP_SENTINEL\n")
+
+  local seen, started = {}, 0
+  local group = vim.api.nvim_create_augroup("vault_test_lsp_slow", { clear = true })
+  vim.api.nvim_create_autocmd("FileType", {
+    group = group,
+    pattern = "yaml",
+    callback = function(ev)
+      started = started + 1
+      vim.lsp.start({ name = "vault-test-slow", cmd = recording_server(seen, 200), root_dir = dir }, { bufnr = ev.buf })
+    end,
+  })
+
+  open_with(vault, { transparent = true })
+  eq(vim.b.ansible_vault_plain, true)
+  vim.wait(1000)
+  pcall(vim.api.nvim_del_augroup_by_id, group)
+
+  -- It was started against this buffer, or the case proves nothing.
+  eq(started > 0, true)
+  for _, text in ipairs(seen) do
+    eq(text:find("LSP_SENTINEL", 1, true), nil)
+  end
+  eq(#vim.lsp.get_clients({ bufnr = 0, _uninitialized = true }), 0)
+end
+
+-- Neovim sends didOpen before LspAttach, so a server started against a buffer
+-- already holding plaintext used to be handed it and only then detached.
+T["a language server started on a decrypted vault is refused the buffer"] = function()
+  local dir, vault = project("---\npassword: LSP_SENTINEL\n")
+
+  open_with(vault, { transparent = true })
+  eq(vim.b.ansible_vault_plain, true)
+
+  local seen = {}
+  vim.lsp.start({ name = "vault-test-late", cmd = recording_server(seen, 0), root_dir = dir }, { bufnr = 0 })
+  vim.wait(300)
+
+  eq(seen, {})
+  eq(#vim.lsp.get_clients({ bufnr = 0, _uninitialized = true }), 0)
+
+  -- And the veto is about this buffer, not about the server.
+  vim.cmd.enew()
+  vim.api.nvim_buf_set_lines(0, 0, -1, false, { "ordinary: text" })
+  vim.lsp.start({ name = "vault-test-late", cmd = recording_server(seen, 0), root_dir = dir }, { bufnr = 0 })
+  vim.wait(300)
+  eq(#seen, 1)
+end
+
 -- ---------------------------------------------------------------------------
 -- What a write does is decided by what the buffer holds
 

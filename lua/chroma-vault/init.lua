@@ -571,8 +571,38 @@ end
 --- :help chroma-nvim-vault-tools for what this does and does not close.
 ---@param buf integer
 local function detach_language_servers(buf)
-  for _, client in ipairs(vim.lsp.get_clients({ bufnr = buf })) do
-    pcall(vim.lsp.buf_detach_client, buf, client.id)
+  -- `_uninitialized` is how Neovim itself lists clients still starting; without
+  -- it they are left out, and they are the ones that matter most here.
+  for _, client in ipairs(vim.lsp.get_clients({ bufnr = buf, _uninitialized = true })) do
+    if client.initialized then
+      pcall(vim.lsp.buf_detach_client, buf, client.id)
+    else
+      -- Told nothing so far. On initialising it opens every buffer still listed
+      -- here with whatever that buffer holds by then, before LspAttach fires.
+      client.attached_buffers[buf] = nil
+    end
+  end
+end
+
+local attach_guarded = false
+
+--- Refuses new attachments to a buffer holding plaintext. Neovim sends didOpen,
+--- carrying the whole buffer, before LspAttach fires — so undoing an attach
+--- there is already too late, and this is the only place one can be vetoed.
+local function refuse_attaches_to_plaintext()
+  if attach_guarded then
+    return
+  end
+  attach_guarded = true
+
+  local attach = vim.lsp.buf_attach_client
+  ---@diagnostic disable-next-line: duplicate-set-field
+  vim.lsp.buf_attach_client = function(bufnr, client_id)
+    local buf = (bufnr == nil or bufnr == 0) and vim.api.nvim_get_current_buf() or bufnr
+    if vim.api.nvim_buf_is_valid(buf) and vim.b[buf].ansible_vault_plain then
+      return false
+    end
+    return attach(bufnr, client_id)
   end
 end
 
@@ -590,6 +620,7 @@ end
 --- holds plaintext. Setting the filetype is what invites language servers.
 ---@param buf integer
 local function keep_language_servers_off(buf)
+  refuse_attaches_to_plaintext()
   detach_language_servers(buf)
   detach_gitsigns(buf)
 
