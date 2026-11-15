@@ -18,6 +18,8 @@ import (
 	"os"
 	"sort"
 
+	"github.com/charmbracelet/x/term"
+
 	"github.com/ultherego/chroma-nvim/cli/internal/component"
 	"github.com/ultherego/chroma-nvim/cli/internal/install"
 	"github.com/ultherego/chroma-nvim/cli/internal/theme"
@@ -196,13 +198,15 @@ func plainly() bool {
 // survived the whole suite until this existed.
 var isTerminal = terminal
 
-// terminal reports whether something is a character device — a terminal — as
-// opposed to a pipe, a file, or anything else that merely carries bytes.
+// terminal reports whether something is a terminal, as opposed to a pipe, a
+// file, or anything else that merely carries bytes.
 func terminal(end any) bool {
 	file, ok := end.(*os.File)
 	if !ok {
 		return false
 	}
-	info, err := file.Stat()
-	return err == nil && info.Mode()&os.ModeCharDevice != 0
+	// Asked of the terminal driver rather than of the file's mode: /dev/null is
+	// a character device too, and `chroma install </dev/null` is not a
+	// conversation.
+	return term.IsTerminal(file.Fd())
 }

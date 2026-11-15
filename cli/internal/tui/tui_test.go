@@ -415,3 +415,22 @@ func TestItShowsWhatTheContractSays(t *testing.T) {
 		}
 	}
 }
+
+// Regression: the questions wrapped their input in a buffered reader, which
+// takes everything a pipe holds on its first read. The confirmation that comes
+// after them reads the same stdin, found it empty, and took that for a no — so
+// `printf '1\n\ny\n' | chroma install` could never be confirmed.
+func TestTheQuestionsReadNoFurtherThanTheirOwnAnswers(t *testing.T) {
+	// Location, components, theme — and then a line that is somebody else's.
+	in := strings.NewReader("1\n\n\ny\n")
+
+	var out bytes.Buffer
+	if _, err := Ask(install.Options{}, fixture(), catalogue(), in, &out); err != nil {
+		t.Fatalf("Ask: %v", err)
+	}
+
+	left, err := ReadLine(in)
+	if err != nil || left != "y\n" {
+		t.Errorf("what was left for the confirmation is %q (%v), want the y", left, err)
+	}
+}

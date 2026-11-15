@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bufio"
 	"context"
 	"flag"
 	"fmt"
@@ -17,6 +16,7 @@ import (
 	"github.com/ultherego/chroma-nvim/cli/internal/release"
 	"github.com/ultherego/chroma-nvim/cli/internal/report"
 	"github.com/ultherego/chroma-nvim/cli/internal/theme"
+	"github.com/ultherego/chroma-nvim/cli/internal/tui"
 )
 
 // cmdInstall places a Chroma Neovim on this machine, in the shape cli/DESIGN.md
@@ -370,7 +370,9 @@ func confirmed(opts install.Options, out *os.File) bool {
 func asked(out *os.File, prompt string) bool {
 	fmt.Fprint(out, prompt)
 
-	answer, err := bufio.NewReader(os.Stdin).ReadString('\n')
+	// The same unbuffered read the questions before this used, so that answers
+	// arriving down a pipe are still there when this asks for one.
+	answer, err := tui.ReadLine(os.Stdin)
 	if err != nil && strings.TrimSpace(answer) == "" {
 		return false
 	}

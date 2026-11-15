@@ -15,7 +15,6 @@
 package tui
 
 import (
-	"bufio"
 	"errors"
 	"fmt"
 	"io"
@@ -29,7 +28,11 @@ import (
 
 // overLines is the adapter that asks by printing and reading lines.
 func overLines(what questions, set component.Set, in io.Reader, out io.Writer) (Choices, error) {
-	reader := bufio.NewReader(in)
+	// Not wrapped in a buffer. A buffered reader takes everything a pipe holds
+	// on its first read, and the confirmation that follows these questions
+	// reads the same stdin through a reader of its own — so piped answers got
+	// through the questions and then found nothing left to say yes with.
+	reader := in
 	chosen := Choices{UseDefault: what.takenOver}
 
 	if what.location {
@@ -71,7 +74,7 @@ func welcome(out io.Writer) {
 }
 
 // askLocation offers the two placements the installer actually supports.
-func askLocation(reader *bufio.Reader, out io.Writer) (bool, error) {
+func askLocation(reader io.Reader, out io.Writer) (bool, error) {
 	fmt.Fprint(out, "\nWhere should it go?\n\n")
 	fmt.Fprint(out, "  1  ~/.config/chroma-nvim, run with NVIM_APPNAME=chroma-nvim  (default)\n")
 	fmt.Fprint(out, "     Leaves your existing Neovim configuration alone.\n")
@@ -99,7 +102,7 @@ func askLocation(reader *bufio.Reader, out io.Writer) (bool, error) {
 //
 // Core is not in the list. It is not a choice, and offering a checkbox that
 // cannot be cleared is a worse lie than not offering one.
-func askComponents(reader *bufio.Reader, out io.Writer, set component.Set, current []string) ([]string, error) {
+func askComponents(reader io.Reader, out io.Writer, set component.Set, current []string) ([]string, error) {
 	optional := optionalIn(set)
 	if len(optional) == 0 {
 		return []string{}, nil
@@ -163,7 +166,7 @@ func askComponents(reader *bufio.Reader, out io.Writer, set component.Set, curre
 // One answer rather than a toggle list, and an empty line takes the release's
 // own default: this is the one question in the flow where doing nothing has a
 // right answer, because the release named it.
-func askTheme(reader *bufio.Reader, out io.Writer, themes []theme.Theme, current string) (string, error) {
+func askTheme(reader io.Reader, out io.Writer, themes []theme.Theme, current string) (string, error) {
 	fallback := 0
 	for i, one := range themes {
 		if one.ID == current {
@@ -268,10 +271,10 @@ func selectionOf(chosen map[string]bool) []string {
 // io.EOF is a refusal, not an empty answer. A pipe that has run out has not
 // agreed to anything, and the difference decides whether an installation
 // proceeds on defaults nobody chose.
-func ask(reader *bufio.Reader, out io.Writer, prompt string) (string, error) {
+func ask(reader io.Reader, out io.Writer, prompt string) (string, error) {
 	fmt.Fprint(out, prompt)
 
-	line, err := reader.ReadString('\n')
+	line, err := ReadLine(reader)
 	if err != nil {
 		if errors.Is(err, io.EOF) && strings.TrimSpace(line) != "" {
 			// A last line with no newline is still an answer.
@@ -284,6 +287,27 @@ func ask(reader *bufio.Reader, out io.Writer, prompt string) (string, error) {
 	}
 
 	return strings.TrimSpace(line), nil
+}
+
+// ReadLine reads up to and including the next newline, and not one byte past
+// it. A byte at a time, which costs nothing at the speed of somebody typing and
+// is what lets two readers take turns on one stream.
+func ReadLine(in io.Reader) (string, error) {
+	var line []byte
+	one := make([]byte, 1)
+
+	for {
+		count, err := in.Read(one)
+		if count > 0 {
+			line = append(line, one[0])
+			if one[0] == '\n' {
+				return string(line), nil
+			}
+		}
+		if err != nil {
+			return string(line), err
+		}
+	}
 }
 
 // seeded turns a selection into the ticks a selector starts with.
