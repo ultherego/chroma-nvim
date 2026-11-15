@@ -20,6 +20,11 @@ type Removal struct {
 	// over it.
 	Restored string
 
+	// Leftover are directories an earlier uninstall moved aside and did not
+	// live to remove. Named, not removed: the name is one Chroma gives, and a
+	// name is still not proof of whose directory it is.
+	Leftover []string
+
 	// Problems are the removals that did not work. An uninstall reports them
 	// rather than stopping: refusing to remove the rest would leave more
 	// behind than carrying on does.
@@ -258,7 +263,7 @@ func (i *Installer) Uninstall(paths Paths, current installstate.State) (Removal,
 	}
 
 	plan := PlanUninstall(paths, current)
-	removal := Removal{}
+	removal := Removal{Leftover: heldBefore(current)}
 
 	// Nothing begins before the intention to do it is on disk, and all of them
 	// at once: they were taken together, and a process that stops after two of
@@ -386,6 +391,13 @@ func (i *Installer) Uninstall(paths Paths, current installstate.State) (Removal,
 		}
 		if err := os.Rename(one.Backup, one.Original); err != nil {
 			removal.Problems = append(removal.Problems, describeRestoreFailure(one.Backup, one.Original, err))
+			// As above: the path is not left empty, and the next run finds
+			// Chroma's directory where the record says it is.
+			if moved != "" {
+				if putBack := os.Rename(moved, one.Original); putBack != nil {
+					removal.Problems = append(removal.Problems, fmt.Errorf("putting %s back as %s: %w", moved, one.Original, putBack))
+				}
+			}
 			continue
 		}
 		sink.Emit(Event{Step: "restore", Status: StatusDone, Message: one.Kind + ": " + one.Original})
@@ -491,10 +503,17 @@ func finish(paths Paths, current installstate.State, plan RemovalPlan, sink Prog
 		return []error{err}
 	}
 	if err := os.Rename(borrowed.Backup, borrowed.Original); err != nil {
+		problems := []error{describeRestoreFailure(borrowed.Backup, borrowed.Original, err)}
 		if moved != "" {
-			_ = os.Rename(moved, borrowed.Original)
+			// The record is inside what was moved, so a put-back that fails is
+			// the difference between an uninstall to run again and no
+			// installation recorded at all. Said, not swallowed.
+			if putBack := os.Rename(moved, borrowed.Original); putBack != nil {
+				problems = append(problems, fmt.Errorf(
+					"putting %s back as %s: %w\nThe record of this installation is in %s", moved, borrowed.Original, putBack, moved))
+			}
 		}
-		return []error{describeRestoreFailure(borrowed.Backup, borrowed.Original, err)}
+		return problems
 	}
 	sink.Emit(Event{Step: "restore", Status: StatusDone, Message: borrowed.Kind + ": " + borrowed.Original})
 
@@ -506,6 +525,23 @@ func finish(paths Paths, current installstate.State, plan RemovalPlan, sink Prog
 		}
 	}
 	return nil
+}
+
+// heldBefore finds what an uninstall that did not finish had moved aside: any
+// sibling of one of this installation's directories carrying heldMark.
+func heldBefore(current installstate.State) []string {
+	var found []string
+	for _, original := range []string{current.ConfigDir, current.DataDir, current.CacheDir, current.StateDir} {
+		if original == "" {
+			continue
+		}
+		matches, err := filepath.Glob(original + heldMark + "*")
+		if err != nil {
+			continue
+		}
+		found = append(found, matches...)
+	}
+	return found
 }
 
 // beginHandover marks every directory still owed as being in transit.

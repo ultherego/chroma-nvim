@@ -97,7 +97,7 @@ func (tx *Transaction) HoldAside(original string) (string, error) {
 		return "", fmt.Errorf("looking at %s: %w", original, err)
 	}
 
-	aside, err := asideFrom(original)
+	aside, err := siblingOf(original, heldMark)
 	if err != nil {
 		return "", err
 	}

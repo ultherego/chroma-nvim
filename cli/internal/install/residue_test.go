@@ -1,8 +1,11 @@
 package install
 
 import (
+	"context"
+	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/ultherego/chroma-nvim/cli/internal/installstate"
@@ -249,6 +252,124 @@ func TestAFinishedUninstallRemovesTheRecordLast(t *testing.T) {
 	for _, path := range []string{paths.StateDir, paths.InstallState} {
 		if exists(path) {
 			t.Errorf("%s survived a finished uninstall", path)
+		}
+	}
+}
+
+// Regression, and the worst thing found in this package: a takeover, one
+// update, and an uninstall killed after the configuration had gone home. The
+// copy of Chroma's tree it had moved aside carried a backup's name, the kept
+// generation was already gone, and recovery read the pair as an interrupted
+// rollback — renaming Chroma's tree over the configuration just given back, and
+// the next uninstall then deleted that configuration as a generation.
+func TestAKilledUninstallNeverTakesBackWhatItGave(t *testing.T) {
+	stepping(t)
+
+	paths := neovims(t, t.TempDir())
+	homes := theirs(t, paths)
+	before := map[string]map[string]string{}
+	for _, home := range homes {
+		before[home] = manifest(t, home)
+	}
+
+	record := takeoverOver(t, paths)
+	updating := &Installer{Runner: &failAt{}}
+	result, err := updating.Update(context.Background(), paths, prepared(t), shipped(t), nil, record)
+	if err != nil {
+		t.Fatalf("the update: %v", err)
+	}
+	record = result.State
+
+	stopAt(t, faultAfterUserRestore)
+	installer := &Installer{}
+	if _, err := installer.Uninstall(paths, record); err == nil {
+		t.Fatal("the uninstall was meant to stop partway")
+	}
+	faults = nil
+
+	stopped := reload(t, paths)
+	given := manifest(t, paths.ConfigDir)
+	compare(t, "the configuration, once given back", before[paths.ConfigDir], given)
+
+	// An update or a rollback has nothing to work on here, and must not treat
+	// what stands at the configuration's path as a generation of Chroma's.
+	var only *UninstallOnly
+	if _, err := Recover(paths, stopped); !errors.As(err, &only) {
+		t.Fatalf("recovery answered %v, want a refusal that only an uninstall may pass", err)
+	}
+
+	// The rest of what the killed process would have got through before it
+	// died: the kept generation is gone, Chroma's own tree is still aside.
+	if err := os.RemoveAll(stopped.Previous.Path); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Recover(paths, stopped); !errors.As(err, &only) {
+		t.Fatalf("recovery answered %v, want a refusal that only an uninstall may pass", err)
+	}
+	compare(t, "the configuration, after recovery looked at it", before[paths.ConfigDir], manifest(t, paths.ConfigDir))
+
+	removal, err := installer.Uninstall(paths, stopped)
+	if err != nil {
+		t.Fatalf("the second run could not finish: %v", err)
+	}
+	for _, home := range homes {
+		compare(t, home, before[home], manifest(t, home))
+	}
+	if exists(paths.InstallState) {
+		t.Error("the record is still there after a finished uninstall")
+	}
+
+	// What the first run moved aside is named for somebody to delete, under a
+	// name recovery does not read as a generation.
+	if len(removal.Leftover) != 1 || !strings.Contains(removal.Leftover[0], heldMark) {
+		t.Fatalf("Leftover = %v, want the one tree the first run moved aside", removal.Leftover)
+	}
+	if matches, _ := filepath.Glob(paths.ConfigDir + backupMark + "*"); len(matches) != 0 {
+		t.Errorf("%v would be read as a generation by the next recovery", matches)
+	}
+}
+
+// Regression: an uninstall that could not finish keeps its record "so this can
+// be run again" — and had already deleted the kept generation the record names,
+// so the run again was refused before it began.
+func TestAnUninstallCanBeRunAgainOnceTheKeptGenerationHasGone(t *testing.T) {
+	stepping(t)
+
+	paths, record := twoGenerations(t, nil)
+	put(t, filepath.Join(paths.DataDir, "something"), "chroma's own\n")
+
+	parent := filepath.Dir(paths.DataDir)
+	mode, err := os.Stat(parent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	unremovable(t, paths.DataDir)
+
+	installer := &Installer{}
+	if _, err := installer.Uninstall(paths, record); err == nil {
+		t.Fatal("the first run reported success")
+	}
+	if err := os.Chmod(parent, mode.Mode()); err != nil {
+		t.Fatal(err)
+	}
+
+	stopped := reload(t, paths)
+	if exists(stopped.Previous.Path) {
+		t.Fatal("the kept generation survived, so this is not the case under test")
+	}
+
+	// Every other command stops here; the uninstall is what this state is for.
+	var only *UninstallOnly
+	if _, err := Recover(paths, stopped); !errors.As(err, &only) {
+		t.Fatalf("recovery answered %v, want a refusal that only an uninstall may pass", err)
+	}
+
+	if _, err := installer.Uninstall(paths, stopped); err != nil {
+		t.Fatalf("the second run could not finish: %v", err)
+	}
+	for _, path := range []string{paths.DataDir, paths.StateDir, paths.ConfigDir} {
+		if exists(path) {
+			t.Errorf("%s is still there after the second run", path)
 		}
 	}
 }

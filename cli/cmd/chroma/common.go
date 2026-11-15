@@ -92,7 +92,20 @@ func locked(errOut *os.File) (*lock.Lock, int) {
 // else. The record is not rewritten: it already describes the last committed
 // arrangement, and what was wrong was the filesystem.
 func recovered(paths install.Paths, current installstate.State, out, errOut *os.File) int {
+	return recoveredFor(false, paths, current, out, errOut)
+}
+
+// recoveredFor is recovered, told whether the command is the uninstall. Some
+// states stop every command but that one, because it is how they are left.
+func recoveredFor(uninstalling bool, paths install.Paths, current installstate.State, out, errOut *os.File) int {
 	why, err := install.Recover(paths, current)
+
+	var only *install.UninstallOnly
+	if uninstalling && errors.As(err, &only) {
+		fmt.Fprintf(out, "%s\nCarrying on from there.\n\n", only.Reason)
+		return exitOK
+	}
+
 	if err != nil {
 		fmt.Fprintln(errOut, err)
 		fmt.Fprint(errOut, "Nothing was changed. An earlier Chroma operation did not finish and this cannot tell what to put back.\n")
@@ -110,7 +123,20 @@ func recovered(paths install.Paths, current installstate.State, out, errOut *os.
 // operation". Measured before this existed — `chroma update --dry-run` on an
 // interrupted topology moved two directories and rewrote the installation.
 func foreseen(paths install.Paths, current installstate.State, out, errOut *os.File) int {
+	return foreseenFor(false, paths, current, out, errOut)
+}
+
+// foreseenFor is foreseen, told whether the command is the uninstall, for the
+// reason recoveredFor is.
+func foreseenFor(uninstalling bool, paths install.Paths, current installstate.State, out, errOut *os.File) int {
 	found, err := install.DetectInterruption(paths, current)
+
+	var only *install.UninstallOnly
+	if uninstalling && errors.As(err, &only) {
+		fmt.Fprintf(out, "%s\nA real run would carry on from there.\n\n", only.Reason)
+		return exitOK
+	}
+
 	if err != nil {
 		fmt.Fprintln(errOut, err)
 		fmt.Fprint(errOut, "Nothing was changed. An earlier Chroma operation did not finish and this cannot tell what to put back.\n")

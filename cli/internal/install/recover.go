@@ -24,6 +24,25 @@ const (
 	provisionalMark = ".chroma-provisional-"
 )
 
+// heldMark names one of Chroma's own directories moved out of the way by an
+// uninstall. Not backupMark: a killed uninstall used to leave Chroma's tree
+// beside the configuration under a backup's name, recovery read it as the
+// committed generation of an interrupted rollback, and renamed it over the
+// configuration the uninstall had just given back.
+const heldMark = ".chroma-removing-"
+
+// UninstallOnly is a refusal that stops every command except the one that can
+// finish what it describes. An installation in this state has nothing left for
+// an update or a rollback to work on, and `chroma uninstall` is the way out of
+// it — so that command reads this as a description rather than as a stop.
+type UninstallOnly struct {
+	Reason string
+}
+
+func (e *UninstallOnly) Error() string {
+	return e.Reason + "\n`chroma uninstall` can still remove this installation"
+}
+
 // Interruption is a generation transaction that stopped between moving a
 // directory and writing the record. Detected rather than journalled, because the
 // evidence is already durable: **a `*.chroma-backup-*` directory the record does
@@ -52,6 +71,18 @@ type Interruption struct {
 // orphan that is not a Chroma tree, a recorded previous that is missing —
 // returns an error rather than a guess.
 func DetectInterruption(paths Paths, current installstate.State) (*Interruption, error) {
+	// Asked first, because everything below reasons about generations and an
+	// installation being taken apart no longer has any. Past the first step of
+	// an uninstall the configuration may already be somebody else's again, and
+	// nothing beside it is to be moved into it.
+	for _, borrowed := range current.Borrowed {
+		if borrowed.Handover == installstate.HandoverPending || borrowed.Handover == installstate.HandoverHandedBack {
+			return nil, &UninstallOnly{Reason: fmt.Sprintf(
+				"An uninstall of this installation was started and did not finish: your %s at %s was already being given back.",
+				borrowed.Kind, borrowed.Original)}
+		}
+	}
+
 	beside := filepath.Dir(paths.ConfigDir)
 	entries, err := os.ReadDir(beside)
 	if err != nil {
@@ -92,9 +123,9 @@ func DetectInterruption(paths Paths, current installstate.State) (*Interruption,
 	case len(orphans) == 0:
 		// The record points at a generation that is not there and nothing
 		// explains where it went.
-		return nil, fmt.Errorf(
-			"%s records a previous generation at %s, which is not there, and there is no interrupted transaction to explain it",
-			paths.InstallState, current.Previous.Path)
+		return nil, &UninstallOnly{Reason: fmt.Sprintf(
+			"%s records a previous generation at %s, which is not there, and there is no interrupted transaction to explain it.",
+			paths.InstallState, current.Previous.Path)}
 
 	case len(orphans) > 1:
 		return nil, fmt.Errorf(

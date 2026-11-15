@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/ultherego/chroma-nvim/cli/internal/install"
 )
@@ -35,7 +36,7 @@ func cmdUninstall(args []string, out, errOut *os.File) int {
 	// Read-only, and it runs for every invocation: what a real run would repair
 	// is described here and done below. A dry run must leave this machine
 	// exactly as it found it, and that includes the lock file.
-	if code := foreseen(paths, current, out, errOut); code != exitOK {
+	if code := foreseenFor(true, paths, current, out, errOut); code != exitOK {
 		return code
 	}
 
@@ -50,7 +51,7 @@ func cmdUninstall(args []string, out, errOut *os.File) int {
 		}
 		defer held.Release()
 
-		if code := recovered(paths, current, out, errOut); code != exitOK {
+		if code := recoveredFor(true, paths, current, out, errOut); code != exitOK {
 			return code
 		}
 
@@ -129,6 +130,10 @@ func cmdUninstall(args []string, out, errOut *os.File) int {
 	}
 
 	fmt.Fprintf(out, "\nChroma Neovim is uninstalled. %d paths removed.\n", len(removal.Removed))
+	if len(removal.Leftover) > 0 {
+		fmt.Fprintf(out, "An earlier uninstall that did not finish left these beside your directories, and they are for you to delete:\n  %s\n",
+			strings.Join(removal.Leftover, "\n  "))
+	}
 	if removal.Restored != "" {
 		fmt.Fprintf(out, "The configuration you had before Chroma is back at %s.\n", plan.RestoreTo)
 	}
