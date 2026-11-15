@@ -48,8 +48,8 @@ func cmdComponents(args []string, out, errOut *os.File) int {
 		return nil
 	})
 
-	if err := set.Parse(args); err != nil {
-		return exitMisuse
+	if code, proceed := parsed(set, args, errOut); !proceed {
+		return code
 	}
 
 	if *tree != "" {

@@ -364,3 +364,42 @@ func TestThePlanNamesTheColourscheme(t *testing.T) {
 		t.Errorf("the plan does not name the colourscheme %q:\n%s", chosen.Name, printed)
 	}
 }
+
+// Regression: the standard library stops reading at the first argument that is
+// not a flag and says nothing. `update --yes v2.8.0 --dry-run` therefore lost
+// both the dry run and the version, and updated to the latest release unasked;
+// `uninstall --yes x --dry-run` really uninstalled.
+func TestNoCommandReadsPastAnArgumentItDoesNotTake(t *testing.T) {
+	for _, command := range []string{"install", "update", "rollback", "uninstall", "components", "doctor", "package"} {
+		t.Run(command, func(t *testing.T) {
+			empty(t)
+
+			args := []string{command, "stray-argument", "--dry-run"}
+			printed, code := say(t, func(out, errOut *os.File) int { return run(args, out, errOut) })
+
+			if code != exitMisuse {
+				t.Errorf("exit = %d, want %d", code, exitMisuse)
+			}
+			if !strings.Contains(printed, "stray-argument") {
+				t.Errorf("the refusal does not name the argument:\n%s", printed)
+			}
+		})
+	}
+}
+
+// Asking a command what it takes is not misuse.
+func TestAskingACommandForHelpIsNotMisuse(t *testing.T) {
+	for _, command := range []string{"install", "update", "rollback", "uninstall", "components", "doctor", "package"} {
+		t.Run(command, func(t *testing.T) {
+			empty(t)
+
+			printed, code := say(t, func(out, errOut *os.File) int { return run([]string{command, "--help"}, out, errOut) })
+			if code != exitOK {
+				t.Errorf("exit = %d, want %d\n%s", code, exitOK, printed)
+			}
+			if !strings.Contains(printed, "Usage of "+command) {
+				t.Errorf("no usage was printed:\n%s", printed)
+			}
+		})
+	}
+}

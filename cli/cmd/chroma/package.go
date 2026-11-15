@@ -31,8 +31,8 @@ func cmdPackage(args []string, out, errOut *os.File) int {
 	var assets multiFlag
 	set.Var(&assets, "asset", "another file to list in SHA256SUMS; repeatable")
 
-	if err := set.Parse(args); err != nil {
-		return exitMisuse
+	if code, proceed := parsed(set, args, errOut); !proceed {
+		return code
 	}
 
 	if *version == "" {

@@ -40,8 +40,8 @@ func cmdInstall(args []string, out, errOut *os.File) int {
 	plain := set.Bool("plain", false, "ask in printed lines instead of selectors, even on a terminal (also CHROMA_PLAIN=1)")
 	assumeYes := set.Bool("yes", false, "accept the final plan without asking")
 
-	if err := set.Parse(args); err != nil {
-		return exitMisuse
+	if code, proceed := parsed(set, args, errOut); !proceed {
+		return code
 	}
 
 	opts := install.Options{

@@ -32,8 +32,8 @@ func cmdRollback(args []string, out, errOut *os.File) int {
 	assumeYes := set.Bool("yes", false, "roll back without asking")
 	nonInteractive := set.Bool("non-interactive", false, "never ask")
 
-	if err := set.Parse(args); err != nil {
-		return exitMisuse
+	if code, proceed := parsed(set, args, errOut); !proceed {
+		return code
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)

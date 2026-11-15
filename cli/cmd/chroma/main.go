@@ -85,7 +85,7 @@ func usage(w *os.File) {
 
   package      build a release archive and its checksums (developer-only)
 
-Both reading commands take --tree to point at a configuration; the default is
-the directory this is run from.
+components and doctor read the installation on this machine; --tree points
+either of them at a checkout instead. No command takes arguments, only options.
 `)
 }

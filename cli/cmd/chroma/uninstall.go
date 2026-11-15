@@ -24,8 +24,8 @@ func cmdUninstall(args []string, out, errOut *os.File) int {
 	assumeYes := set.Bool("yes", false, "remove without asking")
 	nonInteractive := set.Bool("non-interactive", false, "never ask")
 
-	if err := set.Parse(args); err != nil {
-		return exitMisuse
+	if code, proceed := parsed(set, args, errOut); !proceed {
+		return code
 	}
 
 	paths, current, code := managed(errOut)

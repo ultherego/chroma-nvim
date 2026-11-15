@@ -15,31 +15,6 @@ import (
 	"github.com/ultherego/chroma-nvim/cli/internal/tui"
 )
 
-// tree resolves --tree, defaulting to the working directory, and returns the
-// components directory inside it.
-func tree(set *flag.FlagSet, args []string, errOut *os.File) (string, int) {
-	dir, _, code := treeWithRoot(set, args, errOut)
-	return dir, code
-}
-
-// treeWithRoot returns the components directory and the tree it is in, because
-// a message about where something would be installed should name the tree
-// rather than the directory this happens to read.
-func treeWithRoot(set *flag.FlagSet, args []string, errOut *os.File) (string, string, int) {
-	root := set.String("tree", ".", "configuration tree to read")
-	set.SetOutput(errOut)
-	if err := set.Parse(args); err != nil {
-		return "", "", exitMisuse
-	}
-
-	dir := filepath.Join(*root, "components")
-	if info, err := os.Stat(dir); err != nil || !info.IsDir() {
-		fmt.Fprintf(errOut, "no components directory in %s — is that a Chroma Neovim tree?\n", *root)
-		return "", "", exitMisuse
-	}
-	return dir, *root, exitOK
-}
-
 func load(dir string, errOut *os.File) (component.Set, int) {
 	set, problems, err := component.Load(dir)
 	if err != nil {
@@ -84,6 +59,31 @@ func locked(errOut *os.File) (*lock.Lock, int) {
 		return nil, exitFailed
 	}
 	return held, exitOK
+}
+
+// parsed reads a command's flags, and says whether the command should go on.
+//
+// Two things the standard library leaves to the caller. Asking for help is not
+// misuse, so it exits 0. And parsing stops at the first argument that is not a
+// flag, leaving everything after it unread: `update --yes v2.8.0 --dry-run`
+// lost its --dry-run and its version both, and updated to the latest release
+// without asking. No command here takes a positional argument, so one is a
+// refusal that names it.
+func parsed(set *flag.FlagSet, args []string, errOut *os.File) (int, bool) {
+	set.SetOutput(errOut)
+
+	if err := set.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return exitOK, false
+		}
+		return exitMisuse, false
+	}
+
+	if set.NArg() > 0 {
+		fmt.Fprintf(errOut, "chroma %s takes no arguments, only options: %q was not understood, and nothing after it was read.\n", set.Name(), set.Arg(0))
+		return exitMisuse, false
+	}
+	return exitOK, true
 }
 
 // recovered puts back the committed arrangement if a previous run was

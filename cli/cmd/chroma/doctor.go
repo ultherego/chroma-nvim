@@ -31,8 +31,8 @@ func cmdDoctor(args []string, out, errOut *os.File) int {
 	// default of "." was the answer "whichever directory you are in", which is
 	// not a question anybody asked.
 	root := set.String("tree", "", "read a checkout instead of the installation on this machine (developer-only)")
-	if err := set.Parse(args); err != nil {
-		return exitMisuse
+	if code, proceed := parsed(set, args, errOut); !proceed {
+		return code
 	}
 
 	report.Banner(out)
