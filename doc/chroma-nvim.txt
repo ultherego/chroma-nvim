@@ -1334,8 +1334,13 @@ The encryption is one subprocess call. The work is in everything around it:
 
   Plaintext never reaches the undo file. This configuration enables 'undofile'
   globally, so a revealed secret would otherwise be written verbatim to
-  stdpath("state")/undo and survive reboots. Buffers holding plaintext are
-  created with 'noundofile', 'noswapfile', buftype=nofile and bufhidden=wipe.
+  stdpath("state")/undo and survive reboots. The buffers this plugin creates
+  to show plaintext get 'noundofile', 'noswapfile', buftype=nofile and
+  bufhidden=wipe; a file buffer it decrypts in place gets 'noundofile',
+  'noswapfile' and 'nomodeline'. The undo history in memory is dropped each
+  time a buffer changes between ciphertext and plaintext, so `u` cannot cross
+  that line, and a write is decided by what the buffer holds: anything that is
+  not ciphertext is encrypted first.
   This covers the buffers this plugin creates or takes over; a value encrypted
   in place inside an ordinary file is a different case, stated separately in
   |chroma-nvim-vault-inline|.

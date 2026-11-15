@@ -545,6 +545,18 @@ end
 --- Keeps what attaches to a plaintext buffer out of the way of the write hook's group.
 local tools_group = vim.api.nvim_create_augroup("ansible_vault_tools", { clear = true })
 
+--- Replaces the whole buffer and forgets its undo history (:help clear-undo).
+--- Undo must not cross between ciphertext and plaintext: the flag that says
+--- which one a buffer holds does not travel with `u`.
+---@param buf integer
+---@param text string
+local function replace_forgetting_undo(buf, text)
+  local saved = vim.bo[buf].undolevels
+  vim.bo[buf].undolevels = -1
+  vim.api.nvim_buf_set_lines(buf, 0, -1, false, vim.split(text:gsub("\n$", ""), "\n"))
+  vim.bo[buf].undolevels = saved
+end
+
 --- Stops a file buffer persisting its contents. 'backup' and 'writebackup' are
 --- global options and cannot be set here; M.attach_writer takes their place.
 ---@param buf integer
@@ -678,7 +690,7 @@ function M.encrypt_file()
   end
 
   -- An unnamed buffer has no file to guard; hardening above is what still applies.
-  vim.api.nvim_buf_set_lines(buf, 0, -1, false, vim.split(ciphertext:gsub("\n$", ""), "\n"))
+  replace_forgetting_undo(buf, ciphertext)
   vim.b[buf].ansible_vault_plain = nil
   vim.notify("Encrypted buffer — write it to persist", vim.log.levels.INFO)
 end
@@ -727,7 +739,7 @@ function M.decrypt_file()
   -- attached when the buffer changes is told what it changed to.
   keep_language_servers_off(buf)
 
-  vim.api.nvim_buf_set_lines(buf, 0, -1, false, vim.split(plaintext:gsub("\n$", ""), "\n"))
+  replace_forgetting_undo(buf, plaintext)
   vim.b[buf].ansible_vault_plain = true
   keep_language_servers_off(buf)
 
@@ -950,7 +962,9 @@ function M.attach_writer(buf)
       -- from is the only file it can be written back to; anything else would either
       -- put plaintext there or make a second vault nothing is tracking.
       local vault = vim.b[ev.buf].ansible_vault_path
-      local target = ev.file ~= "" and ev.file or vim.api.nvim_buf_get_name(ev.buf)
+      -- ev.file is the name as typed or as shortened against the cwd, so it is
+      -- made absolute before it is compared with the absolute path kept above.
+      local target = ev.file ~= "" and vim.fn.fnamemodify(ev.file, ":p") or vim.api.nvim_buf_get_name(ev.buf)
       if vault and vim.fs.normalize(target) ~= vim.fs.normalize(vault) then
         vim.notify(
           ("Refusing to write %s to %s.\n"):format(vim.fn.fnamemodify(vault, ":t"), vim.fn.fnamemodify(target, ":t"))
@@ -960,11 +974,11 @@ function M.attach_writer(buf)
         return
       end
 
-      -- `:edit!` reloads the ciphertext but keeps buffer variables, and ansible-vault
-      -- refuses input that is already encrypted: measured, every `:w` then failed.
-      if vim.b[ev.buf].ansible_vault_plain and is_encrypted(ev.buf) then
-        vim.b[ev.buf].ansible_vault_plain = nil
-      end
+      -- Decided by what the buffer holds, and the flag is made to agree with it.
+      -- The flag alone was wrong both ways: `:edit!` reloads ciphertext with it
+      -- still set, and anything that brought plaintext back with it unset was
+      -- written to the vault verbatim.
+      vim.b[ev.buf].ansible_vault_plain = not is_encrypted(ev.buf) or nil
 
       if not vim.b[ev.buf].ansible_vault_plain then
         -- Holds ciphertext already, as after :VaultEncryptFile: written verbatim,
@@ -1064,7 +1078,7 @@ local function enable_transparent_editing()
       -- didChange carrying the decrypted text, sent by the detach itself.
       keep_language_servers_off(ev.buf)
 
-      vim.api.nvim_buf_set_lines(ev.buf, 0, -1, false, vim.split(plaintext:gsub("\n$", ""), "\n"))
+      replace_forgetting_undo(ev.buf, plaintext)
       vim.b[ev.buf].ansible_vault_plain = true
       vim.bo[ev.buf].modified = false
 

@@ -969,6 +969,83 @@ T["a language server is never told what a decrypted vault says"] = function()
   end
 end
 
+-- ---------------------------------------------------------------------------
+-- What a write does is decided by what the buffer holds
+
+-- Regression: the decrypt was an ordinary undoable change. `u` brought the
+-- ciphertext back, `:w` cleared the flag, redo brought the plaintext back with
+-- the flag unset — and the next `:w` wrote it to the vault verbatim.
+T["undo cannot reach the ciphertext a vault was opened from"] = function()
+  local dir, vault = project("---\nsecret: undo-marker\n")
+
+  open_with(vault, { transparent = true })
+  eq(vim.api.nvim_buf_get_lines(0, 0, 1, false)[1], "---")
+
+  for _ = 1, 3 do
+    vim.cmd("silent! undo")
+  end
+  eq(vim.api.nvim_buf_get_lines(0, 0, 1, false)[1], "---")
+  eq(vim.b.ansible_vault_plain, true)
+
+  vim.cmd("silent write")
+  vim.cmd("silent! redo")
+  vim.cmd("silent write")
+
+  eq(is_ciphertext(vault), true)
+  eq(decrypt_externally(dir, vault):find("undo-marker", 1, true) ~= nil, true)
+end
+
+T["undo cannot reach the plaintext a buffer was encrypted from"] = function()
+  local _, vault = project("---\nsecret: value\n")
+
+  open_with(vault, { transparent = true })
+  vim.cmd("VaultEncryptFile")
+  eq(vim.api.nvim_buf_get_lines(0, 0, 1, false)[1]:match("^%$ANSIBLE_VAULT") ~= nil, true)
+
+  vim.cmd("silent! undo")
+  eq(vim.api.nvim_buf_get_lines(0, 0, 1, false)[1]:match("^%$ANSIBLE_VAULT") ~= nil, true)
+end
+
+-- The flag is not what stands between plaintext and the disk. Plaintext that
+-- got into the buffer with the flag unset, by any route, is still encrypted.
+T["plaintext is encrypted on write whatever the flag says"] = function()
+  local dir, vault = project("---\nsecret: value\n")
+
+  open_with(vault, { transparent = true })
+  vim.api.nvim_buf_set_lines(0, 0, -1, false, { "---", "secret: flag-marker" })
+  vim.b.ansible_vault_plain = nil
+
+  vim.cmd("silent write")
+
+  eq(is_ciphertext(vault), true)
+  eq(decrypt_externally(dir, vault):find("flag-marker", 1, true) ~= nil, true)
+  eq(vim.b.ansible_vault_plain, true)
+end
+
+-- Regression: BufWriteCmd is handed the name shortened against the cwd, and it
+-- was compared with the absolute path as it stood. Every `:w` of a vault opened
+-- by a relative name, or after a `:cd`, was refused as a write to another file.
+T["a vault opened by a relative name can be written"] = function()
+  local dir, vault = project("---\nsecret: value\n")
+  local before = vim.fn.getcwd()
+
+  vim.cmd.cd({ args = { dir } })
+  local ok, err = pcall(function()
+    open_with("secrets.yml", { transparent = true })
+    eq(vim.api.nvim_buf_get_lines(0, 0, 1, false)[1], "---")
+
+    vim.api.nvim_buf_set_lines(0, -1, -1, false, { "added: relative" })
+    vim.cmd("silent write")
+
+    eq(vim.bo.modified, false)
+  end)
+  vim.cmd.cd({ args = { before } })
+  assert(ok, err)
+
+  eq(is_ciphertext(vault), true)
+  eq(decrypt_externally(dir, vault):find("added: relative", 1, true) ~= nil, true)
+end
+
 T["repeated writes keep working"] = function()
   -- The guard above was first written without refreshing the remembered state, which
   -- made the second save impossible.
