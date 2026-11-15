@@ -868,6 +868,45 @@ T["arguments"]["a working-directory option takes its value with it"] = function(
   eq(args:find("/elsewhere", 1, true), nil)
 end
 
+-- Regression: Go's flag package reads `--destroy` as `-destroy`, and the filter
+-- knew one spelling. The other produced a destroy plan recorded as an ordinary
+-- one — unmarked in the review, confirmed with `yes`.
+T["arguments"]["the two-dash spelling of an owned option is dropped too"] = function()
+  local h = harness()
+  fake_terraform_by_mode(h)
+  start(h)
+  configure({
+    global_args = { "--chdir=/elsewhere" },
+    plan_args = { "--destroy", "--out=/tmp/somewhere-else.tfplan" },
+    apply_args = { "--input=true" },
+  })
+
+  eq(said("--destroy was ignored"), true)
+  eq(said("--out was ignored"), true)
+  eq(said("--input was ignored"), true)
+  eq(said("--chdir was ignored"), true)
+  notices = {}
+
+  next_plan(h, "changes", "first")
+  terraform.plan()
+  settle("Plan saved", "Plan failed")
+
+  local args = invocation(h, "plan")
+  eq(args:find("-destroy", 1, true), nil)
+  eq(args:find("somewhere-else", 1, true), nil)
+  eq(args:find("/elsewhere", 1, true), nil)
+  eq(said("this plan DESTROYS"), false)
+end
+
+-- Regression: Neovim decides `.tf` by content, so a file with none was not
+-- Terraform at all.
+T["a new .tf file is Terraform before anything is typed into it"] = function()
+  local h = harness()
+  start(h)
+
+  eq(vim.filetype.match({ filename = "brand-new.tf" }), "terraform")
+end
+
 -- The runner's headline promise is that a destroy is visible: the review window is
 -- marked and the confirmation has to be typed out.
 T["arguments"]["-destroy in plan_args is dropped"] = function()

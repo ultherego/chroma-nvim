@@ -348,6 +348,16 @@ local function option_name(arg)
   return arg:match("^([^=]+)") or arg
 end
 
+---The same option spelled with one dash. Terraform parses its options with Go's
+---flag package, where "one or two dashes may be used; they are equivalent" — so
+---`--destroy` is `-destroy`, and a filter that knew only one spelling let the
+---other through: a destroy plan the runner recorded as an ordinary one.
+---@param name string
+---@return string
+local function single_dash(name)
+  return (name:gsub("^%-%-", "-"))
+end
+
 --- Options the runner sets and depends on the value of; see :help chroma-nvim-terraform-arguments.
 local reserved = {
   init = { ["-input"] = true },
@@ -376,6 +386,9 @@ local function sanitize_global_args(args)
   for _, arg in ipairs(args or {}) do
     local name = option_name(arg)
     local takes_value = WORKING_DIRECTORY_OPTIONS[name]
+    if takes_value == nil then
+      takes_value = WORKING_DIRECTORY_OPTIONS[single_dash(name)]
+    end
 
     if skip_value then
       -- The path belonging to a flag already dropped; kept, it would arrive as
@@ -408,7 +421,7 @@ local function sanitize_command_args(command, args)
   local kept = {}
   for _, arg in ipairs(args or {}) do
     local name = option_name(arg)
-    if owned[name] then
+    if owned[single_dash(name)] then
       vim.notify(
         ("chroma-terraform.nvim: %s was ignored in %s_args — the runner sets it and relies on its value."):format(
           name,
@@ -926,6 +939,11 @@ function M.setup(opts)
     local key = command .. "_args"
     M.options[key] = sanitize_command_args(command, M.options[key])
   end
+
+  -- Neovim decides `.tf` by what the file holds, and a new one holds nothing: an
+  -- empty `main.tf` came up as TinyFugue's filetype, with no server, no linter
+  -- and no formatting until it had content and was detected again.
+  vim.filetype.add({ extension = { tf = "terraform" } })
 
   local commands = {
     TerraformInit = M.init,
