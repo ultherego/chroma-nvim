@@ -424,9 +424,17 @@ func (i *Installer) Uninstall(paths Paths, current installstate.State) (Removal,
 	// given back; the second kind is reported under the path it had. The state
 	// directory is held back — install.json lives there, so removing it is the
 	// last act of an uninstall. See finish below.
+	// A path that was moved aside is removed as its copy, and listed once: the
+	// configuration of an installation of its own is both planned and held, and
+	// used to be counted twice in "N paths removed".
+	aside := map[string]bool{}
+	for _, one := range held {
+		aside[one.report] = true
+	}
+
 	going := make([]doomed, 0, len(plan.Remove)+len(held))
 	for _, path := range plan.Remove {
-		if path == current.StateDir {
+		if path == current.StateDir || aside[path] {
 			continue
 		}
 		going = append(going, doomed{report: path, target: path})

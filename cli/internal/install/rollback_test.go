@@ -2,10 +2,12 @@ package install
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/ultherego/chroma-nvim/cli/internal/installstate"
 )
@@ -229,5 +231,76 @@ func TestRollbackWithNoPreviousGenerationIsRefused(t *testing.T) {
 	installer := &Installer{Runner: &failAt{}}
 	if _, err := installer.Rollback(context.Background(), paths, shipped(t), nil, current); err == nil {
 		t.Error("a rollback with no previous generation reported success")
+	}
+}
+
+// touching is a runner whose bootstrap changes the top level of the tree it
+// runs in, the way a real one can, and then fails at the step named.
+type touching struct {
+	paths Paths
+	fail  string
+}
+
+func (r *touching) Run(_ context.Context, cmd Command, _ ProgressSink) error {
+	if err := os.WriteFile(filepath.Join(r.paths.ConfigDir, "lazy-lock.json.new"), []byte("{}"), 0o644); err != nil {
+		return err
+	}
+	// Far enough apart for any filesystem's timestamps to tell.
+	later := time.Now().Add(time.Hour)
+	if err := os.Chtimes(r.paths.ConfigDir, later, later); err != nil {
+		return err
+	}
+	if strings.Contains(strings.Join(cmd.Args, " "), `run("`+r.fail+`"`) {
+		return errors.New("the editor said no")
+	}
+	return nil
+}
+
+// Regression: a rollback that failed put the kept generation back with a new
+// mtime, and it was then "not the generation Chroma recorded" — every later
+// rollback refused, for good.
+func TestAFailedRollbackDoesNotCostTheNextOne(t *testing.T) {
+	stepping(t)
+
+	paths, record := twoGenerations(t, nil)
+
+	failing := &Installer{Runner: &touching{paths: paths, fail: "verify"}}
+	if _, err := failing.Rollback(context.Background(), paths, shipped(t), nil, record); err == nil {
+		t.Fatal("the rollback succeeded, and it was meant to fail")
+	}
+
+	after := reload(t, paths)
+	if after.Previous == nil || after.Previous.Path != record.Previous.Path {
+		t.Fatalf("the kept generation is recorded as %+v", after.Previous)
+	}
+
+	working := &Installer{Runner: &failAt{}}
+	if _, err := working.Rollback(context.Background(), paths, shipped(t), nil, after); err != nil {
+		t.Fatalf("the next rollback was refused: %v", err)
+	}
+}
+
+// Counted once. The configuration of an installation of its own is both on the
+// plan and moved aside, and was reported removed twice.
+func TestAnUninstallCountsEachPathOnce(t *testing.T) {
+	fixed(t)
+
+	paths, record := installed(t, nil)
+	removal, err := (&Installer{}).Uninstall(paths, record)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	seen := map[string]int{}
+	for _, path := range removal.Removed {
+		seen[path]++
+	}
+	for path, times := range seen {
+		if times != 1 {
+			t.Errorf("%s is reported removed %d times", path, times)
+		}
+	}
+	if seen[paths.ConfigDir] != 1 {
+		t.Errorf("the configuration is reported removed %d times, want once", seen[paths.ConfigDir])
 	}
 }

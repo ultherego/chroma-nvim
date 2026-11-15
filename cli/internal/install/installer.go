@@ -150,6 +150,33 @@ func (i *Installer) Update(
 	return result, nil
 }
 
+// sameDirectoryNewTime re-reads the kept generation after a rollback was
+// undone. It answers with an updated record only when the directory at the
+// recorded path is provably the recorded one and only its time has moved.
+func sameDirectoryNewTime(current installstate.State) (installstate.State, bool) {
+	if current.Previous == nil || current.Previous.Path == "" {
+		return current, false
+	}
+	if RefuseSubstituted(current.Previous.Path) != nil {
+		return current, false
+	}
+
+	now, err := Identify(current.Previous.Path)
+	if err != nil {
+		return current, false
+	}
+
+	kept := *current.Previous
+	if now.Device != kept.Device || now.Inode != kept.Inode || now.Mtime == kept.Mtime {
+		return current, false
+	}
+
+	kept.Mtime = now.Mtime
+	updated := current
+	updated.Previous = &kept
+	return updated, true
+}
+
 // discardGeneration removes a kept generation the record no longer names. Only
 // the directory Chroma recorded: a path alone says where, not what, and this is
 // the one place an update deletes anything.
@@ -269,6 +296,19 @@ func (i *Installer) Rollback(
 			result.RollbackProblem = problem
 		}
 		result.LeftBehind = tx.LeftBehind
+
+		// The kept generation spent a while as the live configuration, and a
+		// bootstrap that adds or removes anything at its top level changes its
+		// mtime. Put back under its old name it was then "not the generation
+		// Chroma recorded", and every later rollback was refused. Still the same
+		// directory — a rename keeps device and inode — so the record is brought
+		// up to date with what it is now.
+		if refreshed, changed := sameDirectoryNewTime(current); changed {
+			if written, err := writeRecord(paths.InstallState, refreshed); err != nil && !written.Replaced {
+				sink.Emit(Event{Step: "record", Status: StatusWarning,
+					Message: fmt.Sprintf("the kept generation's record could not be brought up to date: %v", err)})
+			}
+		}
 		return result, cause
 	}
 
