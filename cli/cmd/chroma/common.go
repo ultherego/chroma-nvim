@@ -1,11 +1,14 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"flag"
 	"fmt"
 	"os"
+	"os/signal"
 	"path/filepath"
+	"syscall"
 
 	"github.com/ultherego/chroma-nvim/cli/internal/component"
 	"github.com/ultherego/chroma-nvim/cli/internal/detect"
@@ -59,6 +62,37 @@ func locked(errOut *os.File) (*lock.Lock, int) {
 		return nil, exitFailed
 	}
 	return held, exitOK
+}
+
+// stopping are the signals that mean "stop": the key, the polite request, and
+// the terminal going away. All three, because only the first used to be heard —
+// closing the window during a half-hour bootstrap killed the process between
+// two steps, with nothing rolled back.
+var stopping = []os.Signal{os.Interrupt, syscall.SIGTERM, syscall.SIGHUP}
+
+// interruptible is the context a transaction runs under: cancelled by any of
+// those, so the step in flight fails and what was done is put back.
+func interruptible() (context.Context, context.CancelFunc) {
+	return signal.NotifyContext(context.Background(), stopping...)
+}
+
+// uninterrupted runs something that has no way to stop halfway and be put
+// back, holding those signals until it is over. An uninstall is renames with a
+// commit point in the middle, and a process that dies between two of them is
+// the case every recovery path here exists for; finishing is quicker and safer
+// than stopping. Says so if somebody tried.
+func uninterrupted(errOut *os.File, work func()) {
+	asked := make(chan os.Signal, 1)
+	signal.Notify(asked, stopping...)
+	defer signal.Stop(asked)
+
+	work()
+
+	select {
+	case <-asked:
+		fmt.Fprint(errOut, "Asked to stop partway; it was finished instead, because stopping there is what leaves a machine half uninstalled.\n")
+	default:
+	}
 }
 
 // parsed reads a command's flags, and says whether the command should go on.

@@ -5,7 +5,6 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"os/signal"
 	"path/filepath"
 	"strings"
 
@@ -37,7 +36,7 @@ func cmdUpdate(args []string, out, errOut *os.File) int {
 		return code
 	}
 
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	ctx, stop := interruptible()
 	defer stop()
 
 	paths, current, code := managed(errOut)

@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/signal"
 	"path/filepath"
 	"strings"
 	"time"
@@ -104,7 +103,7 @@ func cmdInstall(args []string, out, errOut *os.File) int {
 
 	// Ctrl-C between here and the end of the transaction cancels the context,
 	// which stops the child process and rolls the installation back.
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	ctx, stop := interruptible()
 	defer stop()
 
 	prepared, code := prepareSource(ctx, opts, errOut)

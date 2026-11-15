@@ -1,11 +1,9 @@
 package main
 
 import (
-	"context"
 	"flag"
 	"fmt"
 	"os"
-	"os/signal"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -61,7 +59,7 @@ func cmdComponents(args []string, out, errOut *os.File) int {
 		return exitMisuse
 	}
 
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	ctx, stop := interruptible()
 	defer stop()
 
 	paths, current, code := managed(errOut)

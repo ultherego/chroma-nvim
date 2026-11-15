@@ -119,7 +119,10 @@ func cmdUninstall(args []string, out, errOut *os.File) int {
 
 	installer := &install.Installer{Sink: lineSink{out: out}}
 
-	removal, err := installer.Uninstall(paths, current)
+	var removal install.Removal
+	uninterrupted(errOut, func() {
+		removal, err = installer.Uninstall(paths, current)
+	})
 	if err != nil {
 		fmt.Fprintln(errOut, err)
 		if removal.Restored != "" {
