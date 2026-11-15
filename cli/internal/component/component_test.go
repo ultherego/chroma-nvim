@@ -412,3 +412,36 @@ func write(t *testing.T, files map[string]string) string {
 	}
 	return dir
 }
+
+// A document of the wrong shape is not a document that fails to parse, and the
+// message used to say it was.
+func TestAFieldOfTheWrongTypeIsNotCalledInvalidJSON(t *testing.T) {
+	dir := write(t, map[string]string{
+		"core.json": `{"contract": 5, "id": "core", "name": "Core", "requires": "nothing"}`,
+	})
+
+	_, problems, err := Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	said := strings.Join(problems, "\n")
+	if strings.Contains(said, "not valid JSON") || !strings.Contains(said, "requires") {
+		t.Errorf("problems = %q, want the field named and no claim about the JSON", said)
+	}
+}
+
+// One file, one answer. The two bounds were walked in map order, so a file with
+// both wrong reported either, depending on the run.
+func TestTwoBadBoundsAreReportedInTheSameOrderEveryTime(t *testing.T) {
+	constraint := &Version{Min: "one", Max: "two"}
+
+	first := validateVersion(constraint)
+	for range 200 {
+		if again := validateVersion(constraint); again != first {
+			t.Fatalf("the same constraint said %q and then %q", first, again)
+		}
+	}
+	if !strings.Contains(first, "min") {
+		t.Errorf("problem = %q, want the lower bound first", first)
+	}
+}

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -13,6 +14,7 @@ import (
 	"github.com/ultherego/chroma-nvim/cli/internal/install"
 	"github.com/ultherego/chroma-nvim/cli/internal/plan"
 	"github.com/ultherego/chroma-nvim/cli/internal/report"
+	"github.com/ultherego/chroma-nvim/cli/internal/tui"
 )
 
 // cmdComponents changes which parts of an installation are enabled. Two commands
@@ -91,6 +93,12 @@ func cmdComponents(args []string, out, errOut *os.File) int {
 
 	if !given {
 		chosen, err := askComponentsInteractively(loaded, existing, *plain, os.Stdin, out)
+		if errors.Is(err, tui.ErrNoInput) {
+			// That error's own words name the installer's flags, which this
+			// command does not have.
+			fmt.Fprint(errOut, "nothing to read answers from; use --non-interactive with --set, for example --set terraform,vault\n")
+			return exitMisuse
+		}
 		if err != nil {
 			return refused(err, out, errOut)
 		}
@@ -145,7 +153,7 @@ func cmdComponents(args []string, out, errOut *os.File) int {
 	}
 
 	fmt.Fprintf(out, "\nComponents are now: %s\n", strings.Join(result.Enabled, ", "))
-	fmt.Fprintf(out, "The installation is still %s; changing components does not change the release.\n", current.Version)
+	fmt.Fprintf(out, "The installation is still %s; changing components does not change the release.\n", describeVersionOf(current.Version))
 
 	_, external := detect.Split(detect.Tools(loaded, result.Enabled, nil, nil))
 	report.External(out, external)

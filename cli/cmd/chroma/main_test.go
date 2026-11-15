@@ -253,6 +253,10 @@ func TestEscapeIsADecisionAndAClosedPipeIsAMistake(t *testing.T) {
 			if !strings.Contains(printed, tc.says) {
 				t.Errorf("it does not say %q:\n%s", tc.says, printed)
 			}
+			// The installer's flags are not this command's.
+			if tc.err == tui.ErrNoInput && (!strings.Contains(printed, "--set") || strings.Contains(printed, "--profile")) {
+				t.Errorf("it names the wrong way out:\n%s", printed)
+			}
 		})
 	}
 }

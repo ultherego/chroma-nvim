@@ -53,6 +53,34 @@ func Path() (string, error) {
 	return filepath.Join(config, "chroma", "components.json"), nil
 }
 
+// exactly holds the document to what the editor's reader accepts, in the two
+// places encoding/json is more generous than it. Field names match without
+// regard to case, so `{"SCHEMA":1,"Selected":[...]}` loaded here and was an
+// unknown field there; and a `selected` that is absent or null decodes to an
+// empty list, which here meant "core alone" and there meant safe mode. A
+// selection this accepts and the editor refuses is an installation that comes
+// up as something nobody chose.
+//
+// Anything that is not one object is left for the decoder below to describe.
+func exactly(contents []byte) error {
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(contents, &fields); err != nil {
+		return nil
+	}
+
+	for name := range fields {
+		if name != "schema" && name != "selected" {
+			return fmt.Errorf("has an unknown field %q", name)
+		}
+	}
+
+	selected, given := fields["selected"]
+	if !given || string(bytes.TrimSpace(selected)) == "null" {
+		return errors.New("has a selected that is not an array")
+	}
+	return nil
+}
+
 // Load reads the selection and checks it against the components that exist. A
 // file that is not there is not an error and not an empty selection: it is a
 // configuration that predates any of this, and everything is enabled. `found`
@@ -83,6 +111,10 @@ func Load(path string, set component.Set) (state State, found bool, err error) {
 	contents, err := os.ReadFile(path)
 	if err != nil {
 		return State{}, true, fmt.Errorf("reading %s: %w", path, err)
+	}
+
+	if err := exactly(contents); err != nil {
+		return State{}, true, fmt.Errorf("%s: %w", path, err)
 	}
 
 	decoder := json.NewDecoder(bytes.NewReader(contents))

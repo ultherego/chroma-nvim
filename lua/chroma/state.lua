@@ -48,7 +48,9 @@ local function problem_with(decoded, set)
   end
 
   local selected = decoded.selected
-  if type(selected) ~= "table" or (next(selected) ~= nil and #selected == 0) then
+  -- `vim.islist`, as components.lua asks it: an empty object decodes to a table
+  -- too, and the Go reader refuses one where a list belongs.
+  if type(selected) ~= "table" or not vim.islist(selected) then
     return "has a selected that is not an array"
   end
 

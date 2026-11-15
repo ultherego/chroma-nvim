@@ -156,6 +156,12 @@ func readOne(path string) (*Component, string) {
 		if strings.Contains(err.Error(), "unknown field") {
 			return nil, fmt.Sprintf("has an %v", err)
 		}
+		// Valid JSON of the wrong shape is not invalid JSON, and saying so sent
+		// people looking for a missing comma in a file that had none.
+		var mismatch *json.UnmarshalTypeError
+		if errors.As(err, &mismatch) {
+			return nil, fmt.Sprintf("has a %s that is a %s, where a %s belongs", mismatch.Field, mismatch.Value, mismatch.Type)
+		}
 		return nil, "is not valid JSON"
 	}
 
@@ -279,12 +285,14 @@ func validateVersion(v *Version) string {
 		return "says nothing"
 	}
 
-	for name, value := range map[string]string{"min": v.Min, "max": v.Max} {
-		if value == "" {
+	// In this order every time. Ranging over a map reported whichever of two
+	// bad bounds came up first, so one file had two different problems.
+	for _, bound := range []struct{ name, value string }{{"min", v.Min}, {"max", v.Max}} {
+		if bound.value == "" {
 			continue
 		}
-		if !looksLikeVersion(value) {
-			return fmt.Sprintf("has a %s that is not a version: %q", name, value)
+		if !looksLikeVersion(bound.value) {
+			return fmt.Sprintf("has a %s that is not a version: %q", bound.name, bound.value)
 		}
 	}
 
