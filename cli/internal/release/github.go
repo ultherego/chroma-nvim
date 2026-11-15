@@ -9,8 +9,10 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	neturl "net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -173,11 +175,26 @@ func (s GitHubSource) Resolve(ctx context.Context) (string, error) {
 	return metadata.TagName, nil
 }
 
+// tagShape is what a version may look like: one path segment of the characters
+// a tag is made of. It goes into a URL, and the repository in that URL is a
+// constant on purpose — but `x/../../../other/repo/releases/latest` is sent as
+// written and normalised by the server, which made --version a way to install
+// another repository's release under this one's name.
+var tagShape = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._+-]*$`)
+
+// validVersion reports whether a version can only name a tag of this repository.
+func validVersion(version string) bool {
+	return tagShape.MatchString(version) && !strings.Contains(version, "..")
+}
+
 // resolve turns "latest" into a tag, and checks that a named tag exists.
 func (s GitHubSource) resolve(ctx context.Context) (releaseMetadata, error) {
-	url := fmt.Sprintf("%s/repos/%s/%s/releases/tags/%s", s.api(), Owner, Repo, s.Version)
-	if s.Version == "" || s.Version == Latest {
-		url = fmt.Sprintf("%s/repos/%s/%s/releases/latest", s.api(), Owner, Repo)
+	url := fmt.Sprintf("%s/repos/%s/%s/releases/latest", s.api(), Owner, Repo)
+	if s.Version != "" && s.Version != Latest {
+		if !validVersion(s.Version) {
+			return releaseMetadata{}, fmt.Errorf("%q is not a release tag: a version looks like v2.10.0", s.Version)
+		}
+		url = fmt.Sprintf("%s/repos/%s/%s/releases/tags/%s", s.api(), Owner, Repo, neturl.PathEscape(s.Version))
 	}
 
 	body, err := s.get(ctx, url)

@@ -220,3 +220,44 @@ func TestPrepareRespectsCancellation(t *testing.T) {
 		t.Error("prepared a release from a cancelled context")
 	}
 }
+
+// Regression: the version went into the API path as written. Go sends dot
+// segments verbatim and the server resolves them, so a version could walk out
+// of this repository's releases and into another's — and the installer would
+// fetch, verify and record that release under its own tag.
+func TestAVersionCannotNameAnotherRepository(t *testing.T) {
+	asked := 0
+	server := serve(t, "v1.0.0")
+	inner := server.Config.Handler
+	server.Config.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		asked++
+		inner.ServeHTTP(w, r)
+	})
+
+	for _, version := range []string{
+		"x/../../../../../other/fork/releases/latest",
+		"v1.0.0/../v2.0.0",
+		"v1.0.0?per_page=1",
+		"v1.0.0#fragment",
+		"..",
+		"v1..0",
+		" v1.0.0",
+		"-v1.0.0",
+	} {
+		source := GitHubSource{Version: version, API: server.URL, Client: server.Client()}
+		_, err := source.Prepare(context.Background())
+		if err == nil || !strings.Contains(err.Error(), "is not a release tag") {
+			t.Errorf("%q: err = %v, want a refusal that names it", version, err)
+		}
+	}
+	if asked != 0 {
+		t.Errorf("the server was asked %d times for versions that are not tags", asked)
+	}
+
+	// And the ones releases have actually carried still go through.
+	for _, version := range []string{"v1.0.0", "v2.10.0", "v0.0.0-final-dev.1"} {
+		if !validVersion(version) {
+			t.Errorf("%q is refused, and it is a tag this project has used", version)
+		}
+	}
+}
