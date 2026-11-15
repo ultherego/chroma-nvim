@@ -1675,4 +1675,98 @@ T["encrypt identity"]["dismissing the list refuses the write"] = function()
   eq(decrypt_externally(dir, vault):find("added: later"), nil)
 end
 
+-- ---------------------------------------------------------------------------
+-- What an inline value is
+
+---Encrypts line `line` of a throwaway file holding `lines`, and answers with
+---what the buffer holds afterwards and everything that was said.
+---@param lines string[]
+---@param range string the Ex range
+---@return string[] buffer, string said, string dir
+local function encrypt_inline(lines, range)
+  local dir, _ = project("---\nunused: value\n")
+  local plain = dir .. "/vars.yml"
+  vim.fn.writefile(lines, plain)
+  open_with(plain, { transparent = false })
+
+  local notices = {}
+  local notify = vim.notify
+  vim.notify = function(message)
+    table.insert(notices, message)
+  end
+  local ok, err = pcall(vim.cmd, range .. "VaultEncrypt")
+  vim.notify = notify
+  assert(ok, err)
+
+  return vim.api.nvim_buf_get_lines(0, 0, -1, false), table.concat(notices, " "), dir
+end
+
+---What an inline vault block in the current buffer decrypts to, asked of the
+---CLI through the plugin's own reveal path being avoided: the file is written
+---and a one-task playbook is not needed — `ansible-vault view` cannot read an
+---inline value, so the block is cut out and decrypted as a document.
+---@param dir string
+---@param buffer string[]
+---@return string
+local function inline_plaintext(dir, buffer)
+  local cipher = {}
+  for index = 2, #buffer do
+    local line = buffer[index]:gsub("^%s+", "")
+    if line ~= "" and not line:match("^#") then
+      table.insert(cipher, line)
+    end
+  end
+  local path = dir .. "/inline.vault"
+  vim.fn.writefile(cipher, path)
+  return decrypt_externally(dir, path)
+end
+
+T["inline value"] = new_set()
+
+-- Regression: everything after the colon was sent to ansible-vault, so
+-- `"hunter2"  # rotate me` became a secret of quotes and a comment.
+T["inline value"]["a double-quoted value is encrypted without its quotes or its comment"] = function()
+  local buffer, said, dir = encrypt_inline({ 'db_password: "hunter2"  # rotate me' }, "1")
+
+  eq(said:find("Encrypted db_password", 1, true) ~= nil, true)
+  eq(buffer[1], "db_password: !vault | # rotate me")
+  eq(inline_plaintext(dir, buffer), "hunter2")
+end
+
+T["inline value"]["escapes and single quotes are read the way YAML reads them"] = function()
+  local buffer, _, dir = encrypt_inline({ [[token: "a\"b\\c"]] }, "1")
+  eq(inline_plaintext(dir, buffer), [[a"b\c]])
+
+  vim.cmd("silent! %bwipeout!")
+  buffer, _, dir = encrypt_inline({ "token: 'it''s # not a comment'" }, "1")
+  eq(inline_plaintext(dir, buffer), "it's # not a comment")
+end
+
+T["inline value"]["a plain value loses a trailing comment and nothing else"] = function()
+  local buffer, _, dir = encrypt_inline({ "  api_key: abc#123   # from the console" }, "1")
+
+  eq(buffer[1], "  api_key: !vault | # from the console")
+  eq(inline_plaintext(dir, buffer), "abc#123")
+end
+
+-- Regression: the pattern ran over the whole selection, so two selected keys
+-- became one — `beta` vanished into `alpha`'s ciphertext and the message said
+-- `Encrypted alpha`.
+T["inline value"]["two selected keys are refused, and nothing is changed"] = function()
+  local lines = { "alpha: one", "beta: two" }
+  local buffer, said = encrypt_inline(lines, "1,2")
+
+  eq(buffer, lines)
+  eq(said:find("one `key: value` line at a time", 1, true) ~= nil, true)
+end
+
+T["inline value"]["a value that is not a plain one is refused rather than guessed at"] = function()
+  for _, line in ipairs({ "hosts: [a, b]", "body: |", [[name: "unterminated]], [[code: "\x41"]], "empty:" }) do
+    local buffer, said = encrypt_inline({ line }, "1")
+    eq({ line, buffer }, { line, { line } })
+    eq({ line, said:find("Not encrypting", 1, true) ~= nil }, { line, true })
+    vim.cmd("silent! %bwipeout!")
+  end
+end
+
 return T

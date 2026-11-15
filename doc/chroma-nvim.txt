@@ -1092,6 +1092,12 @@ what it was — an ordinary buffer, written by Neovim's own `:write` — so the
 protections described under |chroma-nvim-vault-safe| are not what is happening
 here. They belong to buffers this plugin creates or takes over.
 
+One `key: value` line at a time, and the value is what YAML says it is: quotes
+are removed and their escapes read, and a comment after the value stays beside
+the key rather than going into the secret. A value that is not a plain one —
+a list, a block, an escape this does not translate — is refused instead of
+being encrypted as its own text.
+
 Said plainly: the plaintext was in that file before you encrypted it, and
 encrypting the value does not go back for the copies that already exist. This
 configuration keeps persistent undo on, so the file's undo history under

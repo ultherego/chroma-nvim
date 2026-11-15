@@ -296,6 +296,65 @@ function M.reveal()
   show(plaintext, block.key or "vault")
 end
 
+---What one `key: value` line says the value is, as YAML reads it.
+---
+---The text after the colon is not the value. `"hunter2"  # rotate me` is the
+---seven characters between the quotes, and what used to be encrypted was the
+---whole of it, quotes and comment included — a secret nothing would accept.
+---Only the three plain forms are read here; anything else is refused rather
+---than guessed at, because the result is ciphertext nobody can check by eye.
+---@param raw string everything after `key:`
+---@return string|nil value, string|nil comment, string|nil problem
+local function scalar_of(raw)
+  local first = raw:sub(1, 1)
+
+  if first == '"' or first == "'" then
+    -- Read a character at a time: where a quoted value ends depends on every
+    -- escape before it, which a pattern cannot count.
+    local escapes = { ["\\"] = "\\", ['"'] = '"', n = "\n", t = "\t" }
+    local read, at, closed = {}, 2, nil
+
+    while at <= #raw do
+      local char = raw:sub(at, at)
+      local following = raw:sub(at + 1, at + 1)
+
+      if first == '"' and char == "\\" then
+        if not escapes[following] then
+          return nil, nil, "its value uses an escape this does not translate; encrypt it unquoted"
+        end
+        table.insert(read, escapes[following])
+        at = at + 2
+      elseif first == "'" and char == "'" and following == "'" then
+        table.insert(read, "'")
+        at = at + 2
+      elseif char == first then
+        closed = at
+        break
+      else
+        table.insert(read, char)
+        at = at + 1
+      end
+    end
+
+    local rest = closed and raw:sub(closed + 1) or nil
+    if not rest or not (rest:match("^%s*$") or rest:match("^%s+#")) then
+      return nil, nil, "its quoted value could not be read to the end"
+    end
+    return table.concat(read), rest:match("^%s+(#.*)$"), nil
+  end
+
+  if raw == "" then
+    return nil, nil, "it has no value on that line"
+  end
+  if first:match("[%[%{&%*!|>%%@`]") then
+    return nil, nil, ("its value starts with %s, which is not a plain value to encrypt as text"):format(first)
+  end
+
+  -- A comment needs whitespace before its `#`; `a#b` is all value.
+  local value, comment = raw:match("^(.-)%s+(#.*)$")
+  return ((value or raw):gsub("%s+$", "")), comment, nil
+end
+
 ---Encrypts a range of lines in place, as an inline `!vault` value.
 ---@param opts table|nil the user-command options; requires a range
 function M.encrypt_selection(opts)
@@ -314,9 +373,33 @@ function M.encrypt_selection(opts)
   local lines = vim.api.nvim_buf_get_lines(buf, first - 1, last, false)
   local plaintext = table.concat(lines, "\n")
 
-  -- A `key: value` selection is encrypted as that key, so the result drops back in place.
-  local key, value = plaintext:match("^%s*([%w_%-%.]+)%s*:%s*(.*)$")
+  -- A `key: value` line is encrypted as that key, so the result drops back in place.
   local indent = lines[1]:match("^(%s*)") or ""
+  local key, raw = lines[1]:match("^%s*([%w_%-%.]+)%s*:%s*(.-)%s*$")
+  local value, comment
+
+  if key then
+    -- One key at a time. The pattern used to run over the whole selection, so
+    -- two selected keys became one: the second vanished into the first one's
+    -- ciphertext, and the message said the first had been encrypted.
+    if #lines > 1 then
+      vim.notify(
+        ("VaultEncrypt encrypts one `key: value` line at a time, and %d were selected starting at %s."):format(
+          #lines,
+          key
+        ),
+        vim.log.levels.WARN
+      )
+      return
+    end
+
+    local problem
+    value, comment, problem = scalar_of(raw)
+    if not value then
+      vim.notify(("Not encrypting %s: %s."):format(key, problem), vim.log.levels.WARN)
+      return
+    end
+  end
 
   local auth, err = auth_for(buf)
   if not auth then
@@ -348,6 +431,10 @@ function M.encrypt_selection(opts)
   local replacement = {}
   for i, line in ipairs(out) do
     table.insert(replacement, i == 1 and (indent .. line) or (indent .. line:gsub("^%s+", "    ")))
+  end
+  -- The comment that sat beside the value stays beside the key.
+  if comment then
+    replacement[1] = replacement[1] .. " " .. comment
   end
 
   vim.api.nvim_buf_set_lines(buf, first - 1, last, false, replacement)
