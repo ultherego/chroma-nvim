@@ -645,6 +645,11 @@ local function confirm_and_run(run, snapshot)
   -- Remembered only once it started: a plan nobody ran is not the last
   -- invocation (§14).
   planner.remember(run)
+
+  -- And the planning is over. Left as the owner, a run that had already handed
+  -- its playbook to a terminal made `:AnsibleCancel` answer as though it had
+  -- cancelled something, while stopping nothing.
+  planner.cancel(run)
 end
 
 ---@param run chroma_ansible.Run
@@ -653,8 +658,27 @@ local function ask_targets(run)
     if answer.declined then
       return planner.cancel(run)
     end
-    -- §16: a failed `--list-hosts` costs the snapshot and nothing else.
-    confirm_and_run(run, answer.targets and { targets = answer.targets } or nil)
+    if answer.targets then
+      return confirm_and_run(run, { targets = answer.targets })
+    end
+
+    -- §16: a failed `--list-hosts` costs the snapshot and nothing else — but it
+    -- is shown, like every other failure. It used to be dropped here, and the
+    -- preview said `not reported` over a limit that matched no host at all:
+    -- Ansible had said exactly that, and this is the only check a limit gets.
+    degraded(run, "Target inspection failed", answer, {
+      { label = "Retry", value = control("retry") },
+      { label = "Continue without a target list", value = control("continue") },
+      { label = "Cancel", value = control("cancel") },
+    }, function(value)
+      if chose(value, "retry") then
+        return ask_targets(run)
+      end
+      if chose(value, "cancel") then
+        return planner.cancel(run)
+      end
+      confirm_and_run(run, nil)
+    end)
   end)
 end
 
@@ -725,7 +749,10 @@ end
 ---has no schedule, so the way out is the operator's and has to exist.
 function M.stop()
   if not planner.supersede() then
-    refuse("there is no Ansible run to cancel")
+    refuse(
+      "there is no Ansible run to cancel: nothing is being planned. "
+        .. "A playbook that has already started is stopped in its own terminal, with Ctrl-C"
+    )
   end
 end
 
@@ -737,7 +764,7 @@ function M.setup(opts)
   vim.api.nvim_create_user_command("AnsibleRepeat", M.again, { desc = "Repeat the last Ansible invocation" })
   -- A command and not a key: it is reached while an inspection is running,
   -- which is the one moment the planner is not holding the keyboard.
-  vim.api.nvim_create_user_command("AnsibleCancel", M.stop, { desc = "Cancel the Ansible run in flight" })
+  vim.api.nvim_create_user_command("AnsibleCancel", M.stop, { desc = "Cancel the Ansible run being planned" })
 
   if M.options.keymaps then
     vim.keymap.set("n", "<leader>ar", M.plan, { desc = "New Ansible run" })

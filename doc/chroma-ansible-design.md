@@ -1017,7 +1017,7 @@ correct the moment a second one exists.
 | `--graph` exits non-zero | `Inventory inspection failed` + Ansible's own output. `Retry` / `Continue without discovered groups and hosts` / `Cancel` |
 | `--graph` output does not parse | Identical to the line above. Never partial (§7.3) |
 | `--list-tags` fails | `Tag inspection failed` + output. `Retry` / `No tag filter` / `Custom tag…` / `Cancel` |
-| `--list-hosts` fails | The preview omits `Targets reported now` and says so. The run proceeds |
+| `--list-hosts` fails | `Target inspection failed` + output. `Retry` / `Continue without a target list` / `Cancel`. Continuing, the preview omits `Targets reported now` and says so |
 | The frozen directory is gone at run time | Refuse, naming the path |
 | A playbook is unreadable at run time | Refuse, naming the path |
 | Repeat: executable gone or moved | Refuse (§14.4). Nothing runs |

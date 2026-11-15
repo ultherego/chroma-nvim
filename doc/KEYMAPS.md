@@ -357,8 +357,10 @@ Both are also `:AnsibleRun` and `:AnsibleRepeat`.
 While Ansible is being asked what a playbook or an inventory means, a small
 window says so and offers `[Cancel]`. There is no timeout — a dynamic inventory
 takes as long as the system it queries takes — so the way out is `:AnsibleCancel`,
-closing that window, or `<Esc>` inside it. Starting either key again does the
-same thing to whatever was running: one run owns the planner at a time.
+closing that window, or `<Esc>`, `q` or `<CR>` inside it. Starting either key
+again does the same thing to whatever was running: one run owns the planner at a
+time. Once the playbook has started it belongs to its terminal and is stopped
+there.
 
 **`<leader>ar` was removed once, in `568c28e`, and this is not that key coming
 back.** The old one inferred the playbook and the command from the current

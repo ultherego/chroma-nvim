@@ -588,12 +588,56 @@ T["degrading"]["a failed target listing does not stop the run"] = function()
     snapshot = given
     return rendered(run, command, given)
   end
-  answering(straight_through())
+  local steps = straight_through()
+  table.insert(steps, { pick = "Continue without a target list" })
+  answering(steps)
 
   ansible.plan()
   preview.render = rendered
 
   eq(snapshot, nil)
+  eq(#started, 1)
+end
+
+-- Regression: the answer's problem was dropped on the floor. A limit that
+-- matched no host exits 1 with Ansible saying so, and the preview's
+-- `not reported` was all that reached the operator — for the one inspection
+-- that is the only check a limit ever gets.
+T["degrading"]["a failed target listing shows what Ansible said"] = function()
+  inspect.targets = function(_, on_done)
+    on_done({ problem = "[ERROR]: Specified inventory, host pattern and/or --limit leaves us with no hosts to target." })
+  end
+  local steps = straight_through()
+  table.insert(steps, { pick = "Cancel" })
+  answering(steps)
+
+  ansible.plan()
+
+  eq(shown("Target inspection failed"), true)
+  eq(shown("leaves us with no hosts to target"), true)
+  eq(asked("Target inspection failed"), true)
+  eq(#started, 0)
+end
+
+T["degrading"]["a failed target listing can be asked again"] = function()
+  local asked_times = 0
+  inspect.targets = function(_, on_done)
+    asked_times = asked_times + 1
+    if asked_times == 1 then
+      return on_done({ problem = "[ERROR]: the inventory host was not reachable yet" })
+    end
+    on_done({ targets = { "web01" } })
+  end
+  preview.confirm = function()
+    return true
+  end
+  local steps = straight_through()
+  table.insert(steps, { pick = "Retry" })
+  answering(steps)
+
+  ansible.plan()
+
+  eq(asked_times, 2)
   eq(#started, 1)
 end
 
@@ -772,6 +816,26 @@ T["superseded"]["cancelling ends the run that is in flight"] = function()
 
   eq(#prompts, drawn)
   eq(#started, 0)
+end
+
+-- Regression: a run stayed the planner's owner after its playbook had started,
+-- so `:AnsibleCancel` found something to end, ended nothing, and said nothing.
+T["superseded"]["cancelling after the playbook has started says there is nothing to cancel"] = function()
+  preview.confirm = function()
+    return true
+  end
+  answering(straight_through())
+  ansible.plan()
+  eq(#started, 1)
+
+  local said
+  vim.notify = function(message)
+    said = message
+  end
+  ansible.stop()
+
+  eq(said ~= nil and said:find("no Ansible run to cancel", 1, true) ~= nil, true)
+  eq(said:find("its own terminal", 1, true) ~= nil, true)
 end
 
 T["superseded"]["cancelling with nothing running says so"] = function()

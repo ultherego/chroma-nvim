@@ -341,10 +341,12 @@ invocation's decisions, and still asks. Both are also `:AnsibleRun` and
 While Ansible is being asked what a playbook or an inventory means, a small
 window says so and offers Cancel. There is no timeout, because a dynamic
 inventory takes as long as the system it queries takes; the way out is
-`:AnsibleCancel`, closing that window, or <Esc> inside it. Pressing either key
-again does the same to whatever was running — one run owns the planner at a
-time, so an answer to a question you have walked away from cannot arrive in
-the middle of the one you are answering now.
+`:AnsibleCancel`, closing that window, or <Esc>, `q` or <CR> inside it.
+Pressing either key again does the same to whatever was running — one run owns
+the planner at a time, so an answer to a question you have walked away from
+cannot arrive in the middle of the one you are answering now. All of this is
+about planning: once the playbook has started it belongs to its terminal, and
+is stopped there.
 
 Vault handling is chroma-vault.nvim, written for this project — see
 |chroma-nvim-vault|.
