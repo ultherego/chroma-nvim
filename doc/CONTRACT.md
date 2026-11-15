@@ -171,8 +171,9 @@ One `plugins/*.lua` file = one domain. No junk-drawer files.
 - `mini.icons` — the single icon provider for the whole config
 
 ### UI
-- `catppuccin` and `neanias/everforest-nvim` — one colourscheme, chosen at
-  install time out of what `themes.json` offers. Both specs ship and exactly
+- `catppuccin`, `neanias/everforest-nvim` and `scottmckendry/cyberdream.nvim`
+  — one colourscheme, chosen at
+  install time out of what `themes.json` offers. Every spec ships and exactly
   one is enabled; see "The colourscheme is a choice" in `DECISIONS.md`.
 - `which-key`
 - `aerial` — code outline: what is in this file and where

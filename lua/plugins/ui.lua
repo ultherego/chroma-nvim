@@ -31,7 +31,7 @@ local WORDMARK = {
 
 return {
   -- The colourscheme is one choice out of what themes.json offers, made at
-  -- install time and kept in the user's own configuration. Both specs are here
+  -- install time and kept in the user's own configuration. Every spec is here
   -- and exactly one of them is enabled: a colourscheme is not something to load
   -- two of and hope the priorities settle it.
   --
@@ -86,6 +86,42 @@ return {
       -- everforest reads 'background', so it is set before the scheme loads.
       vim.o.background = "dark"
       vim.cmd.colorscheme("everforest")
+    end,
+  },
+
+  -- cyberdream, verified against
+  -- https://github.com/scottmckendry/cyberdream.nvim
+  {
+    "scottmckendry/cyberdream.nvim",
+    name = "cyberdream",
+    enabled = function()
+      return require("chroma.theme").is("cyberdream")
+    end,
+    lazy = false,
+    priority = 1000,
+    opts = {
+      -- The dark palette, named rather than left to "auto": that one follows
+      -- 'background', and this is the dark theme whatever the terminal reports.
+      variant = "default",
+      transparent = false,
+      italic_comments = false,
+      colors = {
+        -- Under `dark`, so the light variant keeps its own if somebody loads
+        -- `cyberdream-light` by hand.
+        dark = {
+          -- Upstream's own value today, written down so that it stays this one
+          -- if upstream ever moves it.
+          bg = "#16181a",
+          -- Upstream is #5eff6c, which is the brightest thing on the screen
+          -- wherever a string or an added line is. Same hue, less of it.
+          green = "#4ecd5a",
+        },
+      },
+    },
+    config = function(_, opts)
+      require("cyberdream").setup(opts)
+      vim.o.background = "dark"
+      vim.cmd.colorscheme("cyberdream")
     end,
   },
 

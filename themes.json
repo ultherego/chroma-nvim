@@ -13,6 +13,12 @@
       "name": "Everforest",
       "description": "Dark, green, deliberately soft contrast for long sessions",
       "colorscheme": "everforest"
+    },
+    {
+      "id": "cyberdream",
+      "name": "Cyberdream",
+      "description": "Near-black, high-contrast, with a calmer green than upstream",
+      "colorscheme": "cyberdream"
     }
   ]
 }

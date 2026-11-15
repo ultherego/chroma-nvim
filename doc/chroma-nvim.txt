@@ -792,10 +792,11 @@ is deduplication, not rejection.
 
 The colourscheme                                         *chroma-nvim-ui-theme*
 
-Chroma ships two, and one of them is drawn:
+Chroma ships three, and one of them is drawn:
 
   catppuccin          Catppuccin Mocha. The default.
   everforest          Everforest, dark, medium contrast.
+  cyberdream          Cyberdream, near-black, with a calmer green.
 
 Which one is a choice made when Chroma is installed. `chroma install` asks,
 `chroma install --theme everforest` answers without being asked, and an install
@@ -806,8 +807,8 @@ that says nothing takes the release's default. What a release can draw is
 <
 It sits beside |chroma-nvim-components-file| and for the same reason: an update
 replaces the configuration tree wholesale, so a choice kept inside it would not
-survive one. Both plugin specs ship, and exactly one is enabled — the other is
-never installed.
+survive one. Every plugin spec ships, and exactly one is enabled — the others
+are never installed.
 >
     {
       "schema": 1,

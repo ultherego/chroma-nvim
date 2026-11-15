@@ -4,7 +4,7 @@
 
 **A Neovim environment for infrastructure work.**
 
-🚀 fast · 🧩 modular · 🔧 easy to extend · 📦 maintained plugins only · 📝 documented · 🎨 Catppuccin or Everforest
+🚀 fast · 🧩 modular · 🔧 easy to extend · 📦 maintained plugins only · 📝 documented · 🎨 Catppuccin, Everforest or Cyberdream
 
 </div>
 
@@ -190,7 +190,7 @@ Every question the installer asks can be answered in advance instead.
 |---|---|
 | `--components a,b` | the optional components to install; `core` is always installed |
 | `--profile <name>` | a named set: `minimal`, `terraform`, `kubernetes`, `everything` |
-| `--theme <id>` | the colourscheme: `catppuccin` or `everforest` |
+| `--theme <id>` | the colourscheme: `catppuccin`, `everforest` or `cyberdream` |
 | `--default` | take over `~/.config/nvim` instead of installing beside it |
 | `--version <vX.Y.Z>` | a particular release rather than the latest |
 | `--dry-run` | build the plan, print it, and write nothing |
@@ -229,8 +229,8 @@ had is put back and the record still describes it.
 
 ### The colourscheme
 
-Two ship, and one is drawn: **Catppuccin Mocha** (the default) or
-**Everforest**. The release says what it can draw, in `themes.json`; what you
+Three ship, and one is drawn: **Catppuccin Mocha** (the default),
+**Everforest** or **Cyberdream**. The release says what it can draw, in `themes.json`; what you
 picked is your own, in `$XDG_CONFIG_HOME/chroma/theme.json`, beside your
 components — so an update replaces the configuration without replacing your
 choice. To change it later, edit that file and restart, or install again with
