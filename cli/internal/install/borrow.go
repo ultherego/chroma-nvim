@@ -177,6 +177,23 @@ func (tx *Transaction) borrowOne(borrowable Borrowable) (bool, error) {
 			borrowable.Original, found, borrowable.Kind, borrowable.Original, borrowable.Original)
 	}
 
+	// And the configuration of an installation that never got as far as its
+	// record. A takeover killed after it placed its tree leaves Chroma at
+	// Neovim's path and the real configuration in a backup beside it; run
+	// again, that tree was borrowed as "the configuration you had", the real
+	// one was left with nothing pointing at it, and every later command refused.
+	// Both halves are required: a Chroma checkout somebody keeps at that path
+	// is their configuration, and is borrowed like any other.
+	if borrowable.Kind == "configuration" && isChromaTree(borrowable.Original) {
+		if earlier, _ := filepath.Glob(borrowable.Original + backupMark + "*"); len(earlier) > 0 {
+			return false, fmt.Errorf(
+				"%s holds a Chroma configuration and %s is beside it: an earlier `chroma install --default` was interrupted after it had placed its tree.\n"+
+					"Borrowing that tree would record Chroma's own files as the configuration you had before Chroma.\n"+
+					"Yours is in the backup. Remove %s, move the backup back to that name — and the same for any other *%s* directory the interrupted run left — then install again",
+				borrowable.Original, strings.Join(earlier, ", "), borrowable.Original, backupMark)
+		}
+	}
+
 	identity, err := identityOf(info, borrowable.Original)
 	if err != nil {
 		return false, err

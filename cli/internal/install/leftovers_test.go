@@ -233,3 +233,53 @@ func TestInstallBorrowsAnOrdinaryDirectoryWithALogsFolder(t *testing.T) {
 		t.Fatalf("an ordinary state directory was refused: %v", err)
 	}
 }
+
+// Regression: a takeover killed after it placed its tree, then run again. The
+// tree it had placed was borrowed as "the configuration you had", the real one
+// stayed in its backup with nothing pointing at it, and the installation that
+// resulted could be neither updated nor cleanly removed.
+func TestInstallRefusesToBorrowWhatAnInterruptedTakeoverPlaced(t *testing.T) {
+	fixed(t)
+
+	paths := used(t)
+
+	// What the killed run left: Chroma's tree at Neovim's path, and the real
+	// configuration beside it under a backup's name.
+	put(t, filepath.Join(paths.ConfigDir, "lua", "chroma", "bootstrap.lua"), "-- chroma\n")
+	theirs := paths.ConfigDir + backupMark + "20260809T134100Z"
+	put(t, filepath.Join(theirs, "init.lua"), "-- the user's own\n")
+
+	installer := &Installer{Runner: &failAt{}}
+	_, err := installer.Apply(context.Background(), Options{UseDefault: true, Selected: []string{}}, paths, prepared(t), shipped(t))
+	if err == nil {
+		t.Fatal("the installation borrowed the tree an interrupted takeover had placed")
+	}
+	if !strings.Contains(err.Error(), "was interrupted") || !strings.Contains(err.Error(), theirs) {
+		t.Errorf("the refusal does not say what happened or where the real one is: %v", err)
+	}
+
+	if !exists(filepath.Join(theirs, "init.lua")) || !exists(filepath.Join(paths.ConfigDir, "lua", "chroma", "bootstrap.lua")) {
+		t.Error("a refused installation moved something")
+	}
+	if exists(paths.InstallState) {
+		t.Error("a refused installation was recorded")
+	}
+}
+
+// Both halves are required. A Chroma checkout somebody keeps at Neovim's path
+// is their configuration, and taking it over is what `--default` is for.
+func TestInstallBorrowsAChromaCheckoutThatIsSomebodysConfiguration(t *testing.T) {
+	fixed(t)
+
+	paths := used(t)
+	put(t, filepath.Join(paths.ConfigDir, "lua", "chroma", "bootstrap.lua"), "-- a checkout\n")
+
+	installer := &Installer{Runner: &failAt{}}
+	result, err := installer.Apply(context.Background(), Options{UseDefault: true, Selected: []string{}}, paths, prepared(t), shipped(t))
+	if err != nil {
+		t.Fatalf("a checkout with no backup beside it was refused: %v", err)
+	}
+	if !result.Recorded {
+		t.Error("nothing was recorded")
+	}
+}
