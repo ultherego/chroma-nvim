@@ -11,7 +11,7 @@ local function give_up(message, detail)
   -- no stdin, and `getchar()` there waits for ever: a clone that failed in a
   -- second was reported half an hour later, as a timeout.
   if #vim.api.nvim_list_uis() == 0 then
-    io.stderr:write(message .. "\n" .. detail .. "\n")
+    vim.uv.fs_write(2, message .. "\n" .. detail .. "\n")
     os.exit(1)
   end
 

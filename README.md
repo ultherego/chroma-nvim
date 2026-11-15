@@ -97,9 +97,11 @@ three, and the splits differ:
 | Arch | `nodejs` | separate `npm` | in `python` |
 | Fedora | `nodejs` | in `nodejs` | in `python3` |
 
-`chroma doctor` and `:checkhealth chroma` look for the three commands rather
-than for packages, so whatever your distribution calls them, they answer the
-question directly.
+`chroma doctor` and `:checkhealth chroma` look for the commands `node`, `npm`
+and `python3` rather than for packages, so whatever your distribution calls
+them, they answer that question directly. Neither can see whether the `venv`
+module is there — on Debian and Ubuntu it is the one that is usually missing, and
+`python3 -m venv --help` tells you.
 
 The versions are floors rather than pins — each is a requirement stated by
 something Chroma depends on. Anything newer works.
@@ -148,13 +150,23 @@ Download `chroma` from the
 run it:
 
 ```sh
-curl -fsSLO https://github.com/ultherego/chroma-nvim/releases/latest/download/chroma-linux-amd64
+base=https://github.com/ultherego/chroma-nvim/releases/latest/download
+curl -fsSLO "$base/chroma-linux-amd64"
+curl -fsSLO "$base/SHA256SUMS"
+sha256sum --check --ignore-missing SHA256SUMS
+
 chmod +x chroma-linux-amd64 && sudo mv chroma-linux-amd64 /usr/local/bin/chroma
 
 chroma install
 ```
 
-On ARM machines take `chroma-linux-arm64` instead.
+On ARM machines take `chroma-linux-arm64` instead. Linux is what is built and
+tested; there is no macOS or Windows binary.
+
+The checksum says the download is the file the release holds. It is published
+beside that file and is not a signature, so it does not say who built it. To
+move to a newer `chroma`, download it the same way and replace the old one;
+`chroma update` moves the configuration, not the installer.
 
 The installer asks where to put the configuration, which components you want and
 which colourscheme to draw, shows the whole plan, and writes nothing until you
@@ -218,6 +230,29 @@ release does not change your components. An update keeps the release it
 replaced, so `rollback` is a local operation rather than a re-download; rolling
 back again returns you to where you were. If part of any of this fails, what you
 had is put back and the record still describes it.
+
+### When something was interrupted
+
+A command that fails puts things back itself and says so. One that was killed
+— a closed terminal, a power cut — cannot, and the next command looks first.
+
+- **Run the command again.** `update`, `rollback`, `components` and `uninstall`
+  repair an interrupted update or rollback before doing anything else, and tell
+  you what they found. `uninstall` also carries on from an uninstall that
+  stopped partway.
+- **If it refuses**, it names a directory and says why it will not guess. What
+  it names is always beside your configuration: `*.chroma-backup-*` is something
+  that was moved aside and is still wanted — yours, or the release you can roll
+  back to; `*.chroma-failed-*` and `*.chroma-removing-*` are what a failed
+  installation or an unfinished uninstall left, and are safe to delete once you
+  have read the log inside.
+- **A first `chroma install --default` that was killed** leaves your own
+  configuration in `~/.config/nvim.chroma-backup-*`, and the same for
+  `~/.local/share/nvim`, `~/.local/state/nvim` and `~/.cache/nvim`. Nothing of
+  yours is deleted; move each back to its name and install again.
+
+Every run writes a log, and prints where: `logs/install-*.log` under the
+installation's state directory.
 
 | Command | Options |
 |---|---|

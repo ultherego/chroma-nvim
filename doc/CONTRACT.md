@@ -336,11 +336,11 @@ according to what the machine underneath it does: the tools on its PATH, and the
 filesystem its temporary directories are on. Two of the same day's failures were
 that — a gate that needed `tree-sitter`, and an identity proof that ext4
 invalidates and btrfs does not. Anything whose result could depend on the
-machine belongs in a container, and `golang:1.24-bookworm` is a serviceable
+machine belongs in a container, and `golang:1.25-bookworm` is a serviceable
 stand-in for the CI runner because it has Go, git and none of the rest:
 
 ```sh
-docker run --rm -v "$PWD:/src:ro" golang:1.24-bookworm \
+docker run --rm -v "$PWD:/src:ro" golang:1.25-bookworm \
   bash -c 'cp -r /src /work && cd /work/cli && go test ./...'
 ```
 

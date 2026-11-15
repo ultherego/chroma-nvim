@@ -165,7 +165,7 @@ local function check_pickers()
   health.start("Search and navigation")
 
   check_all({
-    { cmd = "fzf", what = "every picker", advice = "fzf > 0.36 is required" },
+    { cmd = "fzf", what = "every picker", advice = "fzf 0.36 or newer is required" },
     { cmd = "rg", what = "grep pickers (<leader>fg, <leader>fw)" },
     { cmd = "fd", what = "project detection in project.nvim" },
     { cmd = "bat", what = "file previews in the fzf-native profile" },

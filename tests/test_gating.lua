@@ -508,7 +508,8 @@ T["mason tools are provisioned when the spec loads after VimEnter"] = function()
 
   local path = vim.fn.tempname() .. ".lua"
   vim.fn.writefile(vim.split(script, "\n"), path)
-  local result = vim.system({ vim.v.progpath, "--headless", "-u", "NONE", "-c", "luafile " .. path }, { text = true })
+  local result = vim
+    .system({ vim.v.progpath, "--headless", "-u", "NONE", "-c", "luafile " .. path }, { text = true })
     :wait(20000)
   eq({ result.code, result.stderr }, { 0, "" })
 

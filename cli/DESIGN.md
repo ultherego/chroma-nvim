@@ -263,8 +263,8 @@ this binary" would be a second registry to keep in step, and one of them would
 drift.
 
 **`contract` is a version, and it is checked in both directions.** A CLI refuses
-a configuration whose `contract` is higher than it understands and says to update
-itself; a configuration refuses to be driven by a CLI that is older than its
+a configuration whose `contract` is not the one it understands, naming both
+numbers; a configuration refuses to be driven by a CLI that is older than its
 components. Without this, the shared release lifecycle is an assumption rather
 than a check — and the failure it prevents is silent, which is the kind this
 project has been bitten by before.
@@ -413,7 +413,7 @@ Nothing has been written yet. This is what installing would do.
   Release       v2.1.0
   Location      ~/.config/chroma-nvim
   Run with      NVIM_APPNAME=chroma-nvim nvim
-  Selection     ~/.local/state/chroma-nvim/selection.json
+  Selection     ~/.config/chroma/components.json
 
   Components    core, kubernetes, terraform
 
@@ -636,7 +636,7 @@ chroma components  edit the enabled set                  --set --tree
 chroma doctor      is the installation on this machine healthy   --tree
 chroma rollback    put the previous generation back
 chroma uninstall   remove what this made, give back what it borrowed
-chroma version     CLI version, installed version, contract
+chroma version     CLI version, contract
 
 chroma package     build a release archive and its sums    --tree --version
                    (developer-only)                        --out --allow-dirty
@@ -720,7 +720,8 @@ nor `any`. That is a Go test, and it protects the Lua side as much as the CLI.
 
 ## The release artefact
 
-A release is two files, and the installer will accept nothing else.
+The installer reads two files of a release, and nothing else in it. The
+binaries published beside them are for people; `SHA256SUMS` covers those too.
 
 ```
 chroma-nvim-v1.0.0.tar.gz
@@ -1060,8 +1061,11 @@ second run still knows what is left to finish.
 
 ### After a process stops existing
 
-`SIGINT` and `SIGTERM` leave a program able to answer, so the guarantees are the
-ones above: defers run, the transaction rolls back. `SIGKILL` does not. Nothing
+`SIGINT`, `SIGTERM` and `SIGHUP` leave a program able to answer, so the
+guarantees are the ones above: the context is cancelled, the step in flight
+fails, and the transaction rolls back. An uninstall is the exception — it has a
+commit point and no way back from it, so it holds those signals until it is over
+and says that it was asked. `SIGKILL` does not. Nothing
 runs, and the only thing the kernel does on the way out is drop the flock.
 
 The question is therefore not whether an operation undoes itself, because it
@@ -1077,15 +1081,15 @@ something that is already back. `ReconcileHandover` reads that as a completed
 handover only when all three of these hold:
 
 ```
+the record says the handover had begun      (`pending`)
 the recorded backup is gone
-the configuration directory is there
-it does not hold a Chroma tree      (no lua/chroma/bootstrap.lua)
+the directory at its path is the one taken  (same device and inode)
 ```
 
-The only ordinary way all three are true at once is that the rename ran. If
-Chroma is still in the directory, the backup was deleted by somebody else —
-a different situation, and the uninstall refuses instead, naming what is
-missing. The reconciliation happens before the plan is built, because the plan
+Which directory it is, not what it looks like: a rename keeps device and inode,
+so the only way all three are true is that the rename ran. Anything else at
+that path is a different situation, and the uninstall refuses instead, naming
+what does not add up. The reconciliation happens before the plan is built, because the plan
 is printed, and a plan offering to remove somebody's own configuration is the
 lie this whole area exists to prevent.
 
@@ -1126,9 +1130,18 @@ nothing is touched.
 
 ```
 update killed after the backup     orphan → target
-update killed after the place      target → aside, orphan → target, aside removed
+update killed after the place      refused: see "the honest cost" above
 rollback killed after the swap     target → previous.path, orphan → target
 ```
+
+Two states stop every command but one. Once an uninstall has begun handing a
+borrowed directory back, and when a recorded `previous.path` is gone with
+nothing beside the configuration to explain it, there is no generation for an
+update or a rollback to work on — and what stands at the configuration's path
+may already be somebody else's again. Recovery answers those with a refusal
+that `chroma uninstall` alone reads as a description and carries on from. What
+an uninstall moves aside is named `*.chroma-removing-*`, never
+`*.chroma-backup-*`, so that recovery cannot mistake it for a generation.
 
 **Renames first, deletion last, and the uncommitted tree is moved rather than
 removed.** That ordering costs one rename and buys the difference between "the
