@@ -102,4 +102,39 @@ T["keymap"]["leaves the command line open to type a path into"] = function()
   eq(vim.fn.maparg("<leader>fp", "n"), ":FindFile ")
 end
 
+-- Regression: the name was pasted into an Ex command and read a second time.
+-- `%` became the current file, `#` raised E194 with a stack trace, and whatever
+-- followed a `|` ran as a command — `:FindFile x | let g:n = 1` set the variable.
+T["opening"]["opens a name holding characters Ex would read as its own"] = function()
+  local dir = vim.fn.tempname()
+  vim.fn.mkdir(dir, "p")
+  vim.cmd.cd(dir)
+
+  for typed, name in pairs({
+    [ [[50\%.txt]] ] = "50%.txt",
+    [ [[a\#b.txt]] ] = "a#b.txt",
+    [ [[x\|y.txt]] ] = "x|y.txt",
+  }) do
+    vim.fn.writefile({ name }, vim.fs.joinpath(dir, name))
+
+    -- From a named buffer, so that `%` has something to turn into.
+    vim.cmd("silent edit current.txt")
+    vim.cmd("FindFile " .. typed)
+
+    eq({ typed, vim.fn.fnamemodify(vim.api.nvim_buf_get_name(0), ":t") }, { typed, name })
+    eq({ typed, vim.api.nvim_buf_get_lines(0, 0, -1, false) }, { typed, { name } })
+  end
+end
+
+T["opening"]["runs nothing that follows a bar"] = function()
+  local dir = vim.fn.tempname()
+  vim.fn.mkdir(dir, "p")
+  vim.cmd.cd(dir)
+
+  vim.g.chroma_test_find_file = nil
+  vim.cmd("FindFile plain.txt | let g:chroma_test_find_file = 1")
+
+  eq(vim.g.chroma_test_find_file, nil)
+end
+
 return T

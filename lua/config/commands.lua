@@ -4,10 +4,13 @@
 -- other question from the one `<leader>ff` answers. Native completion rather
 -- than fzf-lua's `complete.file()`, which does something else entirely.
 vim.api.nvim_create_user_command("FindFile", function(args)
-  -- Measured: what arrives has already had the command line's escaping
-  -- removed, so `two\ words/x` is a real space here and `:edit` opens it.
-  -- `fnameescape` on top changed the outcome of nothing constructible.
-  vim.cmd("edit " .. args.args)
+  -- Measured: what arrives has already had the command line's escaping removed
+  -- and `~` and `$VAR` expanded, so it is the name itself — `two\ words/x` is a
+  -- real space, and `50\%.txt` is a real `%`. Pasted back into an Ex command it
+  -- was read a second time: `%` became the current file, `#` raised E194, and
+  -- everything after a `|` ran as a command of its own. Handed over as an
+  -- argument instead, with both of those readings switched off.
+  vim.cmd({ cmd = "edit", args = { args.args }, magic = { file = false, bar = false } })
 end, {
   nargs = 1,
   complete = "file",
