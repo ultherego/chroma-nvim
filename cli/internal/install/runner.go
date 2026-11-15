@@ -25,6 +25,11 @@ type Command struct {
 	// paths were resolved from.
 	Env []string
 
+	// Unset are variables the child must not inherit at all, whatever this
+	// process was started with. Not the same as setting one to "": Neovim reads
+	// an NVIM_APPNAME that is merely empty differently from one that is absent.
+	Unset []string
+
 	Dir string
 }
 
@@ -62,6 +67,29 @@ type Runner interface {
 	Run(ctx context.Context, cmd Command, sink ProgressSink) error
 }
 
+// without drops the named variables from an environment.
+func without(environment, names []string) []string {
+	if len(names) == 0 {
+		return environment
+	}
+
+	kept := make([]string, 0, len(environment))
+	for _, entry := range environment {
+		name, _, _ := strings.Cut(entry, "=")
+		dropped := false
+		for _, unwanted := range names {
+			if name == unwanted {
+				dropped = true
+				break
+			}
+		}
+		if !dropped {
+			kept = append(kept, entry)
+		}
+	}
+	return kept
+}
+
 // ExecRunner runs commands for real.
 type ExecRunner struct {
 	// Log receives every line the child writes, which is where the detail goes:
@@ -80,7 +108,7 @@ func (r ExecRunner) Run(ctx context.Context, cmd Command, sink ProgressSink) err
 
 	process := exec.CommandContext(ctx, cmd.Name, cmd.Args...)
 	process.Dir = cmd.Dir
-	process.Env = append(os.Environ(), cmd.Env...)
+	process.Env = append(without(os.Environ(), cmd.Unset), cmd.Env...)
 
 	// Killing a process does not close the pipes its children inherited, so
 	// reading to EOF can outlive the cancellation. Measured in CI: a cancelled

@@ -92,6 +92,12 @@ func runStep(ctx context.Context, paths Paths, runner Runner, sink ProgressSink,
 	// it is not.
 	if paths.AppName != "" {
 		cmd.Env = append(cmd.Env, "NVIM_APPNAME="+paths.AppName)
+	} else {
+		// Not setting it is not enough. Somebody who exports NVIM_APPNAME in
+		// their shell — the usual way to live with two configurations — had it
+		// inherited here, so the bootstrap and the verification of a takeover
+		// ran against a different configuration altogether and failed.
+		cmd.Unset = append(cmd.Unset, "NVIM_APPNAME")
 	}
 
 	sink.Emit(Event{Step: step, Status: StatusStart})

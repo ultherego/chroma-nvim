@@ -92,6 +92,45 @@ func TestTheDefaultInstallationGetsNoAppName(t *testing.T) {
 			t.Errorf("the default installation was given %q", entry)
 		}
 	}
+
+	// And it is taken away, not merely left unset: see the next test.
+	if strings.Join(runner.commands[0].Unset, ",") != "NVIM_APPNAME" {
+		t.Errorf("Unset = %v, want NVIM_APPNAME", runner.commands[0].Unset)
+	}
+}
+
+// Regression: the child's environment is this process's plus what the command
+// adds, so an NVIM_APPNAME exported in somebody's shell reached a takeover's
+// bootstrap and pointed it at another configuration.
+func TestAnUnsetVariableDoesNotReachTheChild(t *testing.T) {
+	if _, err := os.Stat("/bin/sh"); err != nil {
+		t.Skip("no /bin/sh; this project is Unix-first and says so")
+	}
+	t.Setenv("NVIM_APPNAME", "somebody-elses")
+
+	var seen []string
+	sink := sinkFunc(func(e Event) {
+		if e.Status == StatusProgress {
+			seen = append(seen, e.Message)
+		}
+	})
+
+	err := ExecRunner{}.Run(context.Background(), Command{
+		Name:  "/bin/sh",
+		Args:  []string{"-c", `echo "[${NVIM_APPNAME-absent}]:$HOME"`},
+		Unset: []string{"NVIM_APPNAME"},
+	}, sink)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	line := strings.Join(seen, "")
+	if !strings.HasPrefix(line, "[absent]:") {
+		t.Errorf("output %q, want the variable gone", line)
+	}
+	if strings.HasSuffix(line, ":") {
+		t.Errorf("output %q, want the rest of the environment to survive", line)
+	}
 }
 
 // Every subprocess is bounded, and "every" cannot depend on the caller
