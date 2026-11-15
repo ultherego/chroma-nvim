@@ -469,4 +469,50 @@ T["legacy"]["no selection leaves every component running"] = function()
   end)
 end
 
+-- ---------------------------------------------------------------------------
+-- Provisioning on an ordinary start
+
+-- Regression: mason-tool-installer does `run_on_start` from a VimEnter autocmd
+-- of its own, and its spec loads on VeryLazy, which lazy.nvim fires after
+-- VimEnter. An editor started by hand installed no server, linter or formatter;
+-- only the installer's headless bootstrap, which asks explicitly, ever did.
+--
+-- In a child, because `v:vim_did_enter` is read-only and this suite runs before
+-- VimEnter: the case needs an editor that has actually finished starting.
+T["mason tools are provisioned when the spec loads after VimEnter"] = function()
+  local root = vim.fn.fnamemodify(debug.getinfo(1, "S").source:sub(2), ":p:h:h")
+  local answer = vim.fn.tempname()
+
+  local script = ([[
+    vim.opt.runtimepath:prepend(%q)
+    local calls = {}
+    package.loaded["mason-tool-installer"] = {
+      setup = function() table.insert(calls, "setup") end,
+      run_on_start = function() table.insert(calls, "run_on_start") end,
+    }
+    vim.api.nvim_create_autocmd("VimEnter", {
+      callback = function()
+        vim.schedule(function()
+          for _, entry in ipairs(require("plugins.lsp")) do
+            if entry[1] == "WhoIsSethDaniel/mason-tool-installer.nvim" then
+              table.insert(calls, 1, entry.event)
+              entry.config(nil, { ensure_installed = {}, run_on_start = true })
+            end
+          end
+          vim.fn.writefile(calls, %q)
+          vim.cmd("qa!")
+        end)
+      end,
+    })
+  ]]):format(root, answer)
+
+  local path = vim.fn.tempname() .. ".lua"
+  vim.fn.writefile(vim.split(script, "\n"), path)
+  local result = vim.system({ vim.v.progpath, "--headless", "-u", "NONE", "-c", "luafile " .. path }, { text = true })
+    :wait(20000)
+  eq({ result.code, result.stderr }, { 0, "" })
+
+  eq(vim.fn.readfile(answer), { "VeryLazy", "setup", "run_on_start" })
+end
+
 return T

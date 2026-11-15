@@ -83,6 +83,18 @@ return {
 
       return { ensure_installed = ensure, run_on_start = true }
     end,
+    config = function(_, opts)
+      local installer = require("mason-tool-installer")
+      installer.setup(opts)
+
+      -- The plugin does `run_on_start` from a VimEnter autocmd of its own, and
+      -- this spec loads on VeryLazy, which is after VimEnter: the autocmd was
+      -- registered for an event that had already been and gone, and an editor
+      -- started by hand never provisioned anything. Asked for here instead.
+      if vim.v.vim_did_enter == 1 then
+        installer.run_on_start()
+      end
+    end,
   },
 
   -- Consumed by after/lsp/yamlls.lua and after/lsp/jsonls.lua.
