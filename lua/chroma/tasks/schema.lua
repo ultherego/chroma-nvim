@@ -147,6 +147,11 @@ local function env_problem(env)
     if not text(key) then
       return "env has an empty name"
     end
+    -- What the process is handed is `NAME=value`, split at the first `=`, so a
+    -- name holding one is a different variable from the one written down.
+    if key:find("[=%c]") then
+      return ("env has a name that is not one: %s"):format(vim.inspect(key))
+    end
     if not text(value) then
       return ("env.%s is %s, which is not a non-empty string"):format(key, vim.inspect(value))
     end
@@ -176,6 +181,15 @@ local function task_problem(task)
   end
   if task.group ~= nil and not text(task.group) then
     return "has an empty group"
+  end
+
+  -- A name is a label: it is what the picker and the last screen before a run
+  -- show for this task. One holding a newline drew lines of its own there —
+  -- a "Working directory" and an "argv[0]" above the real ones.
+  for _, label in ipairs({ "name", "group" }) do
+    if task[label] ~= nil and task[label]:find("%c") then
+      return ("has a %s with a control character in it"):format(label)
+    end
   end
 
   return cwd_problem(task.cwd) or argv_problem(task.argv) or env_problem(task.env)

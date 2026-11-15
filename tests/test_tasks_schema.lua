@@ -183,6 +183,18 @@ end
 -- ---------------------------------------------------------------------------
 -- cwd
 
+-- Regression: a name with a newline drew fabricated rows in the last screen
+-- before a run, above the real working directory and argument vector.
+T["a task"]["refuses a name or a group that would draw lines of its own"] = function()
+  local base = { id = "plan", cwd = { mode = "project" }, argv = { "true" } }
+
+  local named = vim.tbl_extend("force", base, { name = "Plan\nWorking directory\n/tmp" })
+  eq(refusal(document(named)):find("name with a control character", 1, true) ~= nil, true)
+
+  local grouped = vim.tbl_extend("force", base, { name = "Plan", group = "terra\tform" })
+  eq(refusal(document(grouped)):find("group with a control character", 1, true) ~= nil, true)
+end
+
 T["cwd"] = new_set()
 
 T["cwd"]["refuses a mode schema 1 does not have"] = function()
@@ -280,6 +292,19 @@ T["env"]["refuses a null value"] = function()
     [[{"schema": 1, "tasks": [{"id": "x", "name": "X", "cwd": {"mode": "project"}, "argv": ["ls"], "env": {"PORT": null}}]}]],
     "env.PORT"
   )
+end
+
+T["env"]["refuses a name that is not one variable"] = function()
+  for _, name in ipairs({ "A=B", "TWO\nLINES" }) do
+    local problem = refusal(document({
+      id = "plan",
+      name = "Plan",
+      cwd = { mode = "project" },
+      argv = { "true" },
+      env = { [name] = "value" },
+    }))
+    eq({ name, problem:find("env has a name that is not one", 1, true) ~= nil }, { name, true })
+  end
 end
 
 return T
