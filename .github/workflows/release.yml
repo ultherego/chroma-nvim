@@ -265,7 +265,13 @@ jobs:
           # job has no checkout because it needs no source. Without it the run
           # ends in `failed to run git: fatal: not a git repository`.
           # shellcheck disable=SC2086
+          #
+          # --verify-tag, because without it gh creates a tag that is missing —
+          # at the head of the default branch. A tag deleted or moved while the
+          # gate ran would have published these assets under a commit they were
+          # not built from.
           gh release create "$TAG" $flags \
+            --verify-tag \
             --repo "$GITHUB_REPOSITORY" \
             --title "Chroma Neovim $TAG" \
             dist/chroma-nvim-"$TAG".tar.gz \

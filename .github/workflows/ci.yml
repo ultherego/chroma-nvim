@@ -57,7 +57,7 @@ env:
   # and the sum changes with it, in the same commit, from a download made on
   # purpose rather than from memory.
   SELENE_SHA256: dac452422747999ec4919bbb8bb52992b66aae533b60022bf005669de8616671
-  # This file is now four hundred lines of shell, expressions and embedded Lua,
+  # This file is hundreds of lines of shell, expressions and embedded Lua,
   # and nothing checked it. Pinned and summed for the same reason selene is: a
   # release asset can be replaced, and a version pin says which release was
   # asked for, not which bytes it had. Both lines change together, from a
@@ -264,8 +264,21 @@ jobs:
           # died partway, an empty result.txt, a suite that collected nothing,
           # or a future MiniTest that words its summary differently. All of
           # those are failures, and all of them read as success.
-          if ! grep -q 'Fails (0)' result.txt; then
+          #
+          # And zero notes, and a suite of the size this one is. A skipped case
+          # is a note, and every skip here is "the tool is not installed" — on
+          # this runner that means the job stopped testing what it installs
+          # ansible-core to test. A suite that collected nothing prints
+          # `Fails (0)` too, so the count is held above a floor that only moves
+          # up: well under what there is, far over what an accident leaves.
+          plain=$(sed -e 's/\x1b\[[0-9;]*m//g' result.txt)
+          if ! grep -q 'Fails (0) and Notes (0)' <<<"$plain"; then
             echo "::error::MiniTest did not report a clean result"
+            exit 1
+          fi
+          cases=$(grep -o 'Total number of cases: [0-9]*' <<<"$plain" | grep -o '[0-9]*$' || true)
+          if [ -z "$cases" ] || [ "$cases" -lt 700 ]; then
+            echo "::error::MiniTest collected ${cases:-no} cases, and the suite has over eight hundred"
             exit 1
           fi
 
@@ -338,7 +351,7 @@ jobs:
           python3 -m venv --help >/dev/null
 
       - name: Cold start, once per profile
-        # Five real installations, not five unit tests.
+        # Real installations, one per profile, not unit tests.
         #
         # Until this loop existed, every cold start CI ever did was the legacy
         # one: no selection, so every component enabled. That is the shape least
@@ -664,9 +677,9 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: cli/go.mod
-          # No cache-dependency-path: the module has no external dependencies,
-          # so there is no go.sum to point at and naming one produces a warning
-          # on every run for a cache that would hold nothing.
+          # Not cached. The module's dependencies are few and verified against
+          # go.sum on every run, and a cache is one more thing a release build
+          # would have to trust.
           cache: false
 
       - name: gofmt
@@ -725,9 +738,9 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: cli/go.mod
-          # No cache-dependency-path: the module has no external dependencies,
-          # so there is no go.sum to point at and naming one produces a warning
-          # on every run for a cache that would hold nothing.
+          # Not cached. The module's dependencies are few and verified against
+          # go.sum on every run, and a cache is one more thing a release build
+          # would have to trust.
           cache: false
 
       # These read ../../../components, so they check the contract this
@@ -761,14 +774,13 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: cli/go.mod
-          # No cache-dependency-path: the module has no external dependencies,
-          # so there is no go.sum to point at and naming one produces a warning
-          # on every run for a cache that would hold nothing.
+          # Not cached. The module's dependencies are few and verified against
+          # go.sum on every run, and a cache is one more thing a release build
+          # would have to trust.
           cache: false
 
-      # Cross-compiles only. Attaching binaries to a release is a separate step
-      # that does not exist yet, and inventing it before there is anything to
-      # install would be pretending.
+      # Cross-compiles only. Attaching binaries to a release is release.yml's,
+      # which builds them again from the tagged commit.
       - name: build
         env:
           GOOS: ${{ matrix.goos }}
