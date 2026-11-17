@@ -1425,12 +1425,11 @@ outside the guarantee above, and the reason is the same for each: they are
 global machinery, not properties of a buffer, so a plugin cannot narrow them to
 Vault buffers without deciding how the rest of the editor behaves.
 
-This configuration sets `clipboard=unnamedplus`, which routes unnamed-register
-operations through the system `+` clipboard. That is not only `yy`: ordinary
-editing — `dd`, `dw`, `cw`, `x` — uses the unnamed register too, so plaintext
-from a decrypted vault can reach the system clipboard without anyone deciding
-to copy it. Neovim's default 'shada' includes `<50`, which persists register
-contents between sessions.
+This configuration sends every yank to the system `+` clipboard, so `yy` in a
+decrypted vault copies the secret out of the editor. Deleting and changing —
+`dd`, `dw`, `cw`, `x` — do not: 'clipboard' is left empty, and what they remove
+stays in Neovim's own registers. Those are still registers. Neovim's default
+'shada' includes `<50`, which persists register contents between sessions.
 
 'noundofile' and 'noswapfile' do not address any of this. They are about what
 Neovim writes for a buffer; these are about where the text goes once it is in a
@@ -1443,8 +1442,8 @@ For work where that matters, use a separate session rather than a setting: >
     nvim -i NONE secrets.yml
 <
 `-i NONE` disables both reading and writing ShaDa, so register contents do not
-outlive the session. Drop `clipboard=unnamedplus` for that session as well, or
-yanks and deletes still reach the system clipboard.
+outlive the session. A yank still reaches the system clipboard; yank into a
+named register (`"ayy`) when it must not.
 
 Two things this does not do, stated so it is not read as more than it is:
 

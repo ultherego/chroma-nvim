@@ -810,18 +810,42 @@ without that the guard fires on the next save and the buffer becomes
 unsaveable, which is a worse failure than the one it prevents. That mistake was
 made and caught in testing.
 
+### Only a yank reaches the system clipboard
+
+**Decision.** `'clipboard'` is empty. A `TextYankPost` autocmd copies a plain
+`y` to `+`, and nothing else is passed on.
+
+**Why.** `clipboard=unnamedplus` makes the unnamed register and the system
+clipboard one thing, and the unnamed register is where every delete goes.
+Reported from daily use: holding `dd` to clear some lines replaced what had been
+copied — here or in another program — with the last line removed. Copying is a
+decision and deleting is not, so only the first leaves the editor.
+
+`dd` then `p` still moves a line, because that never needed the system
+clipboard. A yank into a named register is left where it was aimed. And a
+machine with no clipboard tool gets a yank that works inside the editor rather
+than an error on every `y`.
+
+**What it costs.** `p` no longer pastes what was copied in another program;
+that is the terminal's paste, or `"+p`. Mapping deletes to the black-hole
+register instead would have kept `p` and lost `dd`-then-`p`, which is used far
+more often.
+
+**Held by.** `tests/test_clipboard.lua`, against a clipboard made of two
+functions. It asserts the option as well as the behaviour: Neovim batches
+clipboard writes made through `'clipboard'` until the running command ends, so
+a test of behaviour alone passed with `unnamedplus` back in place.
+
 ### Registers, ShaDa and the clipboard are outside the Vault guarantee
 
 **Decision.** Say so, rather than build a strict mode that narrows them.
 
 **Why.** The plugin can keep plaintext out of swap files, persistent undo, its
 own write paths and password staging, because all four are per buffer or per
-operation. `'clipboard'` and `'shada'` are neither: they are global, and this
-configuration sets `clipboard=unnamedplus`, which routes unnamed-register
-operations through the system clipboard. Not only `yy` — `dd`, `dw`, `cw` and
-`x` use that register too, so plaintext can reach the clipboard without anyone
-deciding to copy it, and the default `'shada'` persists register contents
-between sessions.
+operation. The clipboard and `'shada'` are neither: they are global. This
+configuration sends every yank to the system clipboard — see "Only a yank
+reaches the system clipboard" above for why it is no longer every delete as
+well — and the default `'shada'` persists register contents between sessions.
 
 A per-buffer strict mode would have to track several vault buffers at once,
 nested entry and exit, and restoring global state on every path out, including
@@ -829,11 +853,11 @@ the ones that error. It would be most likely to fail exactly where it was
 trusted most, and clearing registers on `BufLeave` would not help: a clipboard
 manager may already hold a copy, and `:wshada` may already have written one.
 
-So the documentation states the boundary and offers a workflow — `nvim -i NONE`
-without `clipboard=unnamedplus` — instead of an option that would imply more
-than it delivers. `:help chroma-nvim-vault-safe` carries it. README once said
-"Secrets never reach persistent storage", which was not true with this
-configuration's own clipboard setting.
+So the documentation states the boundary and offers a workflow — `nvim -i NONE`,
+and a named register for anything yanked — instead of an option that would
+imply more than it delivers. `:help chroma-nvim-vault-safe` carries it. README
+once said "Secrets never reach persistent storage", which was not true with
+this configuration's own clipboard setting.
 
 **What would change it.** Buffer-local control over register routing, or a
 reason strong enough to justify a mode with its own state model and tests. It
